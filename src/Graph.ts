@@ -5,7 +5,7 @@ export interface Node {
   readonly id: string
   readonly title: string
   readonly description?: string
-  readonly kind: "state"
+  readonly kind: "state" | "final"
 }
 
 export interface Edge {
@@ -44,27 +44,31 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
     return {
       id: node.tag,
       title: titleOf(schema, node.tag),
-      kind: "state",
+      kind: node.kind,
       ...(description === undefined ? {} : { description }),
     }
   })
 
   const edges = definition.nodes.flatMap((node) =>
-    Object.entries(node.on).flatMap(([eventTag, transition]): ReadonlyArray<Edge> => {
-      if (transition === undefined) return []
-      const eventDescription = descriptionOf(definition.schemas.event.cases[eventTag])
-      return [
-        {
-          source: node.tag,
-          target: transition.target,
-          event: {
-            tag: eventTag,
-            ...(eventDescription === undefined ? {} : { description: eventDescription }),
+    Object.entries(node.kind === "state" ? node.on : {}).flatMap(
+      ([eventTag, transition]): ReadonlyArray<Edge> => {
+        if (transition === undefined) return []
+        const eventDescription = descriptionOf(definition.schemas.event.cases[eventTag])
+        return [
+          {
+            source: node.tag,
+            target: transition.target,
+            event: {
+              tag: eventTag,
+              ...(eventDescription === undefined ? {} : { description: eventDescription }),
+            },
+            ...(transition.description === undefined
+              ? {}
+              : { description: transition.description }),
           },
-          ...(transition.description === undefined ? {} : { description: transition.description }),
-        },
-      ]
-    }),
+        ]
+      },
+    ),
   )
 
   return {

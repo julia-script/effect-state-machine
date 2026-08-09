@@ -1,8 +1,10 @@
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as PubSub from "effect/PubSub"
 import * as Queue from "effect/Queue"
-import type * as Schema from "effect/Schema"
+import * as Ref from "effect/Ref"
+import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
@@ -62,16 +64,25 @@ export interface StateNode<
   readonly on: EventHandlers<State, Event, Current>
 }
 
+export interface FinalNode<Current extends string> {
+  readonly kind: "final"
+  readonly tag: Current
+}
+
 type StateNodeUnion<State extends Tagged, Event extends Tagged> = {
   [Current in TagOf<State>]: StateNode<State, Event, Current>
 }[TagOf<State>]
+
+type NodeUnion<State extends Tagged, Event extends Tagged> =
+  | StateNodeUnion<State, Event>
+  | FinalNode<TagOf<State>>
 
 export interface MachineDefinition<
   InputSchema extends Schema.Top,
   StateSchema extends TaggedSchema,
   EventSchema extends TaggedSchema,
   Nodes extends ReadonlyArray<
-    StateNodeUnion<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>
+    NodeUnion<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>
   >,
 > {
   readonly id: string
@@ -93,27 +104,36 @@ export interface DefinitionMetadata {
     event: TaggedSchema
   }>
   readonly nodes: ReadonlyArray<
-    Readonly<{
-      kind: "state"
-      tag: string
-      on: Readonly<
-        Record<
-          string,
-          | Readonly<{
-              target: string
-              description?: string
-            }>
-          | undefined
+    | Readonly<{
+        kind: "state"
+        tag: string
+        on: Readonly<
+          Record<
+            string,
+            | Readonly<{
+                target: string
+                description?: string
+              }>
+            | undefined
+          >
         >
-      >
-    }>
+      }>
+    | Readonly<{
+        kind: "final"
+        tag: string
+      }>
   >
 }
 
-export interface MachineHandle<State extends Tagged, Event extends Tagged> {
+export interface MachineHandle<
+  State extends Tagged,
+  Event extends Tagged,
+  Completion extends State = never,
+> {
   readonly snapshot: Effect.Effect<State>
   readonly changes: Stream.Stream<State>
   readonly inspection: Stream.Stream<InspectionEvent>
+  readonly completion: Effect.Effect<Completion>
   readonly send: (event: Event) => Effect.Effect<void>
   readonly can: (event: Event) => Effect.Effect<boolean>
 }
@@ -149,6 +169,11 @@ export type InspectionEvent =
       stateTag: string
       eventTag: string
       defect: "ProtocolDefect"
+    }>
+  | Readonly<{
+      _tag: "MachineCompleted"
+      machineId: string
+      finalStateTag: string
     }>
 
 export class MachineDefinitionDefect extends Error {
@@ -188,6 +213,53 @@ export type MachineEvent<Definition> =
     ? Schema.Schema.Type<EventSchema>
     : never
 
+type FinalTag<Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }>>> = Extract<
+  Nodes[number],
+  { kind: "final" }
+>["tag"]
+
+export type MachineCompletion<Definition> =
+  Definition extends Readonly<{
+    schemas: Readonly<{ state: infer StateSchema extends TaggedSchema }>
+    nodes: infer Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }>>
+  }>
+    ? Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTag<Nodes> }>
+    : never
+
+interface DefinitionWithSchema<Key extends "input" | "state" | "event", Value extends Schema.Top> {
+  readonly schemas: Readonly<Record<Key, Value>>
+}
+
+export const decodeInput = <InputSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"input", InputSchema>,
+  input: unknown,
+) => Schema.decodeUnknownEffect(definition.schemas.input)(input)
+
+export const encodeInput = <InputSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"input", InputSchema>,
+  input: Schema.Schema.Type<InputSchema>,
+) => Schema.encodeEffect(definition.schemas.input)(input)
+
+export const decodeState = <StateSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"state", StateSchema>,
+  input: unknown,
+) => Schema.decodeUnknownEffect(definition.schemas.state)(input)
+
+export const encodeState = <StateSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"state", StateSchema>,
+  input: Schema.Schema.Type<StateSchema>,
+) => Schema.encodeEffect(definition.schemas.state)(input)
+
+export const decodeEvent = <EventSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"event", EventSchema>,
+  input: unknown,
+) => Schema.decodeUnknownEffect(definition.schemas.event)(input)
+
+export const encodeEvent = <EventSchema extends Schema.Top>(
+  definition: DefinitionWithSchema<"event", EventSchema>,
+  input: Schema.Schema.Type<EventSchema>,
+) => Schema.encodeEffect(definition.schemas.event)(input)
+
 export const builder = <
   const InputSchema extends Schema.Top,
   const StateSchema extends TaggedSchema,
@@ -211,7 +283,12 @@ export const builder = <
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
   })
 
-  const make = <const Nodes extends ReadonlyArray<StateNodeUnion<State, Event>>>(
+  const final = <Current extends TagOf<State>>(tag: Current): FinalNode<Current> => ({
+    kind: "final",
+    tag,
+  })
+
+  const make = <const Nodes extends ReadonlyArray<NodeUnion<State, Event>>>(
     config: Readonly<{
       id: string
       description?: string
@@ -232,6 +309,7 @@ export const builder = <
     }
 
     for (const node of runtimeNodes) {
+      if (node.kind === "final") continue
       for (const transition of Object.values(node.on)) {
         if (transition !== undefined && !tags.has(transition.target)) {
           throw new MachineDefinitionDefect(
@@ -250,7 +328,7 @@ export const builder = <
     }
   }
 
-  return { make, state }
+  return { final, make, state }
 }
 
 interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
@@ -258,10 +336,16 @@ interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
   readonly reduce: (args: Readonly<{ state: State; event: Event }>) => State
 }
 
-interface RuntimeNode<State extends Tagged, Event extends Tagged> {
-  readonly tag: string
-  readonly on: Readonly<Record<string, RuntimeTransition<State, Event> | undefined>>
-}
+type RuntimeNode<State extends Tagged, Event extends Tagged> =
+  | Readonly<{
+      kind: "state"
+      tag: string
+      on: Readonly<Record<string, RuntimeTransition<State, Event> | undefined>>
+    }>
+  | Readonly<{
+      kind: "final"
+      tag: string
+    }>
 
 interface Envelope<Event extends Tagged> {
   readonly event: Event
@@ -273,19 +357,24 @@ export const run = <
   StateSchema extends TaggedSchema,
   EventSchema extends TaggedSchema,
   Nodes extends ReadonlyArray<
-    StateNodeUnion<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>
+    NodeUnion<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>
   >,
 >(
   definition: MachineDefinition<InputSchema, StateSchema, EventSchema, Nodes>,
   input: Schema.Schema.Type<InputSchema>,
 ): Effect.Effect<
-  MachineHandle<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
+  MachineHandle<
+    Schema.Schema.Type<StateSchema>,
+    Schema.Schema.Type<EventSchema>,
+    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTag<Nodes> }>
+  >,
   never,
   Scope.Scope
 > =>
   Effect.gen(function* () {
     type State = Schema.Schema.Type<StateSchema>
     type Event = Schema.Schema.Type<EventSchema>
+    type Completion = Extract<State, { _tag: FinalTag<Nodes> }>
 
     const initial = definition.initial(input)
     if (!definition.nodes.some((node) => node.tag === initial._tag)) {
@@ -300,15 +389,20 @@ export const run = <
     const inbox = yield* Queue.unbounded<Envelope<Event>>()
     const inspectionPubSub = yield* PubSub.unbounded<InspectionEvent>()
     const terminated = yield* Deferred.make<void>()
+    const completion = yield* Deferred.make<Completion>()
+    const status = yield* Ref.make<"Running" | "Completed" | "Defected">("Running")
     // The public builder proves this shape. The cast restores erased per-tag reducer types
     // at the single interpreter boundary where nodes become a homogeneous lookup table.
     const runtimeNodes = definition.nodes as ReadonlyArray<RuntimeNode<State, Event>>
     const nodes = new Map(runtimeNodes.map((node) => [node.tag, node]))
+    const finalTags = new Set(
+      runtimeNodes.flatMap((node) => (node.kind === "final" ? [node.tag] : [])),
+    )
 
     const emit = (event: InspectionEvent) =>
       PubSub.publish(inspectionPubSub, event).pipe(Effect.asVoid)
 
-    const process = (envelope: Envelope<Event>) =>
+    const process = (envelope: Envelope<Event>): Effect.Effect<boolean> =>
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(stateRef)
         yield* emit({
@@ -317,7 +411,9 @@ export const run = <
           stateTag: current._tag,
           eventTag: envelope.event._tag,
         })
-        const transition = nodes.get(current._tag)?.on[envelope.event._tag]
+        const currentNode = nodes.get(current._tag)
+        const transition =
+          currentNode?.kind === "state" ? currentNode.on[envelope.event._tag] : undefined
 
         if (transition === undefined) {
           const defect = new ProtocolDefect(definition.id, current._tag, envelope.event._tag)
@@ -354,15 +450,48 @@ export const run = <
           previousStateTag: current._tag,
           nextStateTag: next._tag,
         })
+        const isFinal = finalTags.has(next._tag)
+        if (isFinal) {
+          yield* Ref.set(status, "Completed")
+          yield* emit({
+            _tag: "MachineCompleted",
+            machineId: definition.id,
+            finalStateTag: next._tag,
+          })
+          yield* Deferred.succeed(completion, next as Completion)
+        }
         yield* Deferred.succeed(envelope.reply, undefined)
+        return !isFinal
       })
 
-    yield* Queue.take(inbox).pipe(
-      Effect.flatMap(process),
-      Effect.forever,
-      Effect.onExit((exit) => Deferred.done(terminated, exit).pipe(Effect.asVoid)),
-      Effect.forkScoped,
-    )
+    const initialIsFinal = finalTags.has(initial._tag)
+    if (initialIsFinal) {
+      yield* Ref.set(status, "Completed")
+      yield* Deferred.succeed(completion, initial as Completion)
+      yield* Deferred.succeed(terminated, undefined)
+    } else {
+      let continueRunning = true
+      yield* Effect.whileLoop({
+        while: () => continueRunning,
+        body: () => Queue.take(inbox).pipe(Effect.flatMap(process)),
+        step: (next) => {
+          continueRunning = next
+        },
+      }).pipe(
+        Effect.onExit((exit) =>
+          Effect.gen(function* () {
+            if (Exit.isFailure(exit)) {
+              yield* Ref.set(status, "Defected")
+              yield* Deferred.failCause(completion, exit.cause)
+              yield* Deferred.failCause(terminated, exit.cause)
+            } else {
+              yield* Deferred.succeed(terminated, undefined)
+            }
+          }),
+        ),
+        Effect.forkScoped,
+      )
+    }
 
     const started: InspectionEvent = {
       _tag: "MachineStarted",
@@ -372,14 +501,26 @@ export const run = <
 
     return {
       snapshot: SubscriptionRef.get(stateRef),
-      changes: SubscriptionRef.changes(stateRef),
+      changes: Stream.takeUntil(SubscriptionRef.changes(stateRef), (state) =>
+        finalTags.has(state._tag),
+      ),
       inspection: Stream.concat(Stream.succeed(started), Stream.fromPubSub(inspectionPubSub)),
+      completion: Deferred.await(completion),
       can: (event) =>
         Effect.map(SubscriptionRef.get(stateRef), (current) => {
-          return nodes.get(current._tag)?.on[event._tag] !== undefined
+          const node = nodes.get(current._tag)
+          return node?.kind === "state" && node.on[event._tag] !== undefined
         }),
       send: (event) =>
         Effect.gen(function* () {
+          const currentStatus = yield* Ref.get(status)
+          if (currentStatus === "Completed") {
+            const current = yield* SubscriptionRef.get(stateRef)
+            return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, event._tag))
+          }
+          if (currentStatus === "Defected") {
+            return yield* Deferred.await(terminated)
+          }
           const reply = yield* Deferred.make<void>()
           yield* Queue.offer(inbox, { event, reply })
           yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated))

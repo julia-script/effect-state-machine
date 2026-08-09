@@ -19,5 +19,11 @@ export const render = (graph: Graph.Graph): string => {
     )
   }
 
+  for (const node of graph.nodes) {
+    if (node.kind === "final") {
+      lines.push(`  ${ids.get(node.id)} --> [*]`)
+    }
+  }
+
   return lines.join("\n")
 }
