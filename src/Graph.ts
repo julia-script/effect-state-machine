@@ -5,15 +5,22 @@ export interface Node {
   readonly id: string
   readonly title: string
   readonly description?: string
-  readonly kind: "state" | "final"
+  readonly kind: "state" | "invoke" | "final"
+  readonly invocation?: Readonly<{
+    name: string
+    description?: string
+  }>
 }
 
 export interface Edge {
   readonly source: string
   readonly target: string
-  readonly event: Readonly<{
+  readonly event?: Readonly<{
     tag: string
     description?: string
+  }>
+  readonly outcome?: Readonly<{
+    kind: "success" | "failure"
   }>
   readonly description?: string
   readonly branch?:
@@ -67,13 +74,21 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
       title: titleOf(schema, node.tag),
       kind: node.kind,
       ...(description === undefined ? {} : { description }),
+      ...(node.kind === "invoke"
+        ? {
+            invocation: {
+              name: node.name,
+              ...(node.description === undefined ? {} : { description: node.description }),
+            },
+          }
+        : {}),
     }
   })
 
   const edges: Array<Edge> = []
   const ignores: Array<Ignore> = []
   for (const node of definition.nodes) {
-    if (node.kind !== "state") continue
+    if (node.kind === "final") continue
     for (const [eventTag, handler] of Object.entries(node.on)) {
       if (handler === undefined) continue
       const eventDescription = descriptionOf(definition.schemas.event.cases[eventTag])
@@ -122,6 +137,45 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
           branch: branchMetadata,
           ...(branch.description === undefined ? {} : { description: branch.description }),
         })
+      }
+    }
+
+    if (node.kind === "invoke") {
+      for (const [kind, outcomeHandler] of [
+        ["success", node.onSuccess],
+        ["failure", node.onFailure],
+      ] as const) {
+        if (!("branches" in outcomeHandler)) {
+          edges.push({
+            source: node.tag,
+            target: outcomeHandler.target,
+            outcome: { kind },
+            ...(outcomeHandler.description === undefined
+              ? {}
+              : { description: outcomeHandler.description }),
+          })
+          continue
+        }
+        for (const [index, outcome] of outcomeHandler.branches.entries()) {
+          const branch =
+            "otherwise" in outcome
+              ? ({ kind: "otherwise", index } as const)
+              : ({
+                  kind: "guard",
+                  index,
+                  name: outcome.when.name,
+                  ...(outcome.when.description === undefined
+                    ? {}
+                    : { description: outcome.when.description }),
+                } as const)
+          edges.push({
+            source: node.tag,
+            target: outcome.target,
+            outcome: { kind },
+            branch,
+            ...(outcome.description === undefined ? {} : { description: outcome.description }),
+          })
+        }
       }
     }
   }

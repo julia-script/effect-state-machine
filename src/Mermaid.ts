@@ -21,7 +21,9 @@ export const render = (graph: Graph.Graph): string => {
           ? " [otherwise]"
           : ""
     lines.push(
-      `  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${edge.event.tag.replaceAll("\n", " ")}${branch}`,
+      `  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${
+        edge.event?.tag.replaceAll("\n", " ") ?? edge.outcome?.kind ?? "transition"
+      }${branch}`,
     )
   }
 
