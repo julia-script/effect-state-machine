@@ -1,0 +1,3 @@
+# Keep machine definitions code-first
+
+Machine definitions are the canonical source of truth, and visualizations are read-only projections of them. We chose this direction because authored code remains straightforward to generate, review, version, and integrate—especially as agentic coding makes producing code cheaper—while a bidirectional visual authoring model would add substantial complexity and weaken the goal that developers can understand behavior directly in the code. Visualization is therefore a mirror for developers working on the system, not an alternative authoring surface intended to make application logic editable by non-developers.

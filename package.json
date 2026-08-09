@@ -1,0 +1,22 @@
+{
+  "name": "effect-native-state-machine-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "pnpm typecheck && biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "prototype": "pnpm build && open dist/effect-native-todo.prototype.html",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.106"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.7",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "pnpm@11.18.0"
+}

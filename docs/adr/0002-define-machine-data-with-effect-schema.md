@@ -1,0 +1,3 @@
+# Define machine data with Effect Schema
+
+Machine input, states, and events are defined with Effect Schema, and their TypeScript types are derived from those schemas. Final completion values are inferred from already-described final-state variants rather than requiring a duplicate output Schema, while transient invoked outputs and typed failures remain inferred TypeScript types. We accept this deliberate coupling because the library is built for Effect users and boundary data must exist beyond static typing for encoding, decoding, descriptions, and graph tooling; executable guards, reducers, Effects, and Schedules remain explicitly named behavior rather than pretending Schema can describe their logic.
