@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts", "prototypes/**/*.ts", "scripts/**/*.mjs"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "prototypes/**/*.ts", "scripts/**/*.mjs"]
 }
