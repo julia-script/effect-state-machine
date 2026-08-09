@@ -248,17 +248,6 @@ export interface RetryPolicy<
   readonly schedule: Policy
 }
 
-type RetryFailure<Failure, Policy> =
-  | Failure
-  | (Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown>
-      ? Schedule.Error<Policy>
-      : never)
-
-type RetryRequirements<Policy> =
-  Policy extends Schedule.Schedule<unknown, unknown, unknown, unknown>
-    ? Schedule.Env<Policy>
-    : never
-
 export interface InvokeNode<
   State extends Tagged,
   Event extends Tagged,
@@ -266,21 +255,19 @@ export interface InvokeNode<
   Output,
   Failure,
   Requirements,
-  Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown> | undefined = undefined,
+  RetryError = never,
+  RetryEnv = never,
 > {
   readonly kind: "invoke"
   readonly tag: Current
   readonly name: string
   readonly description?: string
   readonly effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
-  readonly retry?: RetryPolicy<
-    Failure,
-    Extract<Policy, Schedule.Schedule<unknown, Failure, unknown, unknown>>
-  >
+  readonly retry?: RetryPolicy<Failure, Schedule.Schedule<unknown, Failure, RetryError, RetryEnv>>
   readonly onSuccess: SuccessTransition<State, Current, Output>
-  readonly onFailure: FailureTransition<State, Current, RetryFailure<Failure, Policy>>
+  readonly onFailure: FailureTransition<State, Current, Failure | RetryError>
   readonly on: EventHandlers<State, Event, Current>
-  readonly _Requirements?: Requirements | RetryRequirements<Policy>
+  readonly _Requirements?: Requirements | RetryEnv
 }
 
 export interface ChildDefinition {
@@ -719,22 +706,20 @@ export const builder = <
     Output,
     Failure,
     Requirements,
-    Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown> | undefined = undefined,
+    RetryError = never,
+    RetryEnv = never,
   >(
     tag: Current,
     config: Readonly<{
       name: string
       description?: string
       effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
-      retry?: RetryPolicy<
-        Failure,
-        Extract<Policy, Schedule.Schedule<unknown, Failure, unknown, unknown>>
-      >
+      retry?: RetryPolicy<Failure, Schedule.Schedule<unknown, Failure, RetryError, RetryEnv>>
       onSuccess: SuccessTransition<State, Current, Output>
-      onFailure: FailureTransition<State, Current, RetryFailure<Failure, Policy>>
+      onFailure: FailureTransition<State, Current, Failure | RetryError>
       on?: EventHandlers<State, Event, Current>
     }>,
-  ): InvokeNode<State, Event, Current, Output, Failure, Requirements, Policy> => ({
+  ): InvokeNode<State, Event, Current, Output, Failure, Requirements, RetryError, RetryEnv> => ({
     kind: "invoke",
     tag,
     name: config.name,
