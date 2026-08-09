@@ -5,7 +5,7 @@ export interface Node {
   readonly id: string
   readonly title: string
   readonly description?: string
-  readonly kind: "state" | "invoke" | "final"
+  readonly kind: "state" | "invoke" | "child" | "final"
   readonly invocation?: Readonly<{
     name: string
     description?: string
@@ -13,6 +13,24 @@ export interface Node {
       name: string
       description?: string
     }>
+  }>
+  readonly child?: Readonly<{
+    name: string
+    description?: string
+    definition: Graph
+    forwards: ReadonlyArray<
+      Readonly<{
+        parentEvent: Readonly<{
+          tag: string
+          description?: string
+        }>
+        childEvent: Readonly<{
+          tag: string
+          description?: string
+        }>
+        description?: string
+      }>
+    >
   }>
 }
 
@@ -24,7 +42,7 @@ export interface Edge {
     description?: string
   }>
   readonly outcome?: Readonly<{
-    kind: "success" | "failure"
+    kind: "success" | "failure" | "completion"
   }>
   readonly description?: string
   readonly branch?:
@@ -93,6 +111,41 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
                         : { description: node.retry.description }),
                     },
                   }),
+            },
+          }
+        : {}),
+      ...(node.kind === "child"
+        ? {
+            child: {
+              name: node.name,
+              ...(node.description === undefined ? {} : { description: node.description }),
+              definition: fromDefinition(node.definition),
+              forwards: Object.entries(node.forward).flatMap(([parentEventTag, forwarded]) => {
+                if (forwarded === undefined) return []
+                const parentDescription = descriptionOf(
+                  definition.schemas.event.cases[parentEventTag],
+                )
+                const childDescription = descriptionOf(
+                  node.definition.schemas.event.cases[forwarded.target],
+                )
+                return [
+                  {
+                    parentEvent: {
+                      tag: parentEventTag,
+                      ...(parentDescription === undefined
+                        ? {}
+                        : { description: parentDescription }),
+                    },
+                    childEvent: {
+                      tag: forwarded.target,
+                      ...(childDescription === undefined ? {} : { description: childDescription }),
+                    },
+                    ...(forwarded.description === undefined
+                      ? {}
+                      : { description: forwarded.description }),
+                  },
+                ]
+              }),
             },
           }
         : {}),
@@ -186,6 +239,41 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
             source: node.tag,
             target: outcome.target,
             outcome: { kind },
+            branch,
+            ...(outcome.description === undefined ? {} : { description: outcome.description }),
+          })
+        }
+      }
+    }
+
+    if (node.kind === "child") {
+      const outcomeHandler = node.onComplete
+      if (!("branches" in outcomeHandler)) {
+        edges.push({
+          source: node.tag,
+          target: outcomeHandler.target,
+          outcome: { kind: "completion" },
+          ...(outcomeHandler.description === undefined
+            ? {}
+            : { description: outcomeHandler.description }),
+        })
+      } else {
+        for (const [index, outcome] of outcomeHandler.branches.entries()) {
+          const branch =
+            "otherwise" in outcome
+              ? ({ kind: "otherwise", index } as const)
+              : ({
+                  kind: "guard",
+                  index,
+                  name: outcome.when.name,
+                  ...(outcome.when.description === undefined
+                    ? {}
+                    : { description: outcome.when.description }),
+                } as const)
+          edges.push({
+            source: node.tag,
+            target: outcome.target,
+            outcome: { kind: "completion" },
             branch,
             ...(outcome.description === undefined ? {} : { description: outcome.description }),
           })

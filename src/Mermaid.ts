@@ -10,7 +10,15 @@ export const render = (graph: Graph.Graph): string => {
   const lines = ["stateDiagram-v2"]
 
   for (const node of graph.nodes) {
-    lines.push(`  state ${JSON.stringify(node.title)} as ${ids.get(node.id)}`)
+    const details = [
+      node.title,
+      ...(node.invocation === undefined ? [] : [`invoke: ${node.invocation.name}`]),
+      ...(node.invocation?.retry === undefined ? [] : [`retry: ${node.invocation.retry.name}`]),
+      ...(node.child === undefined
+        ? []
+        : [`child: ${node.child.name} → ${node.child.definition.id}`]),
+    ]
+    lines.push(`  state ${JSON.stringify(details.join("\n"))} as ${ids.get(node.id)}`)
   }
 
   for (const edge of graph.edges) {

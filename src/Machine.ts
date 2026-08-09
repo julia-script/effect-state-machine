@@ -8,7 +8,7 @@ import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 
@@ -283,6 +283,62 @@ export interface InvokeNode<
   readonly _Requirements?: Requirements | RetryRequirements<Policy>
 }
 
+export interface ChildDefinition {
+  readonly id: string
+  readonly description?: string
+  readonly schemas: Readonly<{
+    input: Schema.Top
+    state: TaggedSchema
+    event: TaggedSchema
+  }>
+  readonly nodes: ReadonlyArray<Readonly<{ kind: string; tag: string }>>
+}
+
+type ChildForward<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  ParentEventTag extends TagOf<Event>,
+  ChildEvent extends Tagged,
+  ChildEventTag extends TagOf<ChildEvent> = TagOf<ChildEvent>,
+> =
+  ChildEventTag extends TagOf<ChildEvent>
+    ? Readonly<{
+        target: ChildEventTag
+        description?: string
+        map: (
+          args: TransitionArgs<State, Event, Current, ParentEventTag>,
+        ) => ByTag<ChildEvent, ChildEventTag>
+      }>
+    : never
+
+export type ChildForwarders<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  ChildEvent extends Tagged,
+> = Readonly<{
+  [ParentEventTag in TagOf<Event>]?: ChildForward<State, Event, Current, ParentEventTag, ChildEvent>
+}>
+
+export interface ChildNode<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  Child extends ChildDefinition,
+> {
+  readonly kind: "child"
+  readonly tag: Current
+  readonly name: string
+  readonly description?: string
+  readonly definition: Child
+  readonly input: (state: ByTag<State, Current>) => MachineInput<Child>
+  readonly forward: ChildForwarders<State, Event, Current, MachineEvent<Child>>
+  readonly onComplete: SuccessTransition<State, Current, MachineCompletion<Child>>
+  readonly on: EventHandlers<State, Event, Current>
+  readonly _Requirements?: MachineRequirements<Child>
+}
+
 type StateNodeUnion<State extends Tagged, Event extends Tagged> = {
   [Current in TagOf<State>]: StateNode<State, Event, Current>
 }[TagOf<State>]
@@ -293,10 +349,17 @@ interface InvokeNodeShape<State extends Tagged> {
   readonly name: string
 }
 
+interface ChildNodeShape<State extends Tagged> {
+  readonly kind: "child"
+  readonly tag: TagOf<State>
+  readonly name: string
+}
+
 type NodeUnion<State extends Tagged, Event extends Tagged> =
   | StateNodeUnion<State, Event>
   | FinalNode<TagOf<State>>
   | InvokeNodeShape<State>
+  | ChildNodeShape<State>
 
 export interface MachineDefinition<
   InputSchema extends Schema.Top,
@@ -357,6 +420,30 @@ export interface DefinitionMetadata {
         onSuccess: TransitionMetadata | GuardedTransitionMetadata
         onFailure: TransitionMetadata | GuardedTransitionMetadata
       }>
+    | Readonly<{
+        kind: "child"
+        tag: string
+        name: string
+        description?: string
+        definition: DefinitionMetadata
+        forward: Readonly<
+          Record<
+            string,
+            | Readonly<{
+                target: string
+                description?: string
+              }>
+            | undefined
+          >
+        >
+        on: Readonly<
+          Record<
+            string,
+            TransitionMetadata | GuardedTransitionMetadata | IgnoredTransition | undefined
+          >
+        >
+        onComplete: TransitionMetadata | GuardedTransitionMetadata
+      }>
   >
 }
 
@@ -402,6 +489,42 @@ export type InspectionEvent =
       policy: string
       attempt: number
       delayMillis: number
+    }>
+  | Readonly<{
+      _tag: "ChildStarted"
+      machineId: string
+      stateTag: string
+      invocation: string
+      instanceId: string
+      childDefinitionId: string
+      generation: number
+    }>
+  | Readonly<{
+      _tag: "ChildEventForwarded"
+      machineId: string
+      stateTag: string
+      invocation: string
+      instanceId: string
+      parentEventTag: string
+      childEventTag: string
+      generation: number
+    }>
+  | Readonly<{
+      _tag: "ChildCompleted"
+      machineId: string
+      stateTag: string
+      invocation: string
+      instanceId: string
+      generation: number
+      branch?: SelectedBranch
+    }>
+  | Readonly<{
+      _tag: "ChildCancelled" | "ChildDefected"
+      machineId: string
+      stateTag: string
+      invocation: string
+      instanceId: string
+      generation: number
     }>
   | Readonly<{
       _tag: "StateChanged"
@@ -623,6 +746,29 @@ export const builder = <
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
   })
 
+  const child = <Current extends TagOf<State>, Child extends ChildDefinition>(
+    tag: Current,
+    config: Readonly<{
+      name: string
+      description?: string
+      definition: Child
+      input: (state: ByTag<State, Current>) => MachineInput<Child>
+      forward?: ChildForwarders<State, Event, Current, MachineEvent<Child>>
+      onComplete: SuccessTransition<State, Current, MachineCompletion<Child>>
+      on?: EventHandlers<State, Event, Current>
+    }>,
+  ): ChildNode<State, Event, Current, Child> => ({
+    kind: "child",
+    tag,
+    name: config.name,
+    description: config.description,
+    definition: config.definition,
+    input: config.input,
+    forward: config.forward ?? ({} as ChildForwarders<State, Event, Current, MachineEvent<Child>>),
+    onComplete: config.onComplete,
+    on: config.on ?? ({} as EventHandlers<State, Event, Current>),
+  })
+
   const make = <const Nodes extends ReadonlyArray<NodeUnion<State, Event>>>(
     config: Readonly<{
       id: string
@@ -714,6 +860,53 @@ export const builder = <
           }
         }
       }
+      if (node.kind === "child") {
+        if (node.name.trim().length === 0) {
+          throw new MachineDefinitionDefect(
+            `Machine ${config.id} declares a child invocation without a stable name`,
+          )
+        }
+        for (const [eventTag, forwarded] of Object.entries(node.forward)) {
+          if (forwarded === undefined) continue
+          if (node.on[eventTag] !== undefined) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} both forwards and transitions on ${eventTag} in ${node.tag}`,
+            )
+          }
+          if (node.definition.schemas.event.cases[forwarded.target] === undefined) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} forwards ${eventTag} to missing child event ${forwarded.target}`,
+            )
+          }
+        }
+        const outcomeHandler = node.onComplete
+        if (!("branches" in outcomeHandler)) {
+          if (!tags.has(outcomeHandler.target)) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} targets missing state ${outcomeHandler.target}`,
+            )
+          }
+        } else {
+          for (const [index, outcome] of outcomeHandler.branches.entries()) {
+            if ("otherwise" in outcome) {
+              if (index !== outcomeHandler.branches.length - 1) {
+                throw new MachineDefinitionDefect(
+                  `Machine ${config.id} declares a child completion fallback before the final branch`,
+                )
+              }
+            } else if (outcome.when.name.trim().length === 0) {
+              throw new MachineDefinitionDefect(
+                `Machine ${config.id} declares a child completion guard without a stable name`,
+              )
+            }
+            if (!tags.has(outcome.target)) {
+              throw new MachineDefinitionDefect(
+                `Machine ${config.id} targets missing state ${outcome.target}`,
+              )
+            }
+          }
+        }
+      }
     }
 
     return {
@@ -725,7 +918,7 @@ export const builder = <
     }
   }
 
-  return { final, invoke, make, state }
+  return { child, final, invoke, make, state }
 }
 
 interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
@@ -793,10 +986,35 @@ type RuntimeOutcomeHandler<State extends Tagged, Value, Key extends "value" | "e
   | RuntimeOutcomeTransition<State, Value, Key>
   | RuntimeGuardedOutcomeTransition<State, Value, Key>
 
+type RuntimeChildDefinition = DefinitionMetadata &
+  MachineDefinition<
+    Schema.Top,
+    TaggedSchema,
+    TaggedSchema,
+    ReadonlyArray<NodeUnion<Tagged, Tagged>>
+  >
+
+interface RuntimeForward<State extends Tagged, Event extends Tagged> {
+  readonly target: string
+  readonly description?: string
+  readonly map: (args: Readonly<{ state: State; event: Event }>) => Tagged
+}
+
 type RuntimeNode<State extends Tagged, Event extends Tagged, Requirements = unknown> =
   | Readonly<{
       kind: "state"
       tag: string
+      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
+    }>
+  | Readonly<{
+      kind: "child"
+      tag: string
+      name: string
+      description?: string
+      definition: RuntimeChildDefinition
+      input: (state: State) => unknown
+      forward: Readonly<Record<string, RuntimeForward<State, Event> | undefined>>
+      onComplete: RuntimeOutcomeHandler<State, Tagged, "value">
       on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
     }>
   | Readonly<{
@@ -845,7 +1063,34 @@ type InvocationEnvelope =
       cause: Cause.Cause<never>
     }>
 
-type Envelope<Event extends Tagged> = ExternalEnvelope<Event> | InvocationEnvelope
+type ChildEnvelope =
+  | Readonly<{
+      kind: "child-complete"
+      stateTag: string
+      generation: number
+      invocation: string
+      instanceId: string
+      value: Tagged
+    }>
+  | Readonly<{
+      kind: "child-defect"
+      stateTag: string
+      generation: number
+      invocation: string
+      instanceId: string
+      cause: Cause.Cause<never>
+    }>
+
+type Envelope<Event extends Tagged> = ExternalEnvelope<Event> | InvocationEnvelope | ChildEnvelope
+
+interface ActiveChild {
+  readonly stateTag: string
+  readonly generation: number
+  readonly invocation: string
+  readonly instanceId: string
+  readonly scope: Scope.Closeable
+  readonly handle: MachineHandle<Tagged, Tagged, Tagged>
+}
 
 type SelectedBranch =
   | Readonly<{
@@ -952,6 +1197,7 @@ export const run = <
     type Requirements = RequirementsFromNodes<Nodes>
 
     const environment = yield* Effect.context<Requirements>()
+    const parentScope = yield* Scope.Scope
     const initial = definition.initial(input)
     if (!definition.nodes.some((node) => node.tag === initial._tag)) {
       return yield* Effect.die(
@@ -976,6 +1222,8 @@ export const run = <
       runtimeNodes.flatMap((node) => (node.kind === "final" ? [node.tag] : [])),
     )
     let generation = 0
+    let childInstanceSequence = 0
+    let activeChild: ActiveChild | undefined
 
     const emit = (event: InspectionEvent) =>
       SubscriptionRef.update(inspectionRef, (events) => [...events, event])
@@ -1062,10 +1310,89 @@ export const run = <
         yield* FiberMap.run(activeFibers, "active")(invocation)
       })
 
+    const startChild = (state: State): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const node = nodes.get(state._tag)
+        if (node?.kind !== "child") return
+
+        const childScope = yield* Scope.make()
+        yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void))
+        const childGeneration = generation
+        const instanceId = `${definition.id}:${node.name}:${++childInstanceSequence}`
+        const childHandle = yield* run(node.definition, node.input(state)).pipe(
+          Effect.provideService(Scope.Scope, childScope),
+          Effect.provideContext(environment),
+        )
+        activeChild = {
+          stateTag: state._tag,
+          generation: childGeneration,
+          invocation: node.name,
+          instanceId,
+          scope: childScope,
+          handle: childHandle,
+        }
+
+        yield* emit({
+          _tag: "ChildStarted",
+          machineId: definition.id,
+          stateTag: state._tag,
+          invocation: node.name,
+          instanceId,
+          childDefinitionId: node.definition.id,
+          generation: childGeneration,
+        })
+
+        const watchCompletion = childHandle.completion.pipe(
+          Effect.matchCauseEffect({
+            onFailure: (cause) =>
+              Queue.offer(inbox, {
+                kind: "child-defect" as const,
+                stateTag: state._tag,
+                generation: childGeneration,
+                invocation: node.name,
+                instanceId,
+                cause,
+              }).pipe(Effect.asVoid),
+            onSuccess: (value) =>
+              Queue.offer(inbox, {
+                kind: "child-complete" as const,
+                stateTag: state._tag,
+                generation: childGeneration,
+                invocation: node.name,
+                instanceId,
+                value,
+              }).pipe(Effect.asVoid),
+          }),
+        )
+        yield* FiberMap.run(activeFibers, "active")(watchCompletion)
+      })
+
+    const startOwnedBehavior = (state: State): Effect.Effect<void> =>
+      Effect.andThen(startInvocation(state), startChild(state))
+
+    const closeActiveChild = (cancelled: boolean): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const child = activeChild
+        if (child === undefined) return
+        activeChild = undefined
+        if (cancelled) {
+          yield* emit({
+            _tag: "ChildCancelled",
+            machineId: definition.id,
+            stateTag: child.stateTag,
+            invocation: child.invocation,
+            instanceId: child.instanceId,
+            generation: child.generation,
+          })
+        }
+        yield* Scope.close(child.scope, Exit.void)
+      })
+
     const commit = (previous: State, next: State): Effect.Effect<boolean> =>
       Effect.gen(function* () {
         generation += 1
         yield* FiberMap.clear(activeFibers)
+        yield* closeActiveChild(true)
         yield* SubscriptionRef.set(stateRef, next)
         yield* emit({
           _tag: "StateChanged",
@@ -1083,7 +1410,7 @@ export const run = <
           })
           yield* Deferred.succeed(completion, next as Completion)
         } else {
-          yield* startInvocation(next)
+          yield* startOwnedBehavior(next)
         }
         return !isFinal
       })
@@ -1092,6 +1419,61 @@ export const run = <
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(stateRef)
         const currentNode = nodes.get(current._tag)
+
+        if (envelope.kind === "child-complete" || envelope.kind === "child-defect") {
+          const child = activeChild
+          if (
+            envelope.generation !== generation ||
+            envelope.stateTag !== current._tag ||
+            currentNode?.kind !== "child" ||
+            child?.instanceId !== envelope.instanceId
+          ) {
+            return true
+          }
+
+          if (envelope.kind === "child-defect") {
+            yield* emit({
+              _tag: "ChildDefected",
+              machineId: definition.id,
+              stateTag: current._tag,
+              invocation: currentNode.name,
+              instanceId: envelope.instanceId,
+              generation,
+            })
+            yield* closeActiveChild(false)
+            return yield* Effect.failCause(envelope.cause)
+          }
+
+          const selectedOutcome = selectOutcome(currentNode.onComplete, {
+            state: current,
+            value: envelope.value,
+          })
+          if (selectedOutcome === undefined) {
+            return yield* Effect.die(
+              new ProtocolDefect(definition.id, current._tag, "child-completion"),
+            )
+          }
+          yield* emit({
+            _tag: "ChildCompleted",
+            machineId: definition.id,
+            stateTag: current._tag,
+            invocation: currentNode.name,
+            instanceId: envelope.instanceId,
+            generation,
+            ...(selectedOutcome.branch === undefined ? {} : { branch: selectedOutcome.branch }),
+          })
+          const transition = selectedOutcome.transition
+          const next = transition.reduce({ state: current, value: envelope.value })
+          if (next._tag !== transition.target) {
+            return yield* Effect.die(
+              new MachineDefinitionDefect(
+                `Machine ${definition.id} reducer targeted ${transition.target} but returned ${next._tag}`,
+              ),
+            )
+          }
+          yield* closeActiveChild(false)
+          return yield* commit(current, next)
+        }
 
         if (envelope.kind !== "external") {
           if (
@@ -1160,8 +1542,59 @@ export const run = <
           stateTag: current._tag,
           eventTag: envelope.event._tag,
         })
+
+        if (currentNode?.kind === "child") {
+          const forwarded = currentNode.forward[envelope.event._tag]
+          if (forwarded !== undefined) {
+            const child = activeChild
+            if (child === undefined) {
+              return yield* Effect.die(
+                new MachineDefinitionDefect(
+                  `Machine ${definition.id} has no active instance for child ${currentNode.name}`,
+                ),
+              )
+            }
+            const childEvent = forwarded.map({ state: current, event: envelope.event })
+            if (childEvent._tag !== forwarded.target) {
+              return yield* Effect.die(
+                new MachineDefinitionDefect(
+                  `Machine ${definition.id} forwards to ${forwarded.target} but returned ${childEvent._tag}`,
+                ),
+              )
+            }
+            yield* emit({
+              _tag: "ChildEventForwarded",
+              machineId: definition.id,
+              stateTag: current._tag,
+              invocation: currentNode.name,
+              instanceId: child.instanceId,
+              parentEventTag: envelope.event._tag,
+              childEventTag: childEvent._tag,
+              generation,
+            })
+            yield* child.handle.send(childEvent).pipe(
+              Effect.catchCause((cause) =>
+                Effect.andThen(
+                  emit({
+                    _tag: "ChildDefected",
+                    machineId: definition.id,
+                    stateTag: current._tag,
+                    invocation: currentNode.name,
+                    instanceId: child.instanceId,
+                    generation,
+                  }),
+                  Effect.failCause(cause),
+                ),
+              ),
+            )
+            yield* Deferred.succeed(envelope.reply, undefined)
+            return true
+          }
+        }
         const handler =
-          currentNode?.kind === "state" || currentNode?.kind === "invoke"
+          currentNode?.kind === "state" ||
+          currentNode?.kind === "invoke" ||
+          currentNode?.kind === "child"
             ? currentNode.on[envelope.event._tag]
             : undefined
         const selected = selectHandler(handler, current, envelope.event)
@@ -1246,7 +1679,7 @@ export const run = <
         ),
         Effect.forkScoped,
       )
-      yield* startInvocation(initial)
+      yield* startOwnedBehavior(initial)
     }
 
     return {
@@ -1262,9 +1695,22 @@ export const run = <
       ),
       completion: Deferred.await(completion),
       can: (event) =>
-        Effect.map(SubscriptionRef.get(stateRef), (current) => {
+        Effect.gen(function* () {
+          const current = yield* SubscriptionRef.get(stateRef)
           const node = nodes.get(current._tag)
-          if (node?.kind !== "state" && node?.kind !== "invoke") return false
+          if (node?.kind === "child") {
+            const forwarded = node.forward[event._tag]
+            if (forwarded !== undefined) {
+              const child = activeChild
+              if (child === undefined) return false
+              const childEvent = forwarded.map({ state: current, event })
+              if (childEvent._tag !== forwarded.target) return false
+              return yield* child.handle.can(childEvent)
+            }
+          }
+          if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
+            return false
+          }
           return selectHandler(node.on[event._tag], current, event) !== undefined
         }),
       send: (event) =>
