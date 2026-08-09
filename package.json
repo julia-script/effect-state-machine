@@ -1,23 +1,46 @@
 {
-  "name": "effect-native-state-machine-prototype",
-  "private": true,
+  "name": "effect-state-machine",
+  "version": "0.1.0",
+  "description": "A small code-first state-machine library built with Effect for Effect users.",
+  "license": "MIT",
   "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./devtools": {
+      "types": "./dist/devtools.d.ts",
+      "import": "./dist/devtools.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "check": "pnpm typecheck && pnpm test && pnpm check:api-prototype && biome check .",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json && node scripts/build.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm check:api-prototype && pnpm check:package && biome check .",
     "check:api-prototype": "node scripts/check-api-prototype.mjs",
+    "check:package": "pnpm build && node scripts/check-package.mjs",
     "format": "biome format --write .",
+    "graph:reference": "pnpm build",
     "lint": "biome lint .",
-    "prototype": "pnpm build && open dist/effect-native-todo.prototype.html",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "peerDependencies": {
     "effect": "4.0.0-beta.106"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
     "@effect/vitest": "4.0.0-beta.106",
+    "effect": "4.0.0-beta.106",
     "esbuild": "0.28.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

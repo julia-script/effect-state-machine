@@ -1,27 +1,18 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { Buffer } from "node:buffer"
+import { mkdir, writeFile } from "node:fs/promises"
 import { build } from "esbuild"
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const output = await build({
-  entryPoints: [join(root, "src/main.ts")],
-  bundle: true,
-  write: false,
-  format: "iife",
-  target: ["es2022"],
-  sourcemap: false,
-  legalComments: "none",
-})
-
-const shell = await readFile(join(root, "src/prototype.html"), "utf8")
-const html = shell.replace("/* PROTOTYPE_BUNDLE */", output.outputFiles[0].text)
-const outputDirectory = join(root, "dist")
-await mkdir(outputDirectory, { recursive: true })
-await writeFile(join(outputDirectory, "effect-native-todo.prototype.html"), html)
-
-const mermaidBundle = await build({
-  entryPoints: [join(root, "src/mermaid-entry.ts")],
+  stdin: {
+    contents: `
+      import { LocalFirstDocument } from "./examples/LocalFirstDocument.ts"
+      import * as Graph from "./src/Graph.ts"
+      import * as Mermaid from "./src/Mermaid.ts"
+      export default Mermaid.render(Graph.fromDefinition(LocalFirstDocument.definition))
+    `,
+    resolveDir: process.cwd(),
+    sourcefile: "reference-workflow-entry.ts",
+  },
   bundle: true,
   write: false,
   format: "esm",
@@ -29,9 +20,10 @@ const mermaidBundle = await build({
   target: ["node22"],
   legalComments: "none",
 })
-const mermaidModule = await import(
-  `data:text/javascript;base64,${Buffer.from(mermaidBundle.outputFiles[0].text).toString("base64")}`
-)
-await writeFile(join(outputDirectory, "effect-native-todo.mmd"), mermaidModule.default)
 
-console.log("Built dist/effect-native-todo.prototype.html and dist/effect-native-todo.mmd")
+const moduleUrl = `data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString("base64")}`
+const mermaid = (await import(moduleUrl)).default
+await mkdir("dist", { recursive: true })
+await writeFile("dist/reference-workflow.mmd", `${mermaid}\n`)
+
+console.log("Built package modules, declarations, and dist/reference-workflow.mmd")

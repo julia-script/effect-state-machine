@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      effect:
-        specifier: 4.0.0-beta.106
-        version: 4.0.0-beta.106
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.7
@@ -18,6 +14,9 @@ importers:
       '@effect/vitest':
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106(effect@4.0.0-beta.106)(vitest@4.1.10(vite@8.2.1(esbuild@0.28.1)))
+      effect:
+        specifier: 4.0.0-beta.106
+        version: 4.0.0-beta.106
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
