@@ -46,12 +46,82 @@ export type Transition<
       }>
     : never
 
+export type WhenBranch<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  EventTag extends TagOf<Event>,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        when: Readonly<{
+          name: string
+          description?: string
+          guard: (args: TransitionArgs<State, Event, Current, EventTag>) => boolean
+        }>
+        target: Target
+        description?: string
+        reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => ByTag<State, Target>
+      }>
+    : never
+
+export type OtherwiseBranch<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  EventTag extends TagOf<Event>,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        otherwise: true
+        target: Target
+        description?: string
+        reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => ByTag<State, Target>
+      }>
+    : never
+
+export type GuardedTransition<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  EventTag extends TagOf<Event>,
+> = Readonly<{
+  branches:
+    | readonly [
+        WhenBranch<State, Event, Current, EventTag>,
+        ...ReadonlyArray<WhenBranch<State, Event, Current, EventTag>>,
+      ]
+    | readonly [
+        WhenBranch<State, Event, Current, EventTag>,
+        ...ReadonlyArray<WhenBranch<State, Event, Current, EventTag>>,
+        OtherwiseBranch<State, Event, Current, EventTag>,
+      ]
+}>
+
+export interface IgnoredTransition {
+  readonly ignore: Readonly<{
+    description?: string
+  }>
+}
+
+export type EventHandler<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  EventTag extends TagOf<Event>,
+> =
+  | Transition<State, Event, Current, EventTag>
+  | GuardedTransition<State, Event, Current, EventTag>
+  | IgnoredTransition
+
 export type EventHandlers<
   State extends Tagged,
   Event extends Tagged,
   Current extends TagOf<State>,
 > = Readonly<{
-  [EventTag in TagOf<Event>]?: Transition<State, Event, Current, EventTag>
+  [EventTag in TagOf<Event>]?: EventHandler<State, Event, Current, EventTag>
 }>
 
 export interface StateNode<
@@ -110,11 +180,7 @@ export interface DefinitionMetadata {
         on: Readonly<
           Record<
             string,
-            | Readonly<{
-                target: string
-                description?: string
-              }>
-            | undefined
+            TransitionMetadata | GuardedTransitionMetadata | IgnoredTransition | undefined
           >
         >
       }>
@@ -156,6 +222,7 @@ export type InspectionEvent =
       sourceStateTag: string
       targetStateTag: string
       eventTag: string
+      branch?: SelectedBranch
     }>
   | Readonly<{
       _tag: "StateChanged"
@@ -174,6 +241,12 @@ export type InspectionEvent =
       _tag: "MachineCompleted"
       machineId: string
       finalStateTag: string
+    }>
+  | Readonly<{
+      _tag: "EventIgnored"
+      machineId: string
+      stateTag: string
+      eventTag: string
     }>
 
 export class MachineDefinitionDefect extends Error {
@@ -228,6 +301,29 @@ export type MachineCompletion<Definition> =
 
 interface DefinitionWithSchema<Key extends "input" | "state" | "event", Value extends Schema.Top> {
   readonly schemas: Readonly<Record<Key, Value>>
+}
+
+interface TransitionMetadata {
+  readonly target: string
+  readonly description?: string
+}
+
+interface GuardedTransitionMetadata {
+  readonly branches: ReadonlyArray<
+    | Readonly<{
+        when: Readonly<{
+          name: string
+          description?: string
+        }>
+        target: string
+        description?: string
+      }>
+    | Readonly<{
+        otherwise: true
+        target: string
+        description?: string
+      }>
+  >
 }
 
 export const decodeInput = <InputSchema extends Schema.Top>(
@@ -310,11 +406,33 @@ export const builder = <
 
     for (const node of runtimeNodes) {
       if (node.kind === "final") continue
-      for (const transition of Object.values(node.on)) {
-        if (transition !== undefined && !tags.has(transition.target)) {
-          throw new MachineDefinitionDefect(
-            `Machine ${config.id} targets missing state ${transition.target}`,
-          )
+      for (const handler of Object.values(node.on)) {
+        if (handler === undefined || "ignore" in handler) continue
+        if (!("branches" in handler)) {
+          if (!tags.has(handler.target)) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} targets missing state ${handler.target}`,
+            )
+          }
+          continue
+        }
+        for (const [index, branch] of handler.branches.entries()) {
+          if ("otherwise" in branch) {
+            if (index !== handler.branches.length - 1) {
+              throw new MachineDefinitionDefect(
+                `Machine ${config.id} declares a fallback before the final branch`,
+              )
+            }
+          } else if (branch.when.name.trim().length === 0) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} declares a guard without a stable name`,
+            )
+          }
+          if (!tags.has(branch.target)) {
+            throw new MachineDefinitionDefect(
+              `Machine ${config.id} targets missing state ${branch.target}`,
+            )
+          }
         }
       }
     }
@@ -333,14 +451,40 @@ export const builder = <
 
 interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
   readonly target: string
+  readonly description?: string
   readonly reduce: (args: Readonly<{ state: State; event: Event }>) => State
 }
+
+interface RuntimeWhenBranch<State extends Tagged, Event extends Tagged>
+  extends RuntimeTransition<State, Event> {
+  readonly when: Readonly<{
+    name: string
+    description?: string
+    guard: (args: Readonly<{ state: State; event: Event }>) => boolean
+  }>
+}
+
+interface RuntimeOtherwiseBranch<State extends Tagged, Event extends Tagged>
+  extends RuntimeTransition<State, Event> {
+  readonly otherwise: true
+}
+
+interface RuntimeGuardedTransition<State extends Tagged, Event extends Tagged> {
+  readonly branches: ReadonlyArray<
+    RuntimeWhenBranch<State, Event> | RuntimeOtherwiseBranch<State, Event>
+  >
+}
+
+type RuntimeEventHandler<State extends Tagged, Event extends Tagged> =
+  | RuntimeTransition<State, Event>
+  | RuntimeGuardedTransition<State, Event>
+  | IgnoredTransition
 
 type RuntimeNode<State extends Tagged, Event extends Tagged> =
   | Readonly<{
       kind: "state"
       tag: string
-      on: Readonly<Record<string, RuntimeTransition<State, Event> | undefined>>
+      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
     }>
   | Readonly<{
       kind: "final"
@@ -350,6 +494,57 @@ type RuntimeNode<State extends Tagged, Event extends Tagged> =
 interface Envelope<Event extends Tagged> {
   readonly event: Event
   readonly reply: Deferred.Deferred<void>
+}
+
+type SelectedBranch =
+  | Readonly<{
+      kind: "guard"
+      index: number
+      name: string
+    }>
+  | Readonly<{
+      kind: "otherwise"
+      index: number
+    }>
+
+type SelectedHandler<State extends Tagged, Event extends Tagged> =
+  | Readonly<{
+      kind: "transition"
+      transition: RuntimeTransition<State, Event>
+      branch?: SelectedBranch
+    }>
+  | Readonly<{
+      kind: "ignore"
+    }>
+
+const selectHandler = <State extends Tagged, Event extends Tagged>(
+  handler: RuntimeEventHandler<State, Event> | undefined,
+  state: State,
+  event: Event,
+): SelectedHandler<State, Event> | undefined => {
+  if (handler === undefined) return undefined
+  if ("ignore" in handler) return { kind: "ignore" }
+  if (!("branches" in handler)) {
+    return { kind: "transition", transition: handler }
+  }
+
+  for (const [index, branch] of handler.branches.entries()) {
+    if ("otherwise" in branch) {
+      return {
+        kind: "transition",
+        transition: branch,
+        branch: { kind: "otherwise", index },
+      }
+    }
+    if (branch.when.guard({ state, event })) {
+      return {
+        kind: "transition",
+        transition: branch,
+        branch: { kind: "guard", index, name: branch.when.name },
+      }
+    }
+  }
+  return undefined
 }
 
 export const run = <
@@ -412,10 +607,11 @@ export const run = <
           eventTag: envelope.event._tag,
         })
         const currentNode = nodes.get(current._tag)
-        const transition =
+        const handler =
           currentNode?.kind === "state" ? currentNode.on[envelope.event._tag] : undefined
+        const selected = selectHandler(handler, current, envelope.event)
 
-        if (transition === undefined) {
+        if (selected === undefined) {
           const defect = new ProtocolDefect(definition.id, current._tag, envelope.event._tag)
           yield* emit({
             _tag: "MachineDefected",
@@ -428,12 +624,26 @@ export const run = <
           return yield* Effect.die(defect)
         }
 
+        if (selected.kind === "ignore") {
+          yield* emit({
+            _tag: "EventIgnored",
+            machineId: definition.id,
+            stateTag: current._tag,
+            eventTag: envelope.event._tag,
+          })
+          yield* Deferred.succeed(envelope.reply, undefined)
+          return true
+        }
+
+        const transition = selected.transition
+
         yield* emit({
           _tag: "TransitionSelected",
           machineId: definition.id,
           sourceStateTag: current._tag,
           targetStateTag: transition.target,
           eventTag: envelope.event._tag,
+          ...(selected.branch === undefined ? {} : { branch: selected.branch }),
         })
         const next = transition.reduce({ state: current, event: envelope.event })
         if (next._tag !== transition.target) {
@@ -509,7 +719,8 @@ export const run = <
       can: (event) =>
         Effect.map(SubscriptionRef.get(stateRef), (current) => {
           const node = nodes.get(current._tag)
-          return node?.kind === "state" && node.on[event._tag] !== undefined
+          if (node?.kind !== "state") return false
+          return selectHandler(node.on[event._tag], current, event) !== undefined
         }),
       send: (event) =>
         Effect.gen(function* () {

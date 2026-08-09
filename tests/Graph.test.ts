@@ -99,6 +99,7 @@ describe("Graph", () => {
           },
         },
       ],
+      ignores: [],
     })
     assert.strictEqual(initializerCalls, 0)
   })

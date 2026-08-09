@@ -16,6 +16,26 @@ export interface Edge {
     description?: string
   }>
   readonly description?: string
+  readonly branch?:
+    | Readonly<{
+        kind: "guard"
+        index: number
+        name: string
+        description?: string
+      }>
+    | Readonly<{
+        kind: "otherwise"
+        index: number
+      }>
+}
+
+export interface Ignore {
+  readonly source: string
+  readonly event: Readonly<{
+    tag: string
+    description?: string
+  }>
+  readonly description?: string
 }
 
 export interface Graph {
@@ -23,6 +43,7 @@ export interface Graph {
   readonly description?: string
   readonly nodes: ReadonlyArray<Node>
   readonly edges: ReadonlyArray<Edge>
+  readonly ignores: ReadonlyArray<Ignore>
 }
 
 const descriptionOf = (schema: Schema.Top | undefined): string | undefined => {
@@ -49,32 +70,67 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
     }
   })
 
-  const edges = definition.nodes.flatMap((node) =>
-    Object.entries(node.kind === "state" ? node.on : {}).flatMap(
-      ([eventTag, transition]): ReadonlyArray<Edge> => {
-        if (transition === undefined) return []
-        const eventDescription = descriptionOf(definition.schemas.event.cases[eventTag])
-        return [
-          {
-            source: node.tag,
-            target: transition.target,
-            event: {
-              tag: eventTag,
-              ...(eventDescription === undefined ? {} : { description: eventDescription }),
-            },
-            ...(transition.description === undefined
-              ? {}
-              : { description: transition.description }),
-          },
-        ]
-      },
-    ),
-  )
+  const edges: Array<Edge> = []
+  const ignores: Array<Ignore> = []
+  for (const node of definition.nodes) {
+    if (node.kind !== "state") continue
+    for (const [eventTag, handler] of Object.entries(node.on)) {
+      if (handler === undefined) continue
+      const eventDescription = descriptionOf(definition.schemas.event.cases[eventTag])
+      const event = {
+        tag: eventTag,
+        ...(eventDescription === undefined ? {} : { description: eventDescription }),
+      }
+
+      if ("ignore" in handler) {
+        ignores.push({
+          source: node.tag,
+          event,
+          ...(handler.ignore.description === undefined
+            ? {}
+            : { description: handler.ignore.description }),
+        })
+        continue
+      }
+
+      if (!("branches" in handler)) {
+        edges.push({
+          source: node.tag,
+          target: handler.target,
+          event,
+          ...(handler.description === undefined ? {} : { description: handler.description }),
+        })
+        continue
+      }
+
+      for (const [index, branch] of handler.branches.entries()) {
+        const branchMetadata =
+          "otherwise" in branch
+            ? ({ kind: "otherwise", index } as const)
+            : ({
+                kind: "guard",
+                index,
+                name: branch.when.name,
+                ...(branch.when.description === undefined
+                  ? {}
+                  : { description: branch.when.description }),
+              } as const)
+        edges.push({
+          source: node.tag,
+          target: branch.target,
+          event,
+          branch: branchMetadata,
+          ...(branch.description === undefined ? {} : { description: branch.description }),
+        })
+      }
+    }
+  }
 
   return {
     id: definition.id,
     nodes,
     edges,
+    ignores,
     ...(definition.description === undefined ? {} : { description: definition.description }),
   }
 }

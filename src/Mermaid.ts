@@ -14,8 +14,20 @@ export const render = (graph: Graph.Graph): string => {
   }
 
   for (const edge of graph.edges) {
+    const branch =
+      edge.branch?.kind === "guard"
+        ? ` [${edge.branch.index + 1}: ${edge.branch.name}]`
+        : edge.branch?.kind === "otherwise"
+          ? " [otherwise]"
+          : ""
     lines.push(
-      `  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${edge.event.tag.replaceAll("\n", " ")}`,
+      `  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${edge.event.tag.replaceAll("\n", " ")}${branch}`,
+    )
+  }
+
+  for (const ignored of graph.ignores) {
+    lines.push(
+      `  ${ids.get(ignored.source)} --> ${ids.get(ignored.source)}: ${ignored.event.tag.replaceAll("\n", " ")} [ignored]`,
     )
   }
 
