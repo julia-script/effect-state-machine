@@ -4,14 +4,26 @@
 
 **Blocked by:** 05 — Invoke typed Effects with scoped cancellation
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] An invoked operation can use an arbitrary native Effect Schedule supplied with a stable name and optional description.
-- [ ] Operational retry keeps the machine in its invoked state while the Schedule controls attempts and delays.
-- [ ] The static graph shows that a retry policy exists and displays its authored metadata without pretending to reconstruct arbitrary Schedule internals.
-- [ ] Inspection reports actual retry attempts and delays as runtime metadata.
-- [ ] Retry timing is deterministically testable with Effect's TestClock.
-- [ ] Exiting the state while waiting for another attempt interrupts both the Schedule delay and the invoked work.
-- [ ] Schedule exhaustion routes the operation's expected typed failure through its declared failure transition.
-- [ ] A documented modeled-retry path lets attempt count or retry outcomes influence explicit machine state and accepted events when the application cares about them.
-- [ ] Tests cover successful retry, exhaustion, cancellation during delay, inspection metadata, and an application-visible modeled retry.
+- [x] An invoked operation can use an arbitrary native Effect Schedule supplied with a stable name and optional description.
+- [x] Operational retry keeps the machine in its invoked state while the Schedule controls attempts and delays.
+- [x] The static graph shows that a retry policy exists and displays its authored metadata without pretending to reconstruct arbitrary Schedule internals.
+- [x] Inspection reports actual retry attempts and delays as runtime metadata.
+- [x] Retry timing is deterministically testable with Effect's TestClock.
+- [x] Exiting the state while waiting for another attempt interrupts both the Schedule delay and the invoked work.
+- [x] Schedule exhaustion routes the operation's expected typed failure through its declared failure transition.
+- [x] A documented modeled-retry path lets attempt count or retry outcomes influence explicit machine state and accepted events when the application cares about them.
+- [x] Tests cover successful retry, exhaustion, cancellation during delay, inspection metadata, and an application-visible modeled retry.
+
+## Implementation
+
+- Invoked nodes accept a named native `Schedule`; the interpreter delegates retry semantics to
+  `Effect.retry` and instruments decisions with `Schedule.tap`.
+- Schedule errors join the invocation's typed failure channel and Schedule service requirements
+  join the machine's inferred environment.
+- Graph projection retains only the authored retry name and description. It never executes or
+  reverse-engineers the Schedule.
+- Retry delays live inside the invoked state's state-owned fiber, so ordinary state exit
+  interruption cancels both an active attempt and a pending delay.
+- `docs/retry-policies.md` documents when retries should instead be explicit machine state.

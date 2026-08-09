@@ -1,10 +1,12 @@
 import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberMap from "effect/FiberMap"
 import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -237,6 +239,26 @@ export type FailureTransition<
   Error,
 > = OutcomeHandler<State, Current, Error, "error">
 
+export interface RetryPolicy<
+  Failure,
+  Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown>,
+> {
+  readonly name: string
+  readonly description?: string
+  readonly schedule: Policy
+}
+
+type RetryFailure<Failure, Policy> =
+  | Failure
+  | (Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown>
+      ? Schedule.Error<Policy>
+      : never)
+
+type RetryRequirements<Policy> =
+  Policy extends Schedule.Schedule<unknown, unknown, unknown, unknown>
+    ? Schedule.Env<Policy>
+    : never
+
 export interface InvokeNode<
   State extends Tagged,
   Event extends Tagged,
@@ -244,16 +266,21 @@ export interface InvokeNode<
   Output,
   Failure,
   Requirements,
+  Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown> | undefined = undefined,
 > {
   readonly kind: "invoke"
   readonly tag: Current
   readonly name: string
   readonly description?: string
   readonly effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
+  readonly retry?: RetryPolicy<
+    Failure,
+    Extract<Policy, Schedule.Schedule<unknown, Failure, unknown, unknown>>
+  >
   readonly onSuccess: SuccessTransition<State, Current, Output>
-  readonly onFailure: FailureTransition<State, Current, Failure>
+  readonly onFailure: FailureTransition<State, Current, RetryFailure<Failure, Policy>>
   readonly on: EventHandlers<State, Event, Current>
-  readonly _Requirements?: Requirements
+  readonly _Requirements?: Requirements | RetryRequirements<Policy>
 }
 
 type StateNodeUnion<State extends Tagged, Event extends Tagged> = {
@@ -317,6 +344,10 @@ export interface DefinitionMetadata {
         tag: string
         name: string
         description?: string
+        retry?: Readonly<{
+          name: string
+          description?: string
+        }>
         on: Readonly<
           Record<
             string,
@@ -361,6 +392,16 @@ export type InspectionEvent =
       targetStateTag: string
       eventTag: string
       branch?: SelectedBranch
+    }>
+  | Readonly<{
+      _tag: "InvocationRetryScheduled"
+      machineId: string
+      stateTag: string
+      invocation: string
+      generation: number
+      policy: string
+      attempt: number
+      delayMillis: number
     }>
   | Readonly<{
       _tag: "StateChanged"
@@ -451,7 +492,9 @@ export type MachineCompletion<Definition> =
     : never
 
 type NodeRequirements<Node> =
-  Node extends Readonly<{ _Requirements?: infer Requirements }> ? Requirements : never
+  Node extends Readonly<{ _Requirements?: infer Requirements }>
+    ? Exclude<Requirements, undefined>
+    : never
 
 type RequirementsFromNodes<Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }>>> =
   NodeRequirements<Nodes[number]>
@@ -548,22 +591,33 @@ export const builder = <
     tag,
   })
 
-  const invoke = <Current extends TagOf<State>, Output, Failure, Requirements>(
+  const invoke = <
+    Current extends TagOf<State>,
+    Output,
+    Failure,
+    Requirements,
+    Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown> | undefined = undefined,
+  >(
     tag: Current,
     config: Readonly<{
       name: string
       description?: string
       effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
+      retry?: RetryPolicy<
+        Failure,
+        Extract<Policy, Schedule.Schedule<unknown, Failure, unknown, unknown>>
+      >
       onSuccess: SuccessTransition<State, Current, Output>
-      onFailure: FailureTransition<State, Current, Failure>
+      onFailure: FailureTransition<State, Current, RetryFailure<Failure, Policy>>
       on?: EventHandlers<State, Event, Current>
     }>,
-  ): InvokeNode<State, Event, Current, Output, Failure, Requirements> => ({
+  ): InvokeNode<State, Event, Current, Output, Failure, Requirements, Policy> => ({
     kind: "invoke",
     tag,
     name: config.name,
     description: config.description,
     effect: config.effect,
+    retry: config.retry,
     onSuccess: config.onSuccess,
     onFailure: config.onFailure,
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
@@ -624,6 +678,11 @@ export const builder = <
         if (node.name.trim().length === 0) {
           throw new MachineDefinitionDefect(
             `Machine ${config.id} declares an invocation without a stable name`,
+          )
+        }
+        if (node.retry !== undefined && node.retry.name.trim().length === 0) {
+          throw new MachineDefinitionDefect(
+            `Machine ${config.id} declares a retry policy without a stable name`,
           )
         }
         for (const outcomeHandler of [node.onSuccess, node.onFailure]) {
@@ -750,6 +809,11 @@ type RuntimeNode<State extends Tagged, Event extends Tagged, Requirements = unkn
       name: string
       description?: string
       effect: (state: State) => Effect.Effect<unknown, unknown, Requirements>
+      retry?: Readonly<{
+        name: string
+        description?: string
+        schedule: Schedule.Schedule<unknown, unknown, unknown, Requirements>
+      }>
       onSuccess: RuntimeOutcomeHandler<State, unknown, "value">
       onFailure: RuntimeOutcomeHandler<State, unknown, "error">
       on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
@@ -930,7 +994,30 @@ export const run = <
           generation: invocationGeneration,
         })
 
-        const invocation = node.effect(state).pipe(
+        const operation = node.effect(state)
+        const retry = node.retry
+        const retryingOperation =
+          retry === undefined
+            ? operation
+            : Effect.retry(
+                operation,
+                retry.schedule.pipe(
+                  Schedule.tap((metadata) =>
+                    emit({
+                      _tag: "InvocationRetryScheduled",
+                      machineId: definition.id,
+                      stateTag: state._tag,
+                      invocation: node.name,
+                      generation: invocationGeneration,
+                      policy: retry.name,
+                      attempt: metadata.attempt,
+                      delayMillis: Duration.toMillis(metadata.duration),
+                    }),
+                  ),
+                ),
+              )
+
+        const invocation = retryingOperation.pipe(
           Effect.provideContext(environment),
           Effect.matchEffect({
             onFailure: (error) =>

@@ -9,6 +9,10 @@ export interface Node {
   readonly invocation?: Readonly<{
     name: string
     description?: string
+    retry?: Readonly<{
+      name: string
+      description?: string
+    }>
   }>
 }
 
@@ -79,6 +83,16 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
             invocation: {
               name: node.name,
               ...(node.description === undefined ? {} : { description: node.description }),
+              ...(node.retry === undefined
+                ? {}
+                : {
+                    retry: {
+                      name: node.retry.name,
+                      ...(node.retry.description === undefined
+                        ? {}
+                        : { description: node.retry.description }),
+                    },
+                  }),
             },
           }
         : {}),
