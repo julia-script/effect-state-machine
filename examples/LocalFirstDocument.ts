@@ -1,5 +1,4 @@
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
@@ -13,21 +12,21 @@ export interface Document {
 
 export interface SaveRequest extends Document {}
 
-export class OpenFailed extends Data.TaggedError("OpenFailed")<{
-  readonly message: string
-}> {}
+export class OpenFailed extends Schema.TaggedError<OpenFailed>()("OpenFailed", {
+  message: Schema.String,
+}) {}
 
-export class SaveFailed extends Data.TaggedError("SaveFailed")<{
-  readonly message: string
-}> {}
+export class SaveFailed extends Schema.TaggedError<SaveFailed>()("SaveFailed", {
+  message: Schema.String,
+}) {}
 
-export class SyncOffline extends Data.TaggedError("SyncOffline")<{
-  readonly message: string
-}> {}
+export class SyncOffline extends Schema.TaggedError<SyncOffline>()("SyncOffline", {
+  message: Schema.String,
+}) {}
 
-export class SyncConflict extends Data.TaggedError("SyncConflict")<{
-  readonly remoteText: string
-}> {}
+export class SyncConflict extends Schema.TaggedError<SyncConflict>()("SyncConflict", {
+  remoteText: Schema.String,
+}) {}
 
 export type SyncFailure = SyncOffline | SyncConflict
 

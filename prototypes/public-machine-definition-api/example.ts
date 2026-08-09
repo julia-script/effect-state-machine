@@ -4,7 +4,7 @@
  * This definition is compile-checked to evaluate authoring ergonomics. It is
  * not the production machine implementation.
  */
-import { Context, Data, Effect, Schedule, Schema, type Stream } from "effect"
+import { Context, Effect, Schedule, Schema, type Stream } from "effect"
 import {
   type InspectionEvent,
   Machine,
@@ -13,9 +13,9 @@ import {
   type MachineRequirements,
 } from "./machine"
 
-class DocumentUnavailable extends Data.TaggedError("DocumentUnavailable")<{
-  readonly message: string
-}> {}
+class DocumentUnavailable extends Schema.TaggedError<DocumentUnavailable>()("DocumentUnavailable", {
+  message: Schema.String,
+}) {}
 
 class Documents extends Context.Service<
   Documents,
@@ -25,9 +25,9 @@ class Documents extends Context.Service<
   }>
 >()("prototype/Documents") {}
 
-class InvalidResolution extends Data.TaggedError("InvalidResolution")<{
-  readonly message: string
-}> {}
+class InvalidResolution extends Schema.TaggedError<InvalidResolution>()("InvalidResolution", {
+  message: Schema.String,
+}) {}
 
 class ConflictPolicy extends Context.Service<
   ConflictPolicy,

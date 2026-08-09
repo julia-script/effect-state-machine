@@ -26,12 +26,12 @@ Define input, complete machine states, and events with Effect Schema. An invoked
 an application service; its Layer is selected only when the machine runs.
 
 ```ts
-import { Context, Data, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { Machine } from "effect-state-machine"
 
-class GreetFailed extends Data.TaggedError("GreetFailed")<{
-  readonly message: string
-}> {}
+class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
+  message: Schema.String,
+}) {}
 
 class Greeter extends Context.Service<
   Greeter,
