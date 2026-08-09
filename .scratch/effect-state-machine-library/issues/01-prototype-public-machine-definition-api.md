@@ -4,14 +4,21 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] A representative definition binds Effect Schema input, state, and event vocabularies once and derives their TypeScript types from those Schemas.
-- [ ] The example expresses all four planned node kinds: ordinary state, invoked Effect, invoked child machine, and final state.
-- [ ] State and event descriptions remain adjacent to their Schemas, while guards, invocations, children, and retry policies carry stable names and optional nearby descriptions.
-- [ ] The API demonstrates ordered guarded alternatives, an inferred typed Effect, named retry metadata, child input and event forwarding, and inferred final-state completion.
-- [ ] Compile-time examples prove state/event narrowing, valid transition targets, completion inference, and transitive Effect requirements; intentional misuse is rejected by TypeScript.
-- [ ] A completed definition is synchronously inspectable without running Effects or providing services, and exposes enough immutable structure for a graph projection.
-- [ ] The prototype records a recommendation for the exact builder, branch, retry, and inspection surfaces, including rejected alternatives and their trade-offs.
-- [ ] The artifact is explicitly marked as throwaway evidence rather than production implementation.
-- [ ] The repository's type-check command passes with the prototype and its compile-time examples.
+- [x] A representative definition binds Effect Schema input, state, and event vocabularies once and derives their TypeScript types from those Schemas.
+- [x] The example expresses all four planned node kinds: ordinary state, invoked Effect, invoked child machine, and final state.
+- [x] State and event descriptions remain adjacent to their Schemas, while guards, invocations, children, and retry policies carry stable names and optional nearby descriptions.
+- [x] The API demonstrates ordered guarded alternatives, an inferred typed Effect, named retry metadata, child input and event forwarding, and inferred final-state completion.
+- [x] Compile-time examples prove state/event narrowing, valid transition targets, completion inference, and transitive Effect requirements; intentional misuse is rejected by TypeScript.
+- [x] A completed definition is synchronously inspectable without running Effects or providing services, and exposes enough immutable structure for a graph projection.
+- [x] The prototype records a recommendation for the exact builder, branch, retry, and inspection surfaces, including rejected alternatives and their trade-offs.
+- [x] The artifact is explicitly marked as throwaway evidence rather than production implementation.
+- [x] The repository's type-check command passes with the prototype and its compile-time examples.
+
+## Implementation
+
+- The throwaway compile-time prototype and representative parent/child definitions live under `prototypes/public-machine-definition-api/`.
+- The API recommendation and rejected alternatives are recorded in `research/public-machine-definition-api.md`.
+- `pnpm check` type-checks the positive and negative API fixtures, runs the synchronous-inspection check, and applies Biome.
+- The Standards and Spec reviews found three type-safety gaps. Reducer outputs are now coupled to targets, fallbacks are restricted to the final branch position, and forwarded events require payload compatibility as well as a shared tag.

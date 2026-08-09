@@ -26,39 +26,51 @@ type Transition<
   Event extends Tagged,
   Current extends TagOf<State>,
   EventTag extends TagOf<Event>,
-> = Readonly<{
-  target: TagOf<State>
-  description?: string
-  reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => State
-}>
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        target: Target
+        description?: string
+        reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => ByTag<State, Target>
+      }>
+    : never
 
 type WhenBranch<
   State extends Tagged,
   Event extends Tagged,
   Current extends TagOf<State>,
   EventTag extends TagOf<Event>,
-> = Readonly<{
-  when: Readonly<{
-    name: string
-    description?: string
-    guard: (args: TransitionArgs<State, Event, Current, EventTag>) => boolean
-  }>
-  target: TagOf<State>
-  description?: string
-  reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => State
-}>
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        when: Readonly<{
+          name: string
+          description?: string
+          guard: (args: TransitionArgs<State, Event, Current, EventTag>) => boolean
+        }>
+        target: Target
+        description?: string
+        reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => ByTag<State, Target>
+      }>
+    : never
 
 type OtherwiseBranch<
   State extends Tagged,
   Event extends Tagged,
   Current extends TagOf<State>,
   EventTag extends TagOf<Event>,
-> = Readonly<{
-  otherwise: true
-  target: TagOf<State>
-  description?: string
-  reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => State
-}>
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        otherwise: true
+        target: Target
+        description?: string
+        reduce: (args: TransitionArgs<State, Event, Current, EventTag>) => ByTag<State, Target>
+      }>
+    : never
 
 type GuardedTransition<
   State extends Tagged,
@@ -66,12 +78,16 @@ type GuardedTransition<
   Current extends TagOf<State>,
   EventTag extends TagOf<Event>,
 > = Readonly<{
-  branches: readonly [
-    WhenBranch<State, Event, Current, EventTag>,
-    ...ReadonlyArray<
-      WhenBranch<State, Event, Current, EventTag> | OtherwiseBranch<State, Event, Current, EventTag>
-    >,
-  ]
+  branches:
+    | readonly [
+        WhenBranch<State, Event, Current, EventTag>,
+        ...ReadonlyArray<WhenBranch<State, Event, Current, EventTag>>,
+      ]
+    | readonly [
+        WhenBranch<State, Event, Current, EventTag>,
+        ...ReadonlyArray<WhenBranch<State, Event, Current, EventTag>>,
+        OtherwiseBranch<State, Event, Current, EventTag>,
+      ]
 }>
 
 type IgnoredTransition = Readonly<{
@@ -123,17 +139,33 @@ interface DefinitionShape {
   readonly nodes: ReadonlyArray<Node<string, unknown>>
 }
 
-type SuccessTransition<State extends Tagged, Current extends TagOf<State>, Value> = Readonly<{
-  target: TagOf<State>
-  description?: string
-  reduce: (args: { state: ByTag<State, Current>; value: Value }) => State
-}>
+type SuccessTransition<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Value,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        target: Target
+        description?: string
+        reduce: (args: { state: ByTag<State, Current>; value: Value }) => ByTag<State, Target>
+      }>
+    : never
 
-type FailureTransition<State extends Tagged, Current extends TagOf<State>, Failure> = Readonly<{
-  target: TagOf<State>
-  description?: string
-  reduce: (args: { state: ByTag<State, Current>; error: Failure }) => State
-}>
+type FailureTransition<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Failure,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        target: Target
+        description?: string
+        reduce: (args: { state: ByTag<State, Current>; error: Failure }) => ByTag<State, Target>
+      }>
+    : never
 
 export interface RetryPolicy<
   Failure,
@@ -143,6 +175,8 @@ export interface RetryPolicy<
   readonly description?: string
   readonly schedule: Retry
 }
+
+type AnyRetry<Failure> = Schedule.Schedule<unknown, Failure, unknown, unknown>
 
 export interface InvokeNode<
   State extends Tagged,
@@ -156,11 +190,7 @@ export interface InvokeNode<
   readonly name: string
   readonly description?: string
   readonly effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
-  readonly retry?: Readonly<{
-    name: string
-    description?: string
-    schedule: Schedule.Schedule<unknown, Failure, unknown, unknown>
-  }>
+  readonly retry?: RetryPolicy<Failure, AnyRetry<Failure>>
   readonly onSuccess: SuccessTransition<State, Current, Output>
   readonly onFailure: FailureTransition<State, Current, Failure>
   readonly on: EventHandlers<State, Event, Current>
@@ -209,6 +239,29 @@ export type MachineCompletion<Definition extends DefinitionShape> = Extract<
   { _tag: FinalTagOfNode<Definition["nodes"][number]> }
 >
 
+type ForwardableTag<ParentEvent extends Tagged, ChildEvent extends Tagged> = {
+  [Tag in Extract<TagOf<ParentEvent>, TagOf<ChildEvent>>]: ByTag<ParentEvent, Tag> extends ByTag<
+    ChildEvent,
+    Tag
+  >
+    ? Tag
+    : never
+}[Extract<TagOf<ParentEvent>, TagOf<ChildEvent>>]
+
+type ChildCompletionTransition<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Output,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        target: Target
+        description?: string
+        reduce: (args: { state: ByTag<State, Current>; output: Output }) => ByTag<State, Target>
+      }>
+    : never
+
 export interface ChildNode<
   State extends Tagged,
   Event extends Tagged,
@@ -220,15 +273,8 @@ export interface ChildNode<
   readonly description?: string
   readonly machine: ChildDefinition
   readonly input: (state: ByTag<State, Current>) => MachineInput<ChildDefinition>
-  readonly forward: ReadonlyArray<Extract<TagOf<Event>, TagOf<MachineEvent<ChildDefinition>>>>
-  readonly onDone: Readonly<{
-    target: TagOf<State>
-    description?: string
-    reduce: (args: {
-      state: ByTag<State, Current>
-      output: MachineCompletion<ChildDefinition>
-    }) => State
-  }>
+  readonly forward: ReadonlyArray<ForwardableTag<Event, MachineEvent<ChildDefinition>>>
+  readonly onDone: ChildCompletionTransition<State, Current, MachineCompletion<ChildDefinition>>
   readonly on: EventHandlers<State, Event, Current>
 }
 
@@ -328,15 +374,8 @@ const builder = <
       description?: string
       machine: ChildDefinition
       input: (state: ByTag<State, Current>) => MachineInput<ChildDefinition>
-      forward: ReadonlyArray<Extract<TagOf<Event>, TagOf<MachineEvent<ChildDefinition>>>>
-      onDone: Readonly<{
-        target: TagOf<State>
-        description?: string
-        reduce: (args: {
-          state: ByTag<State, Current>
-          output: MachineCompletion<ChildDefinition>
-        }) => State
-      }>
+      forward: ReadonlyArray<ForwardableTag<Event, MachineEvent<ChildDefinition>>>
+      onDone: ChildCompletionTransition<State, Current, MachineCompletion<ChildDefinition>>
       on?: EventHandlers<State, Event, Current>
     }>,
   ): ChildNode<State, Event, Current, ChildDefinition> => ({

@@ -45,7 +45,9 @@ The four node methods are:
 
 The state tag selects and narrows the current state variant. Event-map keys select and narrow the event variant. Transition targets accept only tags from the State Schema. Reducers remain inline and pure; they do not need artificial names because the event, source, target, and optional transition description already explain their role.
 
-An invoked Effect infers its success, typed failure, and service requirements. A child infers its input, forwarded event vocabulary, final output, and transitive service requirements. `MachineCompletion<Definition>` and `MachineRequirements<Definition>` expose those results without parallel declarations.
+Each transition type couples its literal `target` to the reducer's return variant. A transition that declares `target: "Saving"` cannot return a `Done` state and make runtime behavior disagree with the graph.
+
+An invoked Effect infers its success, typed failure, and service requirements. A child infers its input, forwarded event vocabulary, final output, and transitive service requirements. A parent event tag is forwardable only when that parent's full event variant is assignable to the child's same-tag variant, preventing equal tags from hiding incompatible payloads. `MachineCompletion<Definition>` and `MachineRequirements<Definition>` expose those results without parallel declarations.
 
 ## Recommended branch surface
 
@@ -82,7 +84,7 @@ Save: {
 }
 ```
 
-Array order is evaluation order and therefore graph data. Every opaque predicate has a stable name; a final `{ otherwise: true }` is the explicit fallback. Omitting it deliberately leaves a possible protocol defect. An intentionally accepted no-op uses `{ ignore: { description? } }`, making ignored events visible instead of silently swallowing them.
+Array order is evaluation order and therefore graph data. Every opaque predicate has a stable name; a final `{ otherwise: true }` is the explicit fallback. The tuple type permits at most one fallback and only in the final position. Omitting it deliberately leaves a possible protocol defect. An intentionally accepted no-op uses `{ ignore: { description? } }`, making ignored events visible instead of silently swallowing them.
 
 This record shape borrows `when` and fallback ergonomics from Effect Match without using Match as storage. A standalone `builder.when(...)` helper was rejected because it loses the source-state and event-key contextual types at the call site unless authors repeat them. Raw branch records keep narrowing, ordering, names, descriptions, targets, and reducers together for tooling.
 
@@ -137,10 +139,13 @@ interface MachineHandle<Definition> {
 - Input, state, and event types derive from Effect Schema without parallel unions.
 - State and event callbacks narrow from their tags.
 - Invalid transition targets fail compilation.
+- Reducer return variants must agree with their declared targets.
 - Ordered named guards and explicit fallback remain directly inspectable.
+- A guarded fallback can occur only once and in the final branch position.
 - Effect output, typed failure, and service requirements remain inferred.
 - Native retry metadata remains graphable without inspecting Schedule internals.
 - Child input, forwarded events, completion, and requirements compose through the parent.
+- Same-tag parent/child events with incompatible payloads cannot be forwarded.
 - Final nodes infer the completion union.
 - The complete definition can be inspected synchronously without running Effects or providing services.
 

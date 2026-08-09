@@ -414,16 +414,6 @@ type InspectionIsOnTheHandle = Assert<
   Equal<MachineHandle<typeof documentDefinition>["inspection"], Stream.Stream<InspectionEvent>>
 >
 
-document.state("Closed", {
-  on: {
-    Open: {
-      // @ts-expect-error Transition targets must be state tags declared by the State Schema.
-      target: "Missing",
-      reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
-    },
-  },
-})
-
 void (null as unknown as CompletionIsFinalState)
 void (null as unknown as RequirementsIncludeDocuments)
 void (null as unknown as InspectionIsOnTheHandle)
