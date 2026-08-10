@@ -1,59 +1,17 @@
 {
-  "name": "effect-state-machine",
-  "version": "0.1.0",
-  "description": "A small code-first state-machine library built with Effect for Effect users.",
-  "license": "MIT",
+  "name": "effect-state-machine-workspace",
+  "private": true,
   "type": "module",
-  "sideEffects": false,
-  "files": [
-    "dist/*.js",
-    "dist/*.js.map",
-    "dist/*.d.ts",
-    "dist/*.d.ts.map",
-    "!dist/interactive-devtools.js",
-    "!dist/interactive-devtools.js.map",
-    "README.md"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./devtools": {
-      "types": "./dist/devtools.d.ts",
-      "import": "./dist/devtools.js"
-    },
-    "./devtools/viewer": {
-      "types": "./dist/devtools-viewer.d.ts",
-      "import": "./dist/devtools-viewer.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json && node scripts/build.mjs",
-    "check": "pnpm typecheck && pnpm test && pnpm check:api-prototype && pnpm check:package && biome check .",
-    "check:api-prototype": "node scripts/check-api-prototype.mjs",
-    "check:package": "pnpm build && node scripts/check-package.mjs",
+    "build": "pnpm -r run build",
+    "check": "pnpm -r run check && biome check .",
     "format": "biome format --write .",
-    "graph:reference": "pnpm build",
     "lint": "biome lint .",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
-  "peerDependencies": {
-    "effect": "4.0.0-beta.106"
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.7",
-    "@effect/vitest": "4.0.0-beta.106",
-    "effect": "4.0.0-beta.106",
-    "esbuild": "0.28.1",
-    "source-map-js": "^1.2.1",
-    "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "@biomejs/biome": "2.5.7"
   },
   "packageManager": "pnpm@11.18.0"
 }

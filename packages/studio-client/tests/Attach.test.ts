@@ -1,0 +1,235 @@
+import { assert, describe, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
+import * as Queue from "effect/Queue"
+import { Machine } from "effect-state-machine"
+import * as Attach from "../src/Attach.js"
+import * as MemoryTransport from "../src/MemoryTransport.js"
+import type * as Protocol from "../src/Protocol.js"
+import { StudioTransport } from "../src/Transport.js"
+import { definition } from "./fixtures/Runner.js"
+
+const takeUntil = (
+  queue: Queue.Dequeue<Protocol.Message>,
+  predicate: (message: Protocol.Message) => boolean,
+  limit = 100,
+): Effect.Effect<Protocol.Message> =>
+  Effect.gen(function* () {
+    for (let index = 0; index < limit; index += 1) {
+      const message = yield* Queue.take(queue)
+      if (predicate(message)) return message
+    }
+    return yield* Effect.die(new Error("expected message did not arrive"))
+  })
+
+const isFact = (
+  message: Protocol.Message,
+  bodyTag: Protocol.FactBodyMessage["_tag"],
+): message is Protocol.FactMessage => message._tag === "Fact" && message.body._tag === bodyTag
+
+describe("Attach", () => {
+  it.live("announces the session and streams facts", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { transport, studio } = yield* MemoryTransport.make
+        const handle = yield* Machine.run(definition, {})
+        yield* Attach.attach({
+          definition,
+          handle,
+          quickEvents: [
+            { id: "start", label: "Start", event: { _tag: "Start", speed: 1 } },
+            { id: "stop", label: "Stop", make: () => ({ _tag: "Stop" as const }) },
+          ],
+        }).pipe(Effect.provideService(StudioTransport, transport))
+
+        const first = yield* Queue.take(studio.received)
+        assert.strictEqual(first._tag, "Hello")
+        if (first._tag !== "Hello") return
+        assert.strictEqual(first.machine.id, "runner")
+        assert.deepStrictEqual(
+          first.quickEvents.map(({ id, kind, eventTag }) => ({ id, kind, eventTag })),
+          [
+            { id: "start", kind: "event", eventTag: "Start" },
+            { id: "stop", kind: "factory", eventTag: undefined },
+          ],
+        )
+
+        const initialCommit = yield* takeUntil(studio.received, (message) =>
+          isFact(message, "StateCommitted"),
+        )
+        assert.ok(initialCommit._tag === "Fact" && initialCommit.body._tag === "StateCommitted")
+        if (initialCommit._tag === "Fact" && initialCommit.body._tag === "StateCommitted") {
+          assert.deepStrictEqual(initialCommit.body.state, { _tag: "Idle" })
+        }
+
+        yield* handle.send({ _tag: "Start", speed: 3 })
+        const received = yield* takeUntil(
+          studio.received,
+          (message) =>
+            isFact(message, "Inspection") &&
+            message._tag === "Fact" &&
+            message.body._tag === "Inspection" &&
+            message.body.event._tag === "EventReceived",
+        )
+        assert.ok(received._tag === "Fact" && received.body._tag === "Inspection")
+        if (
+          received._tag === "Fact" &&
+          received.body._tag === "Inspection" &&
+          received.body.event._tag === "EventReceived"
+        ) {
+          assert.deepStrictEqual(received.body.event.details, { _tag: "Start", speed: 3 })
+        }
+      }),
+    ),
+  )
+
+  it.live("stays inert and buffers when Studio is unreachable, then replays", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { transport, studio } = yield* MemoryTransport.make
+        yield* studio.setOnline(false)
+        const handle = yield* Machine.run(definition, {})
+        yield* Attach.attach({
+          definition,
+          handle,
+          reconnectInterval: "10 millis",
+        }).pipe(Effect.provideService(StudioTransport, transport))
+
+        yield* handle.send({ _tag: "Start", speed: 2 })
+        yield* handle.send({ _tag: "Stop" })
+        assert.deepStrictEqual(yield* handle.completion, { _tag: "Done" })
+
+        yield* studio.setOnline(true)
+        const hello = yield* takeUntil(studio.received, (message) => message._tag === "Hello")
+        assert.strictEqual(hello._tag, "Hello")
+        const status = yield* takeUntil(studio.received, (message) =>
+          isFact(message, "StatusChanged"),
+        )
+        assert.ok(status._tag === "Fact" && status.body._tag === "StatusChanged")
+        if (status._tag === "Fact" && status.body._tag === "StatusChanged") {
+          assert.strictEqual(status.body.status, "completed")
+        }
+      }),
+    ),
+  )
+
+  it.live("answers dispatches with outcomes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { transport, studio } = yield* MemoryTransport.make
+        const handle = yield* Machine.run(definition, {})
+        yield* Attach.attach({
+          definition,
+          handle,
+          quickEvents: [{ id: "start", label: "Start", event: { _tag: "Start", speed: 5 } }],
+        }).pipe(Effect.provideService(StudioTransport, transport))
+        const hello = yield* takeUntil(studio.received, (message) => message._tag === "Hello")
+        assert.strictEqual(hello._tag, "Hello")
+        const sessionId = hello._tag === "Hello" ? hello.sessionId : ""
+
+        const outcomeOf = (correlationId: string) =>
+          takeUntil(
+            studio.received,
+            (message) =>
+              message._tag === "DispatchOutcome" && message.correlationId === correlationId,
+          )
+
+        yield* studio.send({
+          _tag: "Dispatch",
+          sessionId,
+          correlationId: "c-unknown",
+          command: { _tag: "Quick", id: "missing" },
+        })
+        const unknown = yield* outcomeOf("c-unknown")
+        assert.ok(unknown._tag === "DispatchOutcome" && unknown.result._tag === "Rejected")
+        if (unknown._tag === "DispatchOutcome" && unknown.result._tag === "Rejected") {
+          assert.strictEqual(unknown.result.reason, "not-found")
+        }
+
+        yield* studio.send({
+          _tag: "Dispatch",
+          sessionId,
+          correlationId: "c-quick",
+          command: { _tag: "Quick", id: "start" },
+        })
+        const accepted = yield* outcomeOf("c-quick")
+        assert.ok(accepted._tag === "DispatchOutcome" && accepted.result._tag === "Accepted")
+
+        yield* studio.send({
+          _tag: "Dispatch",
+          sessionId,
+          correlationId: "c-invalid",
+          command: { _tag: "Custom", event: { _tag: "Nope" } },
+        })
+        const invalid = yield* outcomeOf("c-invalid")
+        assert.ok(invalid._tag === "DispatchOutcome" && invalid.result._tag === "Rejected")
+        if (invalid._tag === "DispatchOutcome" && invalid.result._tag === "Rejected") {
+          assert.strictEqual(invalid.result.reason, "invalid")
+        }
+
+        yield* studio.send({
+          _tag: "Dispatch",
+          sessionId,
+          correlationId: "c-unavailable",
+          command: { _tag: "Custom", event: { _tag: "Start", speed: 1 } },
+        })
+        const unavailable = yield* outcomeOf("c-unavailable")
+        assert.ok(unavailable._tag === "DispatchOutcome" && unavailable.result._tag === "Rejected")
+        if (unavailable._tag === "DispatchOutcome" && unavailable.result._tag === "Rejected") {
+          assert.strictEqual(unavailable.result.reason, "unavailable")
+        }
+      }),
+    ),
+  )
+
+  it.live("reconnects after a dropped connection and resumes the fact stream", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { transport, studio } = yield* MemoryTransport.make
+        const handle = yield* Machine.run(definition, {})
+        yield* Attach.attach({
+          definition,
+          handle,
+          reconnectInterval: "10 millis",
+        }).pipe(Effect.provideService(StudioTransport, transport))
+        yield* takeUntil(studio.received, (message) => isFact(message, "StateCommitted"))
+
+        yield* studio.dropConnection
+        yield* handle.send({ _tag: "Start", speed: 9 })
+
+        const helloAgain = yield* takeUntil(studio.received, (message) => message._tag === "Hello")
+        assert.strictEqual(helloAgain._tag, "Hello")
+        const commit = yield* takeUntil(
+          studio.received,
+          (message) =>
+            isFact(message, "StateCommitted") &&
+            message._tag === "Fact" &&
+            message.body._tag === "StateCommitted" &&
+            typeof message.body.state === "object" &&
+            message.body.state !== null &&
+            (message.body.state as { _tag?: string })._tag === "Running",
+        )
+        assert.strictEqual(commit._tag, "Fact")
+        assert.strictEqual(yield* studio.connectionCount, 2)
+      }),
+    ),
+  )
+
+  it.live("ends the session when the attachment scope closes", () =>
+    Effect.gen(function* () {
+      const { transport, studio } = yield* MemoryTransport.make
+      const handle = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const inner = yield* Machine.run(definition, {})
+          yield* Attach.attach({ definition, handle: inner }).pipe(
+            Effect.provideService(StudioTransport, transport),
+          )
+          yield* takeUntil(studio.received, (message) => isFact(message, "StateCommitted"))
+          return inner
+        }),
+      )
+      void handle
+      const ended = yield* takeUntil(studio.received, (message) => message._tag === "SessionEnded")
+      assert.strictEqual(ended._tag, "SessionEnded")
+    }),
+  )
+})
