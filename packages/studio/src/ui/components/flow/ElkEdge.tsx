@@ -4,8 +4,8 @@ import type { Point } from "../../lib/layout.js"
 export interface ElkEdgeData {
   readonly points: ReadonlyArray<Point>
   readonly traversed: boolean
-  /** Direction relative to the selection: "out" leaves it, "in" enters it. */
-  readonly highlight: "in" | "out" | undefined
+  /** Part of the current selection: a selected pill's line or a selected state's outgoing edge. */
+  readonly highlight: boolean
   readonly arrow: boolean
   readonly [key: string]: unknown
 }
@@ -20,14 +20,8 @@ const pathFrom = (points: ReadonlyArray<Point>): string =>
 export function ElkEdge(props: EdgeProps) {
   const data = props.data as ElkEdgeData
   if (data.points.length < 2) return null
-  const stroke = data.traversed
-    ? "var(--color-focus)"
-    : data.highlight === "out"
-      ? "var(--color-focus)"
-      : data.highlight === "in"
-        ? "var(--color-success)"
-        : "var(--color-rule-strong)"
-  const emphasized = data.traversed || data.highlight !== undefined
+  const emphasized = data.traversed || data.highlight
+  const stroke = emphasized ? "var(--color-focus)" : "var(--color-rule-strong)"
   const last = data.points[data.points.length - 1]
   const prev = data.points[data.points.length - 2]
   const angle = (Math.atan2(last.y - prev.y, last.x - prev.x) * 180) / Math.PI

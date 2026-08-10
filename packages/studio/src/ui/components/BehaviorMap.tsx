@@ -91,12 +91,11 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     return () => cancelAnimationFrame(frame)
   }, [placed, visibleSignature])
 
-  // Direction relative to the selected state: edges leaving it vs entering it.
-  const highlightFor = new Map<string, "in" | "out">()
+  // A selected state highlights only the edges leaving it.
+  const highlighted = new Set<string>()
   if (selection?.kind === "node") {
     for (const edge of visible.edges) {
-      if (edge.source === selection.id) highlightFor.set(edge.id, "out")
-      else if (edge.target === selection.id) highlightFor.set(edge.id, "in")
+      if (edge.source === selection.id) highlighted.add(edge.id)
     }
   }
 
@@ -130,7 +129,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         data: {
           label: placement.label,
           traversed: traversedEdge?.id === edge.id,
-          highlight: highlightFor.get(edge.id),
+          highlight: highlighted.has(edge.id),
           selected: selection?.kind === "edge" && selection.id === edge.id,
         },
         draggable: false,
@@ -180,8 +179,8 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
               data: {
                 points,
                 traversed,
-                // A selected pill shows where it comes from vs where it goes.
-                highlight: edgeSelected ? suffix : highlightFor.get(edge.id),
+                // A selected pill highlights its whole line, both segments.
+                highlight: edgeSelected || highlighted.has(edge.id),
                 arrow: true,
               },
             },
