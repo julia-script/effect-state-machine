@@ -16,7 +16,7 @@ import {
   layout,
   START_ID,
 } from "../lib/elkLayout.js"
-import { focus, toJson } from "../lib/layout.js"
+import { edgeForStep, focus, toJson } from "../lib/layout.js"
 import {
   depthAtom,
   displayedPositionAtom,
@@ -64,14 +64,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       step.sourceStateTag !== undefined &&
       step.targetStateTag !== undefined,
   )
-  const traversedEdge = visible.edges.find(
-    (edge) =>
-      traversedStep !== undefined &&
-      edge.source === traversedStep.sourceStateTag &&
-      edge.target === traversedStep.targetStateTag &&
-      (traversedStep.eventTag === undefined || edge.event?.tag === traversedStep.eventTag) &&
-      (traversedStep.branch === undefined || edge.branch?.index === traversedStep.branch.index),
-  )
+  const traversedEdge = edgeForStep(visible, traversedStep)
 
   // The whole machine is laid out once per session; depth only hides nodes,
   // so positions stay put while the machine moves through states.

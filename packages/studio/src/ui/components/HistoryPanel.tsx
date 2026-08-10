@@ -1,11 +1,19 @@
-import { useAtom, useAtomValue } from "@effect/atom-react"
+import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react"
+import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
-import { cursorAtom, displayedPositionAtom, selectedStepAtom } from "../state/atoms.js"
+import { edgeForStep } from "../lib/layout.js"
+import {
+  cursorAtom,
+  displayedPositionAtom,
+  selectedStepAtom,
+  selectionAtom,
+} from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 
 export function HistoryPanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const [cursor, setCursor] = useAtom(cursorAtom(session.sessionId))
   const [selectedStep, setSelectedStep] = useAtom(selectedStepAtom(session.sessionId))
+  const setSelection = useAtomSet(selectionAtom(session.sessionId))
   const displayed = useAtomValue(displayedPositionAtom)
   const listRef = React.useRef<HTMLOListElement | null>(null)
 
@@ -27,6 +35,17 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
     if (step === undefined) return
     setSelectedStep(index)
     setCursor(step.committedPosition ?? Math.min(step.statePosition, Math.max(0, head)))
+    // Mirror the step on the map: its traversed transition, or its state.
+    const graph = session.hello.graph as Graph.Graph
+    const edge = edgeForStep(graph, step)
+    const stateTag = step.targetStateTag ?? step.sourceStateTag
+    setSelection(
+      edge !== undefined
+        ? { kind: "edge", id: edge.id }
+        : stateTag !== undefined
+          ? { kind: "node", id: stateTag }
+          : undefined,
+    )
   }
 
   const move = (delta: number) => {

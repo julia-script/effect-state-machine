@@ -1,3 +1,4 @@
+import type { History } from "@effect-state-machine/studio-client"
 import type { Graph } from "effect-state-machine/devtools"
 
 /** Renderer-side graph helpers: node metrics, hop-limited focus, JSON view. */
@@ -88,3 +89,18 @@ export const toJson = (graph: Graph.Graph): unknown => ({
   })),
   ignored: graph.ignores.map((ignore) => ({ in: ignore.source, event: ignore.event.tag })),
 })
+
+/** The graph edge a semantic step traversed, when it traversed one. */
+export const edgeForStep = (
+  graph: Graph.Graph,
+  step: History.Step | undefined,
+): Graph.Edge | undefined =>
+  step === undefined || step.sourceStateTag === undefined || step.targetStateTag === undefined
+    ? undefined
+    : graph.edges.find(
+        (edge) =>
+          edge.source === step.sourceStateTag &&
+          edge.target === step.targetStateTag &&
+          (step.eventTag === undefined || edge.event?.tag === step.eventTag) &&
+          (step.branch === undefined || edge.branch?.index === step.branch.index),
+      )
