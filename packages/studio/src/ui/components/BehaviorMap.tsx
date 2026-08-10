@@ -10,16 +10,22 @@ import {
 } from "@xyflow/react"
 import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
-import { type ElkPlacement, edgeLabelText, layout } from "../lib/elkLayout.js"
+import {
+  type ElkPlacement,
+  edgeIdOfTransition,
+  isTransitionNodeId,
+  layout,
+} from "../lib/elkLayout.js"
 import { focus, NODE_HEIGHT, toJson } from "../lib/layout.js"
 import { depthAtom, displayedPositionAtom, graphJsonAtom } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { DetailCard, type Selection } from "./DetailCard.js"
 import { ElkEdge } from "./flow/ElkEdge.js"
 import { StateNode } from "./flow/StateNode.js"
+import { TransitionNode } from "./flow/TransitionNode.js"
 import "@xyflow/react/dist/style.css"
 
-const nodeTypes = { state: StateNode }
+const nodeTypes = { state: StateNode, transition: TransitionNode }
 const edgeTypes = { elk: ElkEdge }
 
 export function BehaviorMap({ session }: { readonly session: ViewerClient.SessionView }) {
@@ -86,7 +92,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     return () => cancelAnimationFrame(frame)
   }, [placed])
 
-  const nodes: Array<Node> = visible.nodes.flatMap((node) => {
+  const stateNodes: Array<Node> = visible.nodes.flatMap((node) => {
     const point = placed?.positions.get(node.id)
     if (point === undefined) return []
     return [
@@ -101,44 +107,56 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     ]
   })
 
-  const edges: Array<Edge> = visible.edges.flatMap((edge) => {
-    const route = placed?.routes.get(edge.id)
-    if (route === undefined || route.points.length < 2) return []
-    const mid = route.points[Math.floor(route.points.length / 2)]
-    const labelX = route.label !== undefined ? route.label.x + route.label.width / 2 : mid.x
-    const labelY = route.label !== undefined ? route.label.y + route.label.height / 2 : mid.y
+  const transitionNodes: Array<Node> = visible.edges.flatMap((edge) => {
+    const placement = placed?.transitions.get(edge.id)
+    if (placement === undefined) return []
     return [
       {
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        type: "elk",
-        markerEnd: "url(#studio-arrow)",
-        data: {
-          points: route.points,
-          label: edgeLabelText(edge),
-          labelX,
-          labelY,
-          traversed: traversedEdge?.id === edge.id,
-          onSelect: () =>
-            setSelection((current) =>
-              current?.kind === "edge" && current.id === edge.id
-                ? undefined
-                : { kind: "edge", id: edge.id },
-            ),
-        },
+        id: `t:${edge.id}`,
+        type: "transition",
+        position: placement.point,
+        data: { label: placement.label, traversed: traversedEdge?.id === edge.id },
+        draggable: false,
+        connectable: false,
       },
+    ]
+  })
+
+  const nodes = [...stateNodes, ...transitionNodes]
+
+  const edges: Array<Edge> = visible.edges.flatMap((edge) => {
+    const inbound = placed?.segments.get(`${edge.id}:in`)
+    const outbound = placed?.segments.get(`${edge.id}:out`)
+    const traversed = traversedEdge?.id === edge.id
+    const segment = (
+      suffix: "in" | "out",
+      points: ReadonlyArray<{ x: number; y: number }> | undefined,
+      endpoints: { source: string; target: string },
+    ): Array<Edge> =>
+      points === undefined || points.length < 2
+        ? []
+        : [
+            {
+              id: `${edge.id}:${suffix}`,
+              source: endpoints.source,
+              target: endpoints.target,
+              type: "elk",
+              ...(suffix === "out" ? { markerEnd: "url(#studio-arrow)" } : {}),
+              data: { points, traversed },
+            },
+          ]
+    return [
+      ...segment("in", inbound, { source: edge.source, target: `t:${edge.id}` }),
+      ...segment("out", outbound, { source: `t:${edge.id}`, target: edge.target }),
     ]
   })
 
   const anchor =
     selection === undefined
       ? undefined
-      : placed?.positions.get(
-          selection.kind === "node"
-            ? selection.id
-            : (visible.edges.find((edge) => edge.id === selection.id)?.source ?? ""),
-        )
+      : selection.kind === "node"
+        ? placed?.positions.get(selection.id)
+        : placed?.transitions.get(selection.id)?.point
 
   return (
     <div className="relative min-w-0 flex-1">
@@ -176,13 +194,14 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
             edgesFocusable={false}
             proOptions={{ hideAttribution: false }}
             style={{ background: "transparent" }}
-            onNodeClick={(_, node) =>
+            onNodeClick={(_, node) => {
+              const next: Selection = isTransitionNodeId(node.id)
+                ? { kind: "edge", id: edgeIdOfTransition(node.id) }
+                : { kind: "node", id: node.id }
               setSelection((current) =>
-                current?.kind === "node" && current.id === node.id
-                  ? undefined
-                  : { kind: "node", id: node.id },
+                current?.kind === next.kind && current.id === next.id ? undefined : next,
               )
-            }
+            }}
             onPaneClick={() => setSelection(undefined)}
           >
             {selection === undefined || anchor === undefined || placed === undefined ? null : (
@@ -191,7 +210,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
                   style={{
                     position: "absolute",
                     left: anchor.x,
-                    top: anchor.y + NODE_HEIGHT + 8,
+                    top: anchor.y + (selection.kind === "node" ? NODE_HEIGHT : 22) + 8,
                     transform: `scale(${1 / zoom})`,
                     transformOrigin: "top left",
                   }}
