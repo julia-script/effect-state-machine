@@ -12,6 +12,14 @@ failures stay typed, cancellation uses Scope and fibers, retry uses native Sched
 runtime operation remains an Effect. The library creates no global runtime and exposes no Promise
 methods or framework bindings.
 
+## Packages
+
+This repository is a pnpm workspace:
+
+- [`effect-state-machine`](packages/core) — the core library (single dependency: `effect`);
+- [`@effect-state-machine/studio-client`](packages/studio-client) — connects running machines to Studio;
+- [`@effect-state-machine/studio`](packages/studio) — the Studio CLI, server, and interface.
+
 ## Install
 
 The v0 line currently targets the Effect beta used to design and verify its semantics:
@@ -123,72 +131,67 @@ is the initial compact renderer; it does not attempt to reconstruct opaque Effec
 internals. Run `pnpm build` in this repository to regenerate
 `dist/reference-workflow.mmd`, a read-only diagram of the integrated example.
 
-## Interactive devtools
+## Studio
 
-Devtools attach to one externally owned machine handle. Attaching is scoped, begins observing before
-it returns, and does not create a runtime or take ownership of the machine:
+Studio is the standalone devtool: a local server plus a browser interface that any number of
+applications — browser or Node — connect to over WebSocket. The old in-page viewer is gone; one
+tool serves every runtime.
+
+Start it:
+
+```sh
+npx @effect-state-machine/studio        # http://127.0.0.1:4747
+```
+
+Attach a running machine from your application with
+[`@effect-state-machine/studio-client`](packages/studio-client):
 
 ```ts
+import { Attach, WebSocketTransport, Transport } from "@effect-state-machine/studio-client"
 import { Effect } from "effect"
 import { Machine } from "effect-state-machine"
-import { Session } from "effect-state-machine/devtools"
-import { Viewer } from "effect-state-machine/devtools/viewer"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
     const handle = yield* Machine.run(definition, input)
-    const session = yield* Session.attach({
+    yield* Attach.attach({
       definition,
       handle,
-      projectState: (state) => ({ title: "title" in state ? state.title : undefined }),
       quickEvents: [
         { id: "save", label: "Save", event: { _tag: "Save" } },
         {
           id: "random-edit",
           label: "Random edit",
-          make: () => ({ _tag: "Edit", text: crypto.randomUUID() }),
+          make: () => ({ _tag: "Edit" as const, text: crypto.randomUUID() }),
         },
       ],
     })
-
-    yield* Viewer.mount({
-      session,
-      container: document.body,
-      presentation: "dock",
-    })
+    // …the application continues normally
   }),
-)
+).pipe(Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()))
 ```
 
-This is the supported browser connection today: the application creates the `MachineHandle`,
-attaches a `Session` in the same browser runtime, and mounts the viewer beside the real UI. With
-`presentation: "dock"`, the viewer behaves like React Query Devtools: a small launcher opens a
-bottom dock, which can expand to the full viewport. Use `presentation: "inline"` when the viewer
-owns a page or a dedicated panel instead.
+Attaching is scoped and observational: it never interrupts the machine, and it is inert when no
+Studio is running — the client connects lazily, retries in the background, and buffers unsent
+facts (bounded, oldest dropped with a truncation notice). Everything Studio needs crosses the wire
+as plain data: the serialized behavior graph, JSON Schemas per state and event, schema-encoded
+state snapshots, and semantic inspection events. Quick-event factories run in the application;
+custom events dispatched from Studio are decoded against the machine's event schema and checked
+with `can` before they reach the real handle.
 
-There is not yet a Node-to-browser or browser-tab-to-standalone-viewer transport. A Node process
-cannot connect to `interactive-devtools.html` in this milestone. That requires a transport protocol
-and a local viewer host; the standalone fixture page is not a remote devtools server.
+The interface shows the behavior map with depth-limited focus and traversed-edge emphasis, the
+current state as JSON with a line diff, node and event detail cards with their JSON Schemas and
+source links (opened in your editor by the local server, `--editor` to configure), grouped quick
+events, a custom-event editor, and a semantic history with local time travel — the cursor is
+per-viewer state and never touches the wire or the machine. Multiple applications and machines
+appear as sessions in the top bar; disconnected sessions keep their history inspectable.
 
-The renderer-independent `Session` API exposes Effects for reads and controls plus a Stream of
-immutable views. A view contains metadata-only semantic history, expandable raw inspection records,
-quick-event metadata, committed positions, a live head, a movable history cursor, and depth-one,
-depth-two, or full graph projections. Moving the cursor only changes the snapshot being inspected;
-it is not replay, undo, or a repetition of external Effects. New live commits continue to append
-while the cursor is historical, and `returnToLive` selects the newest recorded position.
+The connection is a swappable Effect service (`StudioTransport`), so future transports — an
+in-memory pair for tests ships today, a browser-extension port is possible later — reuse the whole
+client and interface unchanged.
 
-Quick-event factories are synchronous and run exactly once per dispatch. The materialized event is
-checked with `can` immediately before the real handle's `send`. Source locations are captured
-automatically and best-effort; the viewer supports Cursor by default, VS Code, or a custom editor
-resolver, and omits a link when it cannot identify a trustworthy authored location.
-
-Full state and event payloads are excluded by default. `projectState` is the explicit local opt-in
-for details safe to retain and display. Importing `effect-state-machine` loads no devtools code;
-importing `effect-state-machine/devtools` loads no DOM viewer. The optional viewer is isolated at
-`effect-state-machine/devtools/viewer`.
-
-Milestone 2 deliberately excludes named paths, event replay, failure/latency simulation, child or
-actor topology, cross-context transports, persistence, and telemetry correlation.
+For a runnable walkthrough see
+[`packages/studio-client/examples/checkout-demo.ts`](packages/studio-client/examples/checkout-demo.ts).
 
 ### Interactive reference workbench
 
@@ -197,12 +200,6 @@ local-first document definition used by the tests. It can swap `Documents` and `
 Layers, exercise typed failures, advance an Effect `TestClock` through the retry Schedule, resolve
 the scoped conflict child, and inspect both focused and complete graph views. The page owns its
 `ManagedRuntime` and Promise bridge; the machine handle remains Effect-native.
-
-It also creates `dist/interactive-devtools.html`, a browser fixture workbench for the direct-session
-viewer. Use `?fixture=checkout`, `?fixture=document`, or `?fixture=large`; add `&mode=viewer` to hide
-the sample host application panel. This is a local integration example, not a transport endpoint.
-The large fixture is a real 100-state, 400-edge machine whose readable focus projection is the
-default; the complete topology is an intentionally lower-detail overview until a node is hovered.
 
 ## Runtime contract
 

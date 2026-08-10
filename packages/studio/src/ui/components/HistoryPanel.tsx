@@ -15,6 +15,7 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
   const behind = isLive || displayed === undefined ? 0 : head - displayed
 
   const stepCount = history.steps.length
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new steps
   React.useEffect(() => {
     if (isLive && listRef.current !== null) {
       listRef.current.scrollTop = listRef.current.scrollHeight

@@ -55,7 +55,8 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
           {diffEnabled && previous !== undefined
             ? diffLines(pretty(previous.state), pretty(position.state)).map((line, index) => (
                 <div
-                  key={`${index}-${line.text}`}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional
+                  key={`${index}-${line.kind}`}
                   className={
                     line.kind === "added"
                       ? "bg-success-soft text-success"
