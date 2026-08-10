@@ -258,11 +258,13 @@ describe("invoked Effects", () => {
       graph.edges.filter((edge) => edge.outcome !== undefined),
       [
         {
+          id: "Loading:success:0:Loaded:1",
           source: "Loading",
           target: "Loaded",
           outcome: { kind: "success" },
         },
         {
+          id: "Loading:failure:0:Missing:2",
           source: "Loading",
           target: "Missing",
           outcome: { kind: "failure" },
@@ -274,6 +276,7 @@ describe("invoked Effects", () => {
           },
         },
         {
+          id: "Loading:failure:1:Failed:3",
           source: "Loading",
           target: "Failed",
           outcome: { kind: "failure" },

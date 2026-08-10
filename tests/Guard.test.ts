@@ -171,6 +171,7 @@ describe("guarded transitions", () => {
 
     assert.deepStrictEqual(graph.edges, [
       {
+        id: "Ready:Decide:0:Positive:0",
         source: "Ready",
         target: "Positive",
         event: { tag: "Decide", description: "Classify a number." },
@@ -182,12 +183,14 @@ describe("guarded transitions", () => {
         },
       },
       {
+        id: "Ready:Decide:1:Even:1",
         source: "Ready",
         target: "Even",
         event: { tag: "Decide", description: "Classify a number." },
         branch: { kind: "guard", index: 1, name: "is-even" },
       },
       {
+        id: "Ready:Decide:2:Other:2",
         source: "Ready",
         target: "Other",
         event: { tag: "Decide", description: "Classify a number." },

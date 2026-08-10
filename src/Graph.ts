@@ -35,6 +35,7 @@ export interface Node {
 }
 
 export interface Edge {
+  readonly id: string
   readonly source: string
   readonly target: string
   readonly event?: Readonly<{
@@ -74,6 +75,71 @@ export interface Graph {
   readonly edges: ReadonlyArray<Edge>
   readonly ignores: ReadonlyArray<Ignore>
 }
+
+export type FocusDepth = 1 | 2 | "full"
+
+export interface ActivityOverlay {
+  readonly activeNode?: string
+  readonly traversedEdges: ReadonlyArray<string>
+}
+
+export interface TransitionActivity {
+  readonly source: string
+  readonly target: string
+  readonly event?: string
+  readonly branchIndex?: number
+}
+
+/** Derives a bounded, renderer-independent view without changing the source graph. */
+export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph => {
+  if (depth === "full") return graph
+  if (!graph.nodes.some((node) => node.id === center)) {
+    return { ...graph, nodes: [], edges: [], ignores: [] }
+  }
+
+  const visible = new Set([center])
+  let frontier = [center]
+  for (let level = 0; level < depth; level += 1) {
+    const next: Array<string> = []
+    for (const source of frontier) {
+      for (const edge of graph.edges) {
+        if (edge.source !== source || visible.has(edge.target)) continue
+        visible.add(edge.target)
+        next.push(edge.target)
+      }
+    }
+    frontier = next
+  }
+
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => visible.has(node.id)),
+    edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
+    ignores: graph.ignores.filter((ignore) => visible.has(ignore.source)),
+  }
+}
+
+/** Computes cursor activity separately from topology so renderers can choose their own emphasis. */
+export const activity = (
+  graph: Graph,
+  activeNode: string | undefined,
+  transitions: ReadonlyArray<TransitionActivity>,
+): ActivityOverlay => ({
+  ...(activeNode === undefined || !graph.nodes.some((node) => node.id === activeNode)
+    ? {}
+    : { activeNode }),
+  traversedEdges: graph.edges.flatMap((edge) =>
+    transitions.some(
+      (transition) =>
+        transition.source === edge.source &&
+        transition.target === edge.target &&
+        (transition.event === undefined || transition.event === edge.event?.tag) &&
+        (transition.branchIndex === undefined || transition.branchIndex === edge.branch?.index),
+    )
+      ? [edge.id]
+      : [],
+  ),
+})
 
 const descriptionOf = (schema: Schema.Top | undefined): string | undefined => {
   if (schema === undefined) return undefined
@@ -152,7 +218,7 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
     }
   })
 
-  const edges: Array<Edge> = []
+  const edges: Array<Omit<Edge, "id">> = []
   const ignores: Array<Ignore> = []
   for (const node of definition.nodes) {
     if (node.kind === "final") continue
@@ -282,10 +348,17 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
     }
   }
 
+  const identifiedEdges = edges.map(
+    (edge, index): Edge => ({
+      ...edge,
+      id: `${edge.source}:${edge.event?.tag ?? edge.outcome?.kind ?? "transition"}:${edge.branch?.index ?? 0}:${edge.target}:${index}`,
+    }),
+  )
+
   return {
     id: definition.id,
     nodes,
-    edges,
+    edges: identifiedEdges,
     ignores,
     ...(definition.description === undefined ? {} : { description: definition.description }),
   }

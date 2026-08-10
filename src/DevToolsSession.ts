@@ -111,6 +111,11 @@ export interface SessionView<Details = never> {
     description?: string
   }>
   readonly graph: Graph.Graph
+  readonly focus: Readonly<{
+    depth: Graph.FocusDepth
+    graph: Graph.Graph
+    activity: Graph.ActivityOverlay
+  }>
   readonly status: SessionStatus
   readonly liveHead: number
   readonly cursor: number
@@ -130,6 +135,7 @@ export interface Session<Details = never> {
   readonly selectPosition: (position: number) => Effect.Effect<boolean>
   readonly selectStep: (step: number) => Effect.Effect<boolean>
   readonly returnToLive: Effect.Effect<void>
+  readonly setFocusDepth: (depth: Graph.FocusDepth) => Effect.Effect<void>
   readonly dispatchQuickEvent: (id: string) => Effect.Effect<void, QuickEventFailure>
 }
 
@@ -149,6 +155,7 @@ interface SessionModel<State extends Tagged, Details> {
   readonly status: SessionStatus
   readonly positions: ReadonlyArray<InternalPosition<State, Details>>
   readonly cursor: number
+  readonly focusDepth: Graph.FocusDepth
   readonly pendingStates: ReadonlyArray<State>
   readonly pendingCommits: ReadonlyArray<Readonly<{ step?: number }>>
   readonly raw: ReadonlyArray<RawInspectionRecord>
@@ -464,17 +471,40 @@ const toView = <State extends Tagged, Details>(
 ): SessionView<Details> => {
   const positions = freeze(model.positions.map((entry) => entry.view))
   const liveHead = positions.length - 1
+  const selected = positions[model.cursor]
+  const focusedGraph = Graph.focus(graph, selected.state.tag, model.focusDepth)
+  const transitions = model.semantic.flatMap(
+    (step): ReadonlyArray<Graph.TransitionActivity> =>
+      step.committedPosition !== undefined &&
+      step.committedPosition <= model.cursor &&
+      step.sourceStateTag !== undefined &&
+      step.targetStateTag !== undefined
+        ? [
+            {
+              source: step.sourceStateTag,
+              target: step.targetStateTag,
+              ...(step.eventTag === undefined ? {} : { event: step.eventTag }),
+              ...(step.branch === undefined ? {} : { branchIndex: step.branch.index }),
+            },
+          ]
+        : [],
+  )
   return freeze({
     machine: freeze({
       id: definition.id,
       ...(definition.description === undefined ? {} : { description: definition.description }),
     }),
     graph,
+    focus: freeze({
+      depth: model.focusDepth,
+      graph: focusedGraph,
+      activity: Graph.activity(focusedGraph, selected.state.tag, transitions),
+    }),
     status: model.status,
     liveHead,
     cursor: model.cursor,
     isLive: model.cursor === liveHead,
-    selected: positions[model.cursor],
+    selected,
     positions,
     history: freeze({
       semantic: freeze([...model.semantic]),
@@ -529,6 +559,7 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
       status: "running",
       positions: [initialPosition],
       cursor: 0,
+      focusDepth: 1,
       pendingStates: [],
       pendingCommits: [],
       raw: [],
@@ -617,6 +648,8 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
         ...current,
         cursor: current.positions.length - 1,
       })),
+      setFocusDepth: (focusDepth) =>
+        SubscriptionRef.update(model, (current) => ({ ...current, focusDepth })),
       dispatchQuickEvent: (id) =>
         Effect.gen(function* () {
           const quickEvent = quickEvents.find((candidate) => candidate.id === id)

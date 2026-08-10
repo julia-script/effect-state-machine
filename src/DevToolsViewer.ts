@@ -9,11 +9,189 @@ export interface MountOptions<Details> {
   readonly hidden?: boolean
 }
 
+interface Camera {
+  scale: number
+  x: number
+  y: number
+}
+
+const svgElement = <Name extends keyof SVGElementTagNameMap>(
+  name: Name,
+): SVGElementTagNameMap[Name] => document.createElementNS("http://www.w3.org/2000/svg", name)
+
+const renderGraph = <Details>(
+  view: DevToolsSession.SessionView<Details>,
+  session: DevToolsSession.Session<Details>,
+  camera: Camera,
+): HTMLElement => {
+  const section = document.createElement("section")
+  section.setAttribute("aria-label", "Machine graph")
+  const controls = document.createElement("nav")
+  controls.setAttribute("aria-label", "Graph controls")
+  for (const depth of [1, 2, "full"] as const) {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = depth === "full" ? "Full" : `Depth ${depth}`
+    button.disabled = view.focus.depth === depth
+    button.addEventListener("click", () => {
+      Effect.runFork(session.setFocusDepth(depth))
+    })
+    controls.append(button)
+  }
+
+  const svg = svgElement("svg")
+  svg.setAttribute("role", "img")
+  svg.setAttribute("aria-label", `${view.machine.id} focused graph`)
+  svg.setAttribute("viewBox", "0 0 1000 560")
+  svg.style.width = "100%"
+  svg.style.height = "min(56vh, 560px)"
+  svg.style.touchAction = "none"
+  const scene = svgElement("g")
+  const applyCamera = () => {
+    scene.setAttribute("transform", `translate(${camera.x} ${camera.y}) scale(${camera.scale})`)
+  }
+  applyCamera()
+
+  const columns = Math.max(1, Math.ceil(Math.sqrt(view.graph.nodes.length)))
+  const positions = new Map(
+    view.graph.nodes.map((node, index) => [
+      node.id,
+      { x: 70 + (index % columns) * 220, y: 60 + Math.floor(index / columns) * 120 },
+    ]),
+  )
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true
+  for (const edge of view.focus.graph.edges) {
+    const source = positions.get(edge.source)
+    const target = positions.get(edge.target)
+    if (source === undefined || target === undefined) continue
+    const traversed = view.focus.activity.traversedEdges.includes(edge.id)
+    const path = svgElement("path")
+    const self = edge.source === edge.target
+    path.setAttribute(
+      "d",
+      self
+        ? `M ${source.x + 70} ${source.y} C ${source.x + 135} ${source.y - 70}, ${source.x - 55} ${source.y - 70}, ${source.x} ${source.y}`
+        : `M ${source.x + 70} ${source.y} L ${target.x} ${target.y}`,
+    )
+    path.setAttribute("fill", "none")
+    path.setAttribute("stroke", traversed ? "#075a9c" : "#84909d")
+    path.setAttribute("stroke-width", traversed ? "4" : "2")
+    path.setAttribute("marker-end", "url(#devtools-arrow)")
+    if (traversed) {
+      path.setAttribute("stroke-dasharray", "9 7")
+      if (!reducedMotion) {
+        const animate = svgElement("animate")
+        animate.setAttribute("attributeName", "stroke-dashoffset")
+        animate.setAttribute("from", "32")
+        animate.setAttribute("to", "0")
+        animate.setAttribute("dur", "1s")
+        animate.setAttribute("repeatCount", "indefinite")
+        path.append(animate)
+      }
+    }
+    scene.append(path)
+    const label = svgElement("text")
+    label.textContent = edge.event?.tag ?? edge.outcome?.kind ?? ""
+    label.setAttribute("x", String((source.x + target.x) / 2 + 35))
+    label.setAttribute("y", String((source.y + target.y) / 2 - 8))
+    label.setAttribute("font-size", "12")
+    scene.append(label)
+  }
+
+  for (const node of view.focus.graph.nodes) {
+    const point = positions.get(node.id)
+    if (point === undefined) continue
+    const group = svgElement("g")
+    const rect = svgElement("rect")
+    rect.setAttribute("x", String(point.x))
+    rect.setAttribute("y", String(point.y - 28))
+    rect.setAttribute("width", "150")
+    rect.setAttribute("height", "56")
+    rect.setAttribute("rx", "14")
+    rect.setAttribute("fill", view.focus.activity.activeNode === node.id ? "#f7d33d" : "#edf6fa")
+    rect.setAttribute("stroke", "#17212b")
+    rect.setAttribute("stroke-width", view.focus.activity.activeNode === node.id ? "4" : "2")
+    const label = svgElement("text")
+    label.textContent = node.title
+    label.setAttribute("x", String(point.x + 75))
+    label.setAttribute("y", String(point.y + 5))
+    label.setAttribute("text-anchor", "middle")
+    label.setAttribute("font-size", "15")
+    group.append(rect, label)
+    scene.append(group)
+  }
+
+  const definitions = svgElement("defs")
+  const marker = svgElement("marker")
+  marker.id = "devtools-arrow"
+  marker.setAttribute("viewBox", "0 0 10 10")
+  marker.setAttribute("refX", "9")
+  marker.setAttribute("refY", "5")
+  marker.setAttribute("markerWidth", "7")
+  marker.setAttribute("markerHeight", "7")
+  marker.setAttribute("orient", "auto-start-reverse")
+  const arrow = svgElement("path")
+  arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z")
+  arrow.setAttribute("fill", "#075a9c")
+  marker.append(arrow)
+  definitions.append(marker)
+  svg.append(definitions, scene)
+
+  for (const [label, change] of [
+    ["Zoom in", 1.2],
+    ["Zoom out", 1 / 1.2],
+  ] as const) {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = label
+    button.addEventListener("click", () => {
+      camera.scale = Math.min(4, Math.max(0.25, camera.scale * change))
+      applyCamera()
+    })
+    controls.append(button)
+  }
+  const fit = document.createElement("button")
+  fit.type = "button"
+  fit.textContent = "Fit"
+  fit.addEventListener("click", () => {
+    camera.scale = 1
+    camera.x = 0
+    camera.y = 0
+    applyCamera()
+  })
+  controls.append(fit)
+
+  let drag: { x: number; y: number } | undefined
+  svg.addEventListener("pointerdown", (event) => {
+    drag = { x: event.clientX, y: event.clientY }
+    svg.setPointerCapture(event.pointerId)
+  })
+  svg.addEventListener("pointermove", (event) => {
+    if (drag === undefined) return
+    camera.x += event.clientX - drag.x
+    camera.y += event.clientY - drag.y
+    drag = { x: event.clientX, y: event.clientY }
+    applyCamera()
+  })
+  svg.addEventListener("pointerup", () => {
+    drag = undefined
+  })
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault()
+    camera.scale = Math.min(4, Math.max(0.25, camera.scale * (event.deltaY < 0 ? 1.1 : 0.9)))
+    applyCamera()
+  })
+
+  section.append(controls, svg)
+  return section
+}
+
 /** A deliberately small embedded viewer used to prove the renderer-independent session seam. */
 export const mount = <Details>(
   options: MountOptions<Details>,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
+    const camera: Camera = { scale: 1, x: 0, y: 0 }
     const root = yield* Effect.sync(() => {
       const element = document.createElement("section")
       element.dataset.effectStateMachineDevtools = ""
@@ -33,6 +211,7 @@ export const mount = <Details>(
       Stream.runForEach((view) =>
         Effect.sync(() => {
           root.replaceChildren()
+          const graph = renderGraph(view, options.session, camera)
           const machine = document.createElement("strong")
           machine.textContent = view.machine.id
           const state = document.createElement("span")
@@ -117,7 +296,7 @@ export const mount = <Details>(
             rawList.append(item)
           }
           raw.append(summary, rawList)
-          root.append(machine, state, navigation, quickEvents, history, raw)
+          root.append(machine, state, navigation, graph, quickEvents, history, raw)
         }),
       ),
       Effect.forkScoped,

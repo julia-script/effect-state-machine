@@ -83,6 +83,7 @@ describe("Graph", () => {
       ],
       edges: [
         {
+          id: "Active:Pause:0:Paused:0",
           source: "Active",
           target: "Paused",
           event: {
@@ -92,6 +93,7 @@ describe("Graph", () => {
           description: "Preserve the count while pausing.",
         },
         {
+          id: "Paused:Resume:0:Active:1",
           source: "Paused",
           target: "Active",
           event: {
@@ -118,5 +120,48 @@ describe("Graph", () => {
         "  Paused --> Active: Resume",
       ].join("\n"),
     )
+  })
+
+  it("projects cyclic graphs by outgoing depth while preserving identity and order", () => {
+    const node = (id: string): Graph.Node => ({ id, title: id, kind: "state" })
+    const graph: Graph.Graph = {
+      id: "cyclic",
+      nodes: [node("A"), node("B"), node("C"), node("D")],
+      edges: [
+        { id: "a-b", source: "A", target: "B" },
+        { id: "a-a", source: "A", target: "A" },
+        { id: "b-c", source: "B", target: "C" },
+        { id: "c-a", source: "C", target: "A" },
+        { id: "d-a", source: "D", target: "A" },
+      ],
+      ignores: [],
+    }
+
+    const one = Graph.focus(graph, "A", 1)
+    assert.deepStrictEqual(
+      one.nodes.map(({ id }) => id),
+      ["A", "B"],
+    )
+    assert.deepStrictEqual(
+      one.edges.map(({ id }) => id),
+      ["a-b", "a-a"],
+    )
+
+    const two = Graph.focus(graph, "A", 2)
+    assert.deepStrictEqual(
+      two.nodes.map(({ id }) => id),
+      ["A", "B", "C"],
+    )
+    assert.deepStrictEqual(
+      two.edges.map(({ id }) => id),
+      ["a-b", "a-a", "b-c", "c-a"],
+    )
+    assert.strictEqual(Graph.focus(graph, "A", "full"), graph)
+    assert.deepStrictEqual(Graph.focus(graph, "missing", 1).nodes, [])
+
+    assert.deepStrictEqual(Graph.activity(two, "C", [{ source: "A", target: "B" }]), {
+      activeNode: "C",
+      traversedEdges: ["a-b"],
+    })
   })
 })

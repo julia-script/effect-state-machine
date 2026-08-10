@@ -145,6 +145,9 @@ describe("DevToolsSession", () => {
         assert.strictEqual(view.liveHead, 1)
         assert.strictEqual(view.isLive, false)
         assert.deepStrictEqual(view.selected.state.details, { count: 0 })
+        assert.strictEqual(view.focus.depth, 1)
+        assert.strictEqual(view.focus.activity.activeNode, "Active")
+        assert.deepStrictEqual(view.focus.activity.traversedEdges, [])
 
         yield* handle.send({ _tag: "Increment", amount: 2 })
         view = yield* session.changes.pipe(
@@ -155,6 +158,8 @@ describe("DevToolsSession", () => {
         assert.strictEqual(view.cursor, 0)
         assert.strictEqual(view.liveHead, 2)
         assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 3 })
+        yield* session.setFocusDepth("full")
+        assert.strictEqual((yield* session.view).focus.graph, (yield* session.view).graph)
 
         yield* session.next
         assert.deepStrictEqual((yield* session.view).selected.state.details, { count: 1 })
@@ -163,6 +168,7 @@ describe("DevToolsSession", () => {
           .find((step) => step.eventTag === "Increment")
         assert.strictEqual(yield* session.selectStep(eventStep?.index ?? -1), true)
         assert.strictEqual((yield* session.view).cursor, 2)
+        assert.strictEqual((yield* session.view).focus.activity.traversedEdges.length, 1)
         yield* session.previous
         yield* session.returnToLive
         assert.strictEqual((yield* session.view).cursor, 2)
