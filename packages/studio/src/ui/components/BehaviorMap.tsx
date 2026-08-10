@@ -225,7 +225,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
             nodesDraggable={false}
             nodesConnectable={false}
             edgesFocusable={false}
-            proOptions={{ hideAttribution: false }}
+            proOptions={{ hideAttribution: true }}
             style={{ background: "transparent" }}
             onNodeClick={(_, node) => {
               const next: MapSelection = isTransitionNodeId(node.id)
