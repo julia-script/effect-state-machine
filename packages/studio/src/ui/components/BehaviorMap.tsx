@@ -6,7 +6,6 @@ import {
   ReactFlowProvider,
   useReactFlow,
   useViewport,
-  ViewportPortal,
 } from "@xyflow/react"
 import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
@@ -17,10 +16,15 @@ import {
   layout,
   START_ID,
 } from "../lib/elkLayout.js"
-import { focus, NODE_HEIGHT, toJson } from "../lib/layout.js"
-import { depthAtom, displayedPositionAtom, graphJsonAtom } from "../state/atoms.js"
+import { focus, toJson } from "../lib/layout.js"
+import {
+  depthAtom,
+  displayedPositionAtom,
+  graphJsonAtom,
+  type MapSelection,
+  selectionAtom,
+} from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
-import { DetailCard, type Selection } from "./DetailCard.js"
 import { ElkEdge } from "./flow/ElkEdge.js"
 import { StartNode } from "./flow/StartNode.js"
 import { StateNode } from "./flow/StateNode.js"
@@ -42,7 +46,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   const displayed = useAtomValue(displayedPositionAtom)
   const [depth, setDepth] = useAtom(depthAtom(session.sessionId))
   const [showJson, setShowJson] = useAtom(graphJsonAtom(session.sessionId))
-  const [selection, setSelection] = React.useState<Selection | undefined>(undefined)
+  const [selection, setSelection] = useAtom(selectionAtom(session.sessionId))
   const [placed, setPlaced] = React.useState<ElkPlacement | undefined>(undefined)
   const flow = useReactFlow()
   const { zoom } = useViewport()
@@ -203,13 +207,6 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         ]
   const allEdges = [...startEdges, ...edges]
 
-  const anchor =
-    selection === undefined
-      ? undefined
-      : selection.kind === "node"
-        ? placed?.positions.get(selection.id)
-        : placed?.transitions.get(selection.id)?.point
-
   return (
     <div className="relative min-w-0 flex-1">
       {showJson ? (
@@ -231,7 +228,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
             proOptions={{ hideAttribution: false }}
             style={{ background: "transparent" }}
             onNodeClick={(_, node) => {
-              const next: Selection = isTransitionNodeId(node.id)
+              const next: MapSelection = isTransitionNodeId(node.id)
                 ? { kind: "edge", id: edgeIdOfTransition(node.id) }
                 : { kind: "node", id: node.id }
               setSelection((current) =>
@@ -239,28 +236,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
               )
             }}
             onPaneClick={() => setSelection(undefined)}
-          >
-            {selection === undefined || anchor === undefined || placed === undefined ? null : (
-              <ViewportPortal>
-                <div
-                  style={{
-                    position: "absolute",
-                    left: anchor.x,
-                    top: anchor.y + (selection.kind === "node" ? NODE_HEIGHT : 22) + 8,
-                    transform: `scale(${1 / zoom})`,
-                    transformOrigin: "top left",
-                  }}
-                >
-                  <DetailCard
-                    graph={visible}
-                    session={session}
-                    selection={selection}
-                    onClose={() => setSelection(undefined)}
-                  />
-                </div>
-              </ViewportPortal>
-            )}
-          </ReactFlow>
+          ></ReactFlow>
         </div>
       )}
 

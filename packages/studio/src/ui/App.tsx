@@ -1,11 +1,33 @@
-import { useAtomValue } from "@effect/atom-react"
+import { useAtom, useAtomValue } from "@effect/atom-react"
+import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
 import { BehaviorMap } from "./components/BehaviorMap.js"
+import { DetailCard } from "./components/DetailCard.js"
 import { EventsPanel } from "./components/EventsPanel.js"
 import { HistoryPanel } from "./components/HistoryPanel.js"
 import { StatePanel } from "./components/StatePanel.js"
 import { TopBar } from "./components/TopBar.js"
-import { currentSessionAtom, railCollapsedAtom, themeAtom, worldViewAtom } from "./state/atoms.js"
+import {
+  currentSessionAtom,
+  railCollapsedAtom,
+  selectionAtom,
+  themeAtom,
+  worldViewAtom,
+} from "./state/atoms.js"
+import type { SessionView } from "./state/ViewerClient.js"
+
+function SelectionDetails({ session }: { readonly session: SessionView }) {
+  const [selection, setSelection] = useAtom(selectionAtom(session.sessionId))
+  if (selection === undefined) return null
+  return (
+    <DetailCard
+      graph={session.hello.graph as Graph.Graph}
+      session={session}
+      selection={selection}
+      onClose={() => setSelection(undefined)}
+    />
+  )
+}
 
 export function App() {
   const theme = useAtomValue(themeAtom)
@@ -36,6 +58,7 @@ export function App() {
           <BehaviorMap session={session} />
           {railCollapsed ? null : (
             <aside className="flex w-[320px] shrink-0 flex-col overflow-y-auto border-l-2 border-ink bg-surface">
+              <SelectionDetails session={session} />
               <StatePanel session={session} />
               <EventsPanel session={session} />
               <HistoryPanel session={session} />

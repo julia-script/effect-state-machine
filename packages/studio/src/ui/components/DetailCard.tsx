@@ -1,11 +1,9 @@
 import type { Graph } from "effect-state-machine/devtools"
+import type { MapSelection } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { SourceLink } from "./SourceLink.js"
 
-export interface Selection {
-  readonly kind: "node" | "edge"
-  readonly id: string
-}
+export type Selection = MapSelection
 
 const badge = (text: string) => (
   <span className="rounded-full bg-pear px-1.5 py-0.5 font-mono text-[8.5px] font-bold text-pear-ink">
@@ -70,9 +68,10 @@ export function DetailCard({
         : undefined
 
   return (
-    <div className="w-[280px] rounded-[10px] border-2 border-ink bg-surface p-3 shadow-hard">
+    <section className="border-b-2 border-ink bg-paper-2 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-display text-[12.5px] font-extrabold">{title}</span>
+        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">DETAILS</span>
+        <span className="font-display text-[13px] font-extrabold">{title}</span>
         {badge(kind)}
         <span className="flex-1" />
         <button type="button" className="text-[12px] text-muted" onClick={onClose}>
@@ -106,6 +105,6 @@ export function DetailCard({
           </pre>
         </details>
       )}
-    </div>
+    </section>
   )
 }

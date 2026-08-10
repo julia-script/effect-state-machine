@@ -75,6 +75,18 @@ export const depthAtom = Atom.family((sessionId: string) =>
   ),
 )
 
+export interface MapSelection {
+  readonly kind: "node" | "edge"
+  readonly id: string
+}
+
+export const selectionAtom = Atom.family((sessionId: string) =>
+  Atom.make<MapSelection | undefined>(undefined).pipe(
+    Atom.setIdleTTL("10 minutes"),
+    Atom.withLabel(`selection:${sessionId}`),
+  ),
+)
+
 export const graphJsonAtom = Atom.family((sessionId: string) =>
   Atom.make(false).pipe(Atom.setIdleTTL("10 minutes")),
 )
