@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: completed
 
 # Effect State Machine Library
 
