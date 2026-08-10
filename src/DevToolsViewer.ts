@@ -96,8 +96,8 @@ const layoutGraph = <StateDetails, EventDetails>(
     const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.length)))
     for (const [index, node] of nodes.entries()) {
       positions.set(node.id, {
-        x: 64 + (index % columns) * 190,
-        y: 64 + Math.floor(index / columns) * 84,
+        x: 80 + (index % columns) * 320,
+        y: 88 + Math.floor(index / columns) * 160,
       })
     }
   } else {
@@ -496,6 +496,7 @@ const svgGraph = <StateDetails, EventDetails>(
   applyCamera()
 
   const edgeElements = new Map<string, ReadonlyArray<SVGElement>>()
+  const nodeElements = new Map<string, SVGElement>()
   for (const [index, edge] of view.focus.graph.edges.entries()) {
     const source = layout.positions.get(edge.source)
     const target = layout.positions.get(edge.target)
@@ -537,8 +538,26 @@ const svgGraph = <StateDetails, EventDetails>(
       ...edgeDescriptions(edge).map(([label, copy]) => `${label}: ${copy}`),
     ].join("\n")
     eventNode.append(eventTitle, eventSurface, eventText)
+    eventNode.addEventListener("pointerenter", () => setHoveredEdge(edge.id))
+    eventNode.addEventListener("pointerleave", () => setHoveredEdge(undefined))
     scene.append(eventNode)
     edgeElements.set(edge.id, [path, eventNode])
+  }
+
+  const setHoveredEdge = (edgeId: string | undefined) => {
+    if (edgeId === undefined) delete scene.dataset.hovering
+    else scene.dataset.hovering = ""
+    const selected = view.focus.graph.edges.find((edge) => edge.id === edgeId)
+    for (const edge of view.focus.graph.edges) {
+      for (const element of edgeElements.get(edge.id) ?? []) {
+        element.classList.toggle("is-event-focus", edge.id === edgeId)
+        element.classList.remove("is-outgoing", "is-incoming", "is-loop")
+      }
+    }
+    for (const [nodeId, element] of nodeElements) {
+      element.classList.toggle("is-event-source", selected?.source === nodeId)
+      element.classList.toggle("is-event-target", selected?.target === nodeId)
+    }
   }
 
   const setHoveredNode = (nodeId: string | undefined) => {
@@ -549,10 +568,14 @@ const svgGraph = <StateDetails, EventDetails>(
       const outgoing = nodeId !== undefined && edge.source === nodeId && !loop
       const incoming = nodeId !== undefined && edge.target === nodeId && !loop
       for (const element of edgeElements.get(edge.id) ?? []) {
+        element.classList.remove("is-event-focus")
         element.classList.toggle("is-outgoing", outgoing)
         element.classList.toggle("is-incoming", incoming)
         element.classList.toggle("is-loop", loop)
       }
+    }
+    for (const element of nodeElements.values()) {
+      element.classList.remove("is-event-source", "is-event-target")
     }
   }
 
@@ -587,6 +610,7 @@ const svgGraph = <StateDetails, EventDetails>(
     group.setAttribute("transform", `translate(${point.x} ${point.y - NODE_HEIGHT / 2})`)
     group.addEventListener("pointerenter", () => setHoveredNode(node.id))
     group.addEventListener("pointerleave", () => setHoveredNode(undefined))
+    nodeElements.set(node.id, group)
     const rect = svgElement("rect")
     rect.setAttribute("width", String(NODE_WIDTH))
     rect.setAttribute("height", String(NODE_HEIGHT))

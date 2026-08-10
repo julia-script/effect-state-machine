@@ -548,13 +548,15 @@ select:disabled {
     stroke-width var(--dur-micro);
 }
 
-.machine-devtools__edge.is-active {
+.machine-devtools__edge.is-active,
+.machine-devtools__edge.is-event-focus {
   stroke: var(--color-focus);
   stroke-width: 3;
   opacity: 1;
 }
 
 .machine-devtools__edge.is-active,
+.machine-devtools__edge.is-event-focus,
 .machine-devtools__edge.is-outgoing,
 .machine-devtools__edge.is-incoming,
 .machine-devtools__edge.is-loop {
@@ -581,18 +583,24 @@ select:disabled {
 }
 
 .machine-devtools__graph[data-full]
-  .machine-devtools__edge:not(.is-active):not(.is-outgoing):not(.is-incoming):not(.is-loop) {
+  .machine-devtools__edge:not(.is-active):not(.is-event-focus):not(.is-outgoing):not(
+    .is-incoming
+  ):not(.is-loop) {
   opacity: 0.24;
 }
 
 .machine-devtools__graph-scene[data-hovering]
-  .machine-devtools__edge:not(.is-outgoing):not(.is-incoming):not(.is-loop):not(.is-active) {
+  .machine-devtools__edge:not(.is-event-focus):not(.is-outgoing):not(.is-incoming):not(
+    .is-loop
+  ):not(.is-active) {
   opacity: 0.025;
 }
 
 .machine-devtools__edge-label {
   pointer-events: auto;
   cursor: help;
+  opacity: 0.86;
+  transition: opacity var(--dur-micro);
 }
 
 .machine-devtools__edge-label rect {
@@ -606,12 +614,23 @@ select:disabled {
   font: 700 11px var(--font-mono);
 }
 
-.machine-devtools__graph[data-full]
-  .machine-devtools__edge-label:not(.is-active):not(.is-outgoing):not(.is-incoming):not(.is-loop) {
-  display: none;
+.machine-devtools__edge-label.is-active,
+.machine-devtools__edge-label.is-event-focus,
+.machine-devtools__edge-label.is-outgoing,
+.machine-devtools__edge-label.is-incoming,
+.machine-devtools__edge-label.is-loop {
+  opacity: 1;
+}
+
+.machine-devtools__graph-scene[data-hovering]
+  .machine-devtools__edge-label:not(.is-event-focus):not(.is-outgoing):not(.is-incoming):not(
+    .is-loop
+  ):not(.is-active) {
+  opacity: 0.08;
 }
 
 .machine-devtools__edge-label.is-active rect,
+.machine-devtools__edge-label.is-event-focus rect,
 .machine-devtools__edge-label.is-outgoing rect {
   fill: var(--color-focus);
   stroke: var(--color-focus);
@@ -628,6 +647,7 @@ select:disabled {
 }
 
 .machine-devtools__edge-label.is-active text,
+.machine-devtools__edge-label.is-event-focus text,
 .machine-devtools__edge-label.is-outgoing text,
 .machine-devtools__edge-label.is-incoming text {
   fill: var(--color-surface);
@@ -658,6 +678,20 @@ select:disabled {
 .machine-devtools__node.is-active rect {
   fill: var(--color-pear);
   stroke-width: 3;
+}
+
+.machine-devtools__node.is-event-source rect {
+  stroke: var(--color-focus);
+  stroke-width: 3;
+}
+
+.machine-devtools__node.is-event-target rect {
+  stroke: var(--color-success);
+  stroke-width: 3;
+}
+
+.machine-devtools__node.is-event-source.is-event-target rect {
+  stroke: var(--color-accent);
 }
 
 .machine-devtools__initial-marker circle {
