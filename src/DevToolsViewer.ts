@@ -192,17 +192,25 @@ const sourceControl = (
   return link
 }
 
+const stepEdge = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  step: DevToolsSession.SemanticStep<EventDetails> | undefined,
+): Graph.Edge | undefined =>
+  step === undefined
+    ? undefined
+    : view.graph.edges.find(
+        (candidate) =>
+          candidate.source === step.sourceStateTag &&
+          candidate.target === step.targetStateTag &&
+          (step.eventTag === undefined || candidate.event?.tag === step.eventTag) &&
+          (step.branch === undefined || candidate.branch?.index === step.branch.index),
+      )
+
 const stepLocation = <StateDetails, EventDetails>(
   view: DevToolsSession.SessionView<StateDetails, EventDetails>,
   step: DevToolsSession.SemanticStep<EventDetails>,
 ): SourceLocation.Location | undefined => {
-  const edge = view.graph.edges.find(
-    (candidate) =>
-      candidate.source === step.sourceStateTag &&
-      candidate.target === step.targetStateTag &&
-      (step.eventTag === undefined || candidate.event?.tag === step.eventTag) &&
-      (step.branch === undefined || candidate.branch?.index === step.branch.index),
-  )
+  const edge = stepEdge(view, step)
   if (edge?.location !== undefined) return edge.location
   const nodeTag = step.sourceStateTag ?? step.targetStateTag
   return view.graph.nodes.find((candidate) => candidate.id === nodeTag)?.location
@@ -210,6 +218,51 @@ const stepLocation = <StateDetails, EventDetails>(
 
 const edgeLabel = (edge: Graph.Edge): string =>
   edge.event?.tag ?? edge.outcome?.kind ?? "transition"
+
+const initialStateTag = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+): string | undefined =>
+  view.history.semantic.find((step) => step.kind === "machine" && step.status === "started")
+    ?.targetStateTag ?? view.positions[0]?.state.tag
+
+const descriptionLine = (label: string, description: string): HTMLParagraphElement => {
+  const line = document.createElement("p")
+  line.className = "machine-devtools__description"
+  const kind = document.createElement("strong")
+  kind.textContent = label
+  const copy = document.createElement("span")
+  copy.textContent = description
+  line.append(kind, copy)
+  return line
+}
+
+const descriptionCopy = (description: string): HTMLParagraphElement => {
+  const copy = document.createElement("p")
+  copy.className = "machine-devtools__description-copy"
+  copy.textContent = description
+  return copy
+}
+
+const nodeDescriptions = (node: Graph.Node): ReadonlyArray<readonly [string, string]> => [
+  ...(node.description === undefined ? [] : ([["State", node.description]] as const)),
+  ...(node.invocation?.description === undefined
+    ? []
+    : ([[`Effect · ${node.invocation.name}`, node.invocation.description]] as const)),
+  ...(node.invocation?.retry?.description === undefined
+    ? []
+    : ([[`Retry · ${node.invocation.retry.name}`, node.invocation.retry.description]] as const)),
+  ...(node.child?.description === undefined
+    ? []
+    : ([[`Child · ${node.child.name}`, node.child.description]] as const)),
+]
+
+const edgeDescriptions = (edge: Graph.Edge): ReadonlyArray<readonly [string, string]> => [
+  ...(edge.event?.description === undefined ? [] : ([["Event", edge.event.description]] as const)),
+  ...(edge.description === undefined ? [] : ([["Transition", edge.description]] as const)),
+  ...(edge.branch?.kind !== "guard" || edge.branch.description === undefined
+    ? []
+    : ([[`Guard · ${edge.branch.name}`, edge.branch.description]] as const)),
+]
 
 const focusGraph = <StateDetails, EventDetails>(
   view: DevToolsSession.SessionView<StateDetails, EventDetails>,
@@ -220,19 +273,25 @@ const focusGraph = <StateDetails, EventDetails>(
   canvas.className = "machine-devtools__focus-graph"
   const activeTag = view.focus.activity.activeNode ?? view.selected.state.tag
   const activeNode = view.graph.nodes.find((node) => node.id === activeTag)
+  const isInitial = activeTag === initialStateTag(view)
   const current = document.createElement("article")
   current.className = "machine-devtools__focus-current"
+  if (isInitial) current.dataset.initial = ""
   const eyebrow = document.createElement("span")
-  eyebrow.textContent = view.isLive
-    ? "STATE · LIVE"
-    : `STATE · HISTORY ${view.cursor}/${view.liveHead}`
+  eyebrow.textContent = `STATE · ${view.isLive ? "LIVE" : `HISTORY ${view.cursor}/${view.liveHead}`}`
   const title = document.createElement("strong")
   title.textContent = activeNode?.title ?? activeTag
   current.append(eyebrow, title)
-  if (activeNode?.description !== undefined) {
-    const description = document.createElement("p")
-    description.textContent = activeNode.description
-    current.append(description)
+  if (isInitial) {
+    const initial = document.createElement("span")
+    initial.className = "machine-devtools__initial-badge"
+    initial.textContent = "INITIAL"
+    current.append(initial)
+  }
+  if (activeNode !== undefined) {
+    for (const [label, description] of nodeDescriptions(activeNode)) {
+      current.append(descriptionLine(label, description))
+    }
   }
   if (activeNode?.location !== undefined) {
     current.append(sourceControl(activeNode.location, "Open state", state.sourceAction, options))
@@ -259,6 +318,9 @@ const focusGraph = <StateDetails, EventDetails>(
     const eventName = document.createElement("strong")
     eventName.textContent = edgeLabel(edge)
     event.append(eventKind, eventName)
+    if (edge.event?.description !== undefined) {
+      event.append(descriptionCopy(edge.event.description))
+    }
     const arrow = document.createElement("span")
     arrow.className = "machine-devtools__focus-arrow"
     arrow.textContent = "→"
@@ -270,11 +332,13 @@ const focusGraph = <StateDetails, EventDetails>(
     const targetTitle = document.createElement("strong")
     targetTitle.textContent = target?.title ?? edge.target
     targetState.append(targetKind, targetTitle)
+    if (target?.description !== undefined) {
+      targetState.append(descriptionCopy(target.description))
+    }
     route.append(event, arrow, targetState)
-    if (edge.description !== undefined) {
-      const description = document.createElement("p")
-      description.textContent = edge.description
-      route.append(description)
+    for (const [label, description] of edgeDescriptions(edge)) {
+      if (label === "Event") continue
+      route.append(descriptionLine(label, description))
     }
     if (edge.location !== undefined) {
       route.append(sourceControl(edge.location, "Open decision", state.sourceAction, options))
@@ -467,7 +531,12 @@ const svgGraph = <StateDetails, EventDetails>(
     eventText.setAttribute("x", String(eventWidth / 2))
     eventText.setAttribute("y", "25")
     eventText.setAttribute("text-anchor", "middle")
-    eventNode.append(eventSurface, eventText)
+    const eventTitle = svgElement("title")
+    eventTitle.textContent = [
+      eventName,
+      ...edgeDescriptions(edge).map(([label, copy]) => `${label}: ${copy}`),
+    ].join("\n")
+    eventNode.append(eventTitle, eventSurface, eventText)
     scene.append(eventNode)
     edgeElements.set(edge.id, [path, eventNode])
   }
@@ -487,12 +556,34 @@ const svgGraph = <StateDetails, EventDetails>(
     }
   }
 
+  const entryTag = initialStateTag(view)
   for (const node of view.focus.graph.nodes) {
     const point = layout.positions.get(node.id)
     if (point === undefined) continue
+    if (node.id === entryTag) {
+      const entry = svgElement("g")
+      entry.classList.add("machine-devtools__initial-marker")
+      entry.setAttribute("transform", `translate(${point.x - 48} ${point.y})`)
+      const entryTitle = svgElement("title")
+      entryTitle.textContent = `${node.title} is the initial state for this machine instance.`
+      const dot = svgElement("circle")
+      dot.setAttribute("cx", "0")
+      dot.setAttribute("cy", "0")
+      dot.setAttribute("r", "5")
+      const line = svgElement("path")
+      line.setAttribute("d", "M 8 0 H 42")
+      line.setAttribute("marker-end", "url(#machine-devtools-arrow)")
+      const label = svgElement("text")
+      label.textContent = "INITIAL"
+      label.setAttribute("x", "0")
+      label.setAttribute("y", "-12")
+      entry.append(entryTitle, dot, line, label)
+      scene.append(entry)
+    }
     const group = svgElement("g")
     group.classList.add("machine-devtools__node")
     if (view.focus.activity.activeNode === node.id) group.classList.add("is-active")
+    if (node.id === entryTag) group.classList.add("is-initial")
     group.setAttribute("transform", `translate(${point.x} ${point.y - NODE_HEIGHT / 2})`)
     group.addEventListener("pointerenter", () => setHoveredNode(node.id))
     group.addEventListener("pointerleave", () => setHoveredNode(undefined))
@@ -505,7 +596,13 @@ const svgGraph = <StateDetails, EventDetails>(
     label.setAttribute("x", String(NODE_WIDTH / 2))
     label.setAttribute("y", String(NODE_HEIGHT / 2 + 5))
     label.setAttribute("text-anchor", "middle")
-    group.append(rect, label)
+    const nodeTitle = svgElement("title")
+    nodeTitle.textContent = [
+      node.title,
+      ...(node.id === entryTag ? ["Initial state for this machine instance."] : []),
+      ...nodeDescriptions(node).map(([kind, copy]) => `${kind}: ${copy}`),
+    ].join("\n")
+    group.append(nodeTitle, rect, label)
     if (node.location !== undefined && state.sourceAction !== "copy") {
       const resolver = sourceResolver(state.sourceAction, options)
       const href = resolver?.(node.location)
@@ -714,7 +811,14 @@ const quickEventPanel = <StateDetails, EventDetails>(
     state.customEventError = undefined
     rerender()
   })
-  tagLabel.append(tag)
+  const describedTag = eventTags.includes(selectedTag ?? "") ? selectedTag : eventTags[0]
+  const tagDescription =
+    view.graph.edges.find((edge) => edge.event?.tag === describedTag)?.event?.description ??
+    view.graph.ignores.find((ignore) => ignore.event.tag === describedTag)?.event.description
+  const tagHelp = document.createElement("span")
+  tagHelp.className = "machine-devtools__field-help"
+  tagHelp.textContent = tagDescription ?? "No event description was authored."
+  tagLabel.append(tag, tagHelp)
 
   const payloadLabel = document.createElement("label")
   payloadLabel.textContent = "Event JSON"
@@ -900,17 +1004,49 @@ const historyPanel = <StateDetails, EventDetails>(
   statePayload.open = true
   const stateSummary = document.createElement("summary")
   stateSummary.textContent = `State · ${view.selected.state.tag}`
+  const selectedNode = view.graph.nodes.find((node) => node.id === view.selected.state.tag)
+  if (selectedNode !== undefined) {
+    for (const [label, description] of nodeDescriptions(selectedNode)) {
+      statePayload.append(descriptionLine(label, description))
+    }
+  } else if (view.selected.state.description !== undefined) {
+    statePayload.append(descriptionLine("State", view.selected.state.description))
+  }
   const statePre = document.createElement("pre")
   statePre.textContent = formatPayload(
     view.selected.state.details ?? { _tag: view.selected.state.tag },
   )
-  statePayload.append(stateSummary, statePre)
+  statePayload.prepend(stateSummary)
+  statePayload.append(statePre)
 
   const eventPayload = document.createElement("details")
   eventPayload.className = "machine-devtools__snapshot"
   eventPayload.open = view.selectedStep?.eventTag !== undefined
   const eventSummary = document.createElement("summary")
   eventSummary.textContent = `Event · ${view.selectedStep?.eventTag ?? "none selected"}`
+  const selectedEdge = stepEdge(view, view.selectedStep)
+  const selectedIgnore = view.graph.ignores.find(
+    (ignore) =>
+      ignore.source === view.selectedStep?.sourceStateTag &&
+      ignore.event.tag === view.selectedStep?.eventTag,
+  )
+  const describedEvent =
+    selectedEdge?.event ??
+    selectedIgnore?.event ??
+    view.graph.edges.find((edge) => edge.event?.tag === view.selectedStep?.eventTag)?.event ??
+    view.graph.ignores.find((ignore) => ignore.event.tag === view.selectedStep?.eventTag)?.event
+  if (describedEvent?.description !== undefined) {
+    eventPayload.append(descriptionLine("Description", describedEvent.description))
+  }
+  if (selectedEdge !== undefined) {
+    for (const [label, description] of edgeDescriptions(selectedEdge)) {
+      if (label === "Event") continue
+      eventPayload.append(descriptionLine(label, description))
+    }
+  }
+  if (selectedIgnore?.description !== undefined) {
+    eventPayload.append(descriptionLine("Ignored", selectedIgnore.description))
+  }
   const eventPre = document.createElement("pre")
   eventPre.textContent =
     view.selectedStep?.eventTag === undefined
@@ -918,7 +1054,8 @@ const historyPanel = <StateDetails, EventDetails>(
       : view.selectedStep.eventDetails === undefined
         ? "Event projection is off. Add projectEvent when attaching devtools."
         : formatPayload(view.selectedStep.eventDetails)
-  eventPayload.append(eventSummary, eventPre)
+  eventPayload.prepend(eventSummary)
+  eventPayload.append(eventPre)
 
   inspectors.append(statePayload, eventPayload)
   section.append(heading, list, inspectors)
