@@ -4,6 +4,7 @@ import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import { ConflictResolution } from "../examples/LocalFirstDocument.js"
 import * as DevToolsSession from "../src/DevToolsSession.js"
 import * as Machine from "../src/Machine.js"
 import { counterDefinition } from "./fixtures/Counter.js"
@@ -38,6 +39,14 @@ describe("DevToolsSession", () => {
       )
       assert.strictEqual(advanced.liveHead, 1)
       assert.deepStrictEqual(advanced.selected.state.details, { count: 3 })
+      assert.deepStrictEqual(
+        advanced.history.raw.map((record) => record.event._tag),
+        ["MachineStarted", "EventReceived", "TransitionSelected", "StateChanged"],
+      )
+      const eventStep = advanced.history.semantic.find((step) => step.kind === "event")
+      assert.strictEqual(eventStep?.eventTag, "Increment")
+      assert.strictEqual(eventStep?.committedPosition, 1)
+      assert.deepStrictEqual(eventStep?.raw, [1, 2, 3])
 
       yield* Scope.close(sessionScope, Exit.void)
       yield* handle.send({ _tag: "Increment", amount: 4 })
@@ -67,6 +76,49 @@ describe("DevToolsSession", () => {
           ["Active", "Active", "Paused"],
         )
         assert.strictEqual(yield* Stream.runCount(Stream.take(session.changes, 1)), 1)
+      }),
+    ),
+  )
+
+  it.effect("retains completion and defect evidence as semantic and raw history", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const completedHandle = yield* Machine.run(ConflictResolution, {
+          localText: "local",
+          remoteText: "remote",
+        })
+        const completed = yield* DevToolsSession.attach({
+          definition: ConflictResolution,
+          handle: completedHandle,
+        })
+        yield* completedHandle.send({ _tag: "ChooseResolution", text: "merged" })
+        const completedView = yield* completed.changes.pipe(
+          Stream.filter((view) => view.status === "completed" && view.liveHead === 1),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        )
+        assert.deepStrictEqual(
+          completedView.history.semantic.map((step) => step.kind),
+          ["machine", "event", "completion"],
+        )
+
+        const defectedHandle = yield* Machine.run(counterDefinition, { count: 0 })
+        const defected = yield* DevToolsSession.attach({
+          definition: counterDefinition,
+          handle: defectedHandle,
+        })
+        yield* Effect.exit(defectedHandle.send({ _tag: "Resume" }))
+        const defectedView = yield* defected.changes.pipe(
+          Stream.filter((view) => view.status === "defected"),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        )
+        const failedEvent = defectedView.history.semantic.find((step) => step.kind === "event")
+        assert.strictEqual(failedEvent?.status, "defected")
+        assert.deepStrictEqual(
+          defectedView.history.raw.map((record) => record.event._tag),
+          ["MachineStarted", "EventReceived", "MachineDefected"],
+        )
       }),
     ),
   )

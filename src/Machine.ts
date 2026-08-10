@@ -1136,7 +1136,7 @@ interface ActiveChild {
   readonly handle: MachineHandle<Tagged, Tagged, Tagged>
 }
 
-type SelectedBranch =
+export type SelectedBranch =
   | Readonly<{
       kind: "guard"
       index: number
