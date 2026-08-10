@@ -1,7 +1,7 @@
 {
   "name": "@effect-state-machine/studio",
   "version": "0.1.0",
-  "description": "Studio \u2014 the standalone devtool for effect-state-machine.",
+  "description": "Studio — the standalone devtool for effect-state-machine.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -25,8 +25,10 @@
     "@effect-state-machine/studio-client": "workspace:*",
     "@effect/atom-react": "4.0.0-beta.106",
     "@effect/platform-node": "4.0.0-beta.106",
+    "@xyflow/react": "^12.11.2",
     "effect": "4.0.0-beta.106",
     "effect-state-machine": "workspace:*",
+    "elkjs": "^0.12.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

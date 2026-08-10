@@ -1,24 +1,12 @@
 import type { Graph } from "effect-state-machine/devtools"
 
-/** Renderer-side graph helpers: hop-limited focus and a layered layout. */
+/** Renderer-side graph helpers: node metrics, hop-limited focus, JSON view. */
 
 export const NODE_WIDTH = 148
 export const NODE_HEIGHT = 46
-const COLUMN_GAP = 230
-const ROW_GAP = 92
-const PADDING_X = 48
-const PADDING_Y = 56
-const MAX_ROWS = 6
-
 export interface Point {
   readonly x: number
   readonly y: number
-}
-
-export interface Layout {
-  readonly positions: ReadonlyMap<string, Point>
-  readonly width: number
-  readonly height: number
 }
 
 const undirectedNeighbors = (graph: Graph.Graph): ReadonlyMap<string, ReadonlyArray<string>> => {
@@ -77,55 +65,6 @@ export const focus = (
     edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
     ignores: graph.ignores.filter((ignore) => visible.has(ignore.source)),
   }
-}
-
-/** Columns by BFS distance from the active node; disconnected nodes trail. */
-export const layout = (graph: Graph.Graph, active: string | undefined): Layout => {
-  const start =
-    active !== undefined && graph.nodes.some((node) => node.id === active)
-      ? active
-      : graph.nodes[0]?.id
-  const distances = distancesFrom(graph, start)
-  const columns: Array<Array<string>> = []
-  const push = (column: number, id: string) => {
-    while (columns.length <= column) columns.push([])
-    columns[column].push(id)
-  }
-  let overflow = Math.max(0, ...distances.values()) + 1
-  let overflowCount = 0
-  for (const node of graph.nodes) {
-    const distance = distances.get(node.id)
-    if (distance !== undefined) {
-      push(distance, node.id)
-      continue
-    }
-    if (overflowCount >= MAX_ROWS) {
-      overflow += 1
-      overflowCount = 0
-    }
-    push(overflow, node.id)
-    overflowCount += 1
-  }
-
-  const positions = new Map<string, Point>()
-  for (const [column, ids] of columns.entries()) {
-    // Tall columns wrap into neighboring x offsets to stay scannable.
-    for (const [row, id] of ids.entries()) {
-      const wrap = Math.floor(row / MAX_ROWS)
-      positions.set(id, {
-        x: PADDING_X + column * COLUMN_GAP + wrap * (COLUMN_GAP / 2),
-        y: PADDING_Y + (row % MAX_ROWS) * ROW_GAP + (column % 2) * 24,
-      })
-    }
-  }
-
-  let width = 720
-  let height = 420
-  for (const point of positions.values()) {
-    width = Math.max(width, point.x + NODE_WIDTH + PADDING_X)
-    height = Math.max(height, point.y + NODE_HEIGHT + PADDING_Y)
-  }
-  return { positions, width, height }
 }
 
 /** The serializable structure shown by the graph JSON view. */

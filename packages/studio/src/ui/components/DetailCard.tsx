@@ -1,5 +1,4 @@
 import type { Graph } from "effect-state-machine/devtools"
-import { NODE_HEIGHT, NODE_WIDTH, type Point } from "../lib/layout.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { SourceLink } from "./SourceLink.js"
 
@@ -18,15 +17,11 @@ export function DetailCard({
   graph,
   session,
   selection,
-  scale,
-  positions,
   onClose,
 }: {
   readonly graph: Graph.Graph
   readonly session: ViewerClient.SessionView
   readonly selection: Selection
-  readonly scale: number
-  readonly positions: ReadonlyMap<string, Point>
   readonly onClose: () => void
 }) {
   const node =
@@ -34,11 +29,6 @@ export function DetailCard({
   const edge =
     selection.kind === "edge" ? graph.edges.find((e) => e.id === selection.id) : undefined
   if (node === undefined && edge === undefined) return null
-
-  const anchorId = node?.id ?? edge?.source ?? ""
-  const anchor = positions.get(anchorId) ?? { x: 0, y: 0 }
-  const left = anchor.x * scale
-  const top = (anchor.y + NODE_HEIGHT + 8) * scale
 
   const title = node?.title ?? edge?.event?.tag ?? edge?.outcome?.kind ?? "transition"
   const kind =
@@ -80,10 +70,7 @@ export function DetailCard({
         : undefined
 
   return (
-    <div
-      className="absolute z-10 w-[280px] rounded-[10px] border-2 border-ink bg-surface p-3 shadow-hard"
-      style={{ left, top: Math.max(0, top) }}
-    >
+    <div className="w-[280px] rounded-[10px] border-2 border-ink bg-surface p-3 shadow-hard">
       <div className="flex items-center gap-2">
         <span className="font-display text-[12.5px] font-extrabold">{title}</span>
         {badge(kind)}
@@ -122,5 +109,3 @@ export function DetailCard({
     </div>
   )
 }
-
-export { NODE_WIDTH }

@@ -1,27 +1,49 @@
 import { useAtom, useAtomValue } from "@effect/atom-react"
+import {
+  type Edge,
+  type Node,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  useViewport,
+  ViewportPortal,
+} from "@xyflow/react"
 import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
-import { focus, layout, NODE_HEIGHT, NODE_WIDTH, toJson } from "../lib/layout.js"
+import { type ElkPlacement, edgeLabelText, layout } from "../lib/elkLayout.js"
+import { focus, NODE_HEIGHT, toJson } from "../lib/layout.js"
 import { depthAtom, displayedPositionAtom, graphJsonAtom } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { DetailCard, type Selection } from "./DetailCard.js"
+import { ElkEdge } from "./flow/ElkEdge.js"
+import { StateNode } from "./flow/StateNode.js"
+import "@xyflow/react/dist/style.css"
 
-const clampScale = (value: number) => Math.min(1.15, Math.max(0.35, value))
+const nodeTypes = { state: StateNode }
+const edgeTypes = { elk: ElkEdge }
 
 export function BehaviorMap({ session }: { readonly session: ViewerClient.SessionView }) {
+  return (
+    <ReactFlowProvider>
+      <FlowInner session={session} />
+    </ReactFlowProvider>
+  )
+}
+
+function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) {
   const displayed = useAtomValue(displayedPositionAtom)
   const [depth, setDepth] = useAtom(depthAtom(session.sessionId))
   const [showJson, setShowJson] = useAtom(graphJsonAtom(session.sessionId))
-  const [scale, setScale] = React.useState(1)
   const [selection, setSelection] = React.useState<Selection | undefined>(undefined)
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const [placed, setPlaced] = React.useState<ElkPlacement | undefined>(undefined)
+  const flow = useReactFlow()
+  const { zoom } = useViewport()
 
   const graph = session.hello.graph as Graph.Graph
   const history = session.history
   const initialTag = history.positions[0]?.stateTag
   const activeTag = displayed === undefined ? undefined : history.positions[displayed]?.stateTag
   const visible = focus(graph, activeTag, depth === "all" ? "all" : depth)
-  const placed = layout(visible, initialTag ?? activeTag)
 
   const traversedStep = history.steps.find(
     (step) =>
@@ -39,34 +61,84 @@ export function BehaviorMap({ session }: { readonly session: ViewerClient.Sessio
       (traversedStep.branch === undefined || edge.branch?.index === traversedStep.branch.index),
   )
 
-  const fit = React.useCallback(() => {
-    const container = containerRef.current
-    if (container === null) return
-    setScale(
-      clampScale(
-        Math.min(
-          (container.clientWidth - 60) / placed.width,
-          (container.clientHeight - 60) / placed.height,
-        ),
-      ),
-    )
-  }, [placed.width, placed.height])
+  const graphSignature = `${session.sessionId}:${depth}:${visible.nodes
+    .map((node) => node.id)
+    .join(",")}`
 
-  const graphSignature = `${session.sessionId}:${visible.nodes.length}:${depth}`
-  // Refit when the visible graph shape changes; manual zoom wins afterwards.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fit keyed by shape signature
+  // ELK layout is async; keep the previous placement while the next computes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: layout keyed by shape signature
   React.useEffect(() => {
-    const frame = requestAnimationFrame(fit)
-    return () => cancelAnimationFrame(frame)
+    let stale = false
+    void layout(visible).then((next) => {
+      if (!stale) setPlaced(next)
+    })
+    return () => {
+      stale = true
+    }
   }, [graphSignature])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refit when the layout changes
   React.useEffect(() => {
-    const container = containerRef.current
-    if (container === null) return
-    const observer = new ResizeObserver(() => fit())
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [fit])
+    if (placed === undefined) return
+    const frame = requestAnimationFrame(() => {
+      void flow.fitView({ padding: 0.1, maxZoom: 1.15 })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [placed])
+
+  const nodes: Array<Node> = visible.nodes.flatMap((node) => {
+    const point = placed?.positions.get(node.id)
+    if (point === undefined) return []
+    return [
+      {
+        id: node.id,
+        type: "state",
+        position: point,
+        data: { node, active: node.id === activeTag, initial: node.id === initialTag },
+        draggable: false,
+        connectable: false,
+      },
+    ]
+  })
+
+  const edges: Array<Edge> = visible.edges.flatMap((edge) => {
+    const route = placed?.routes.get(edge.id)
+    if (route === undefined || route.points.length < 2) return []
+    const mid = route.points[Math.floor(route.points.length / 2)]
+    const labelX = route.label !== undefined ? route.label.x + route.label.width / 2 : mid.x
+    const labelY = route.label !== undefined ? route.label.y + route.label.height / 2 : mid.y
+    return [
+      {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: "elk",
+        markerEnd: "url(#studio-arrow)",
+        data: {
+          points: route.points,
+          label: edgeLabelText(edge),
+          labelX,
+          labelY,
+          traversed: traversedEdge?.id === edge.id,
+          onSelect: () =>
+            setSelection((current) =>
+              current?.kind === "edge" && current.id === edge.id
+                ? undefined
+                : { kind: "edge", id: edge.id },
+            ),
+        },
+      },
+    ]
+  })
+
+  const anchor =
+    selection === undefined
+      ? undefined
+      : placed?.positions.get(
+          selection.kind === "node"
+            ? selection.id
+            : (visible.edges.find((edge) => edge.id === selection.id)?.source ?? ""),
+        )
 
   return (
     <div className="relative min-w-0 flex-1">
@@ -75,196 +147,69 @@ export function BehaviorMap({ session }: { readonly session: ViewerClient.Sessio
           {JSON.stringify(toJson(graph), null, 2)}
         </pre>
       ) : (
-        <div ref={containerRef} className="dot-grid h-full overflow-auto bg-surface">
-          <div
-            className="relative"
-            style={{ width: placed.width * scale, height: placed.height * scale }}
+        <div className="dot-grid h-full bg-surface">
+          {/* Shared arrowhead that inherits each edge's stroke via context-stroke. */}
+          <svg width="0" height="0" aria-hidden="true">
+            <defs>
+              <marker
+                id="studio-arrow"
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
+              </marker>
+            </defs>
+          </svg>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            minZoom={0.2}
+            maxZoom={2}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            edgesFocusable={false}
+            proOptions={{ hideAttribution: false }}
+            style={{ background: "transparent" }}
+            onNodeClick={(_, node) =>
+              setSelection((current) =>
+                current?.kind === "node" && current.id === node.id
+                  ? undefined
+                  : { kind: "node", id: node.id },
+              )
+            }
+            onPaneClick={() => setSelection(undefined)}
           >
-            <svg
-              width={placed.width * scale}
-              height={placed.height * scale}
-              viewBox={`0 0 ${placed.width} ${placed.height}`}
-              role="img"
-              aria-label={`Behavior map for ${session.hello.machine.id}`}
-            >
-              <defs>
-                <marker
-                  id="arrow"
-                  viewBox="0 0 8 8"
-                  refX="7"
-                  refY="4"
-                  markerWidth="7"
-                  markerHeight="7"
-                  orient="auto-start-reverse"
+            {selection === undefined || anchor === undefined || placed === undefined ? null : (
+              <ViewportPortal>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: anchor.x,
+                    top: anchor.y + NODE_HEIGHT + 8,
+                    transform: `scale(${1 / zoom})`,
+                    transformOrigin: "top left",
+                  }}
                 >
-                  <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
-                </marker>
-              </defs>
-              {visible.edges.map((edge) => {
-                const source = placed.positions.get(edge.source)
-                const target = placed.positions.get(edge.target)
-                if (source === undefined || target === undefined) return null
-                const isTraversed = traversedEdge?.id === edge.id
-                const isSelected = selection?.kind === "edge" && selection.id === edge.id
-                const self = edge.source === edge.target
-                const x1 = source.x + NODE_WIDTH
-                const y1 = source.y + NODE_HEIGHT / 2
-                const x2 = target.x
-                const y2 = target.y + NODE_HEIGHT / 2
-                const path = self
-                  ? `M ${source.x + NODE_WIDTH / 2} ${source.y} C ${source.x + NODE_WIDTH / 2 - 40} ${source.y - 44}, ${source.x + NODE_WIDTH / 2 + 40} ${source.y - 44}, ${source.x + NODE_WIDTH / 2} ${source.y}`
-                  : `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}`
-                const midX = self ? source.x + NODE_WIDTH / 2 : (x1 + x2) / 2
-                const midY = self ? source.y - 40 : (y1 + y2) / 2
-                const label =
-                  edge.event?.tag ?? (edge.outcome !== undefined ? edge.outcome.kind : "→")
-                return (
-                  <g key={edge.id}>
-                    <path
-                      d={path}
-                      fill="none"
-                      markerEnd="url(#arrow)"
-                      className={isTraversed ? "edge-traversed" : undefined}
-                      style={{
-                        stroke: isTraversed ? "var(--color-focus)" : "var(--color-rule-strong)",
-                        strokeWidth: isTraversed ? 3 : 1.6,
-                        opacity: isTraversed ? 1 : 0.55,
-                      }}
-                    />
-                    {/* biome-ignore lint/a11y/useSemanticElements: SVG interactive label */}
-                    <g
-                      role="button"
-                      tabIndex={0}
-                      className="cursor-pointer"
-                      onClick={() =>
-                        setSelection(isSelected ? undefined : { kind: "edge", id: edge.id })
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          setSelection(isSelected ? undefined : { kind: "edge", id: edge.id })
-                        }
-                      }}
-                    >
-                      <rect
-                        x={midX - label.length * 3.2 - 7}
-                        y={midY - 9}
-                        width={label.length * 6.4 + 14}
-                        height={18}
-                        rx={9}
-                        style={{
-                          fill: isTraversed ? "var(--color-focus)" : "var(--color-accent)",
-                          stroke: "var(--color-accent-ink)",
-                          strokeWidth: 1,
-                        }}
-                      />
-                      <text
-                        x={midX}
-                        y={midY + 3.5}
-                        textAnchor="middle"
-                        style={{
-                          fill: isTraversed ? "var(--color-surface)" : "var(--color-accent-ink)",
-                          font: "700 10px var(--font-mono)",
-                        }}
-                      >
-                        {label}
-                      </text>
-                    </g>
-                  </g>
-                )
-              })}
-              {visible.nodes.map((node) => {
-                const point = placed.positions.get(node.id)
-                if (point === undefined) return null
-                const isActive = node.id === activeTag
-                const subtitle =
-                  node.kind === "invoke"
-                    ? `invoke · ${node.invocation?.name ?? ""}`
-                    : node.kind === "final"
-                      ? `final${node.description === undefined ? "" : ` · ${node.description}`}`
-                      : node.kind === "child"
-                        ? `child · ${node.child?.name ?? ""}`
-                        : (node.description ?? "")
-                return (
-                  // biome-ignore lint/a11y/useSemanticElements: SVG interactive node
-                  <g
-                    key={node.id}
-                    role="button"
-                    tabIndex={0}
-                    className="cursor-pointer"
-                    onClick={() =>
-                      setSelection(
-                        selection?.kind === "node" && selection.id === node.id
-                          ? undefined
-                          : { kind: "node", id: node.id },
-                      )
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") setSelection({ kind: "node", id: node.id })
-                    }}
-                  >
-                    {node.id === initialTag ? (
-                      <text
-                        x={point.x - 8}
-                        y={point.y + NODE_HEIGHT / 2 + 3}
-                        textAnchor="end"
-                        style={{ fill: "var(--color-muted)", font: "700 8px var(--font-mono)" }}
-                      >
-                        INITIAL ▸
-                      </text>
-                    ) : null}
-                    <rect
-                      x={point.x}
-                      y={point.y}
-                      width={NODE_WIDTH}
-                      height={NODE_HEIGHT}
-                      rx={10}
-                      style={{
-                        fill: isActive ? "var(--color-pear)" : "var(--color-surface)",
-                        stroke: "var(--color-ink)",
-                        strokeWidth: isActive ? 2.5 : 1.5,
-                        ...(node.kind === "final" ? { strokeDasharray: "2 2" } : {}),
-                      }}
-                    />
-                    <text
-                      x={point.x + NODE_WIDTH / 2}
-                      y={point.y + 20}
-                      textAnchor="middle"
-                      style={{
-                        fill: isActive ? "var(--color-pear-ink)" : "var(--color-ink)",
-                        font: "800 12.5px var(--font-display)",
-                      }}
-                    >
-                      {node.title}
-                    </text>
-                    {subtitle === "" ? null : (
-                      <text
-                        x={point.x + NODE_WIDTH / 2}
-                        y={point.y + 35}
-                        textAnchor="middle"
-                        style={{ fill: "var(--color-muted)", font: "600 9px var(--font-mono)" }}
-                      >
-                        {subtitle.length > 26 ? `${subtitle.slice(0, 25)}…` : subtitle}
-                      </text>
-                    )}
-                  </g>
-                )
-              })}
-            </svg>
-            {selection === undefined ? null : (
-              <DetailCard
-                graph={visible}
-                session={session}
-                selection={selection}
-                scale={scale}
-                positions={placed.positions}
-                onClose={() => setSelection(undefined)}
-              />
+                  <DetailCard
+                    graph={visible}
+                    session={session}
+                    selection={selection}
+                    onClose={() => setSelection(undefined)}
+                  />
+                </div>
+              </ViewportPortal>
             )}
-          </div>
+          </ReactFlow>
         </div>
       )}
 
-      <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
         <span className="font-mono text-[9px] font-bold tracking-widest text-muted">DEPTH</span>
         <button
           type="button"
@@ -300,23 +245,27 @@ export function BehaviorMap({ session }: { readonly session: ViewerClient.Sessio
       </div>
 
       {showJson ? null : (
-        <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
+        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
           <button
             type="button"
             className="font-mono text-[12px] font-bold"
-            onClick={() => setScale(clampScale(scale / 1.2))}
+            onClick={() => void flow.zoomOut()}
           >
             −
           </button>
-          <span className="font-mono text-[10px]">{Math.round(scale * 100)}%</span>
+          <span className="font-mono text-[10px]">{Math.round(zoom * 100)}%</span>
           <button
             type="button"
             className="font-mono text-[12px] font-bold"
-            onClick={() => setScale(clampScale(scale * 1.2))}
+            onClick={() => void flow.zoomIn()}
           >
             +
           </button>
-          <button type="button" className="font-mono text-[10px] font-bold" onClick={fit}>
+          <button
+            type="button"
+            className="font-mono text-[10px] font-bold"
+            onClick={() => void flow.fitView({ padding: 0.1, maxZoom: 1.15 })}
+          >
             Fit
           </button>
         </div>
