@@ -5,5 +5,12 @@
     "theme": "Hum",
     "enrichment": "none",
     "brief": "Interactive local-first document state-machine development workbench"
+  },
+  {
+    "date": "2026-08-09",
+    "macrostructure": "Map / Diagram",
+    "theme": "Hum",
+    "enrichment": "none",
+    "brief": "Throwaway docked and standalone state-machine scenario viewer prototype"
   }
 ]

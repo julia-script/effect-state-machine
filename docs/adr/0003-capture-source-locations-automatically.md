@@ -1,0 +1,3 @@
+# Capture source locations automatically
+
+Development tooling captures source locations automatically and best-effort when machine elements are constructed; machine authors do not provide or maintain file paths and line numbers. We prefer a trustworthy jump to the declaration or decision function over exact statement-level mapping, using runtime call stacks and source maps when available and omitting the link when they are not. This trades guaranteed locations across every build pipeline for an authoring API that cannot drift out of date, while keeping source navigation optional and isolated from production behavior.

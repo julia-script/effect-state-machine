@@ -1,0 +1,2244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>Machine Scenario Viewer — Throwaway Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Hallmark · genre: playful · macrostructure: Map / Diagram · theme: Hum (cyan-led) · enrichment: none · nav: N9 · footer: Ft4 · pre-emit critique: P5 H5 E5 S5 R5 V5 · contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · mobile: pass (34, 49, 50–57) */
+      :root {
+        --paper: oklch(97% 0.012 95);
+        --paper-2: oklch(94% 0.018 95);
+        --paper-3: oklch(90% 0.025 95);
+        --ink: oklch(20% 0.012 250);
+        --ink-2: oklch(34% 0.018 250);
+        --muted: oklch(42% 0.02 250);
+        --rule: oklch(60% 0.028 250);
+        --cyan: oklch(70% 0.15 220);
+        --cyan-deep: oklch(38% 0.14 235);
+        --cyan-soft: oklch(92% 0.055 220);
+        --pear: oklch(86% 0.16 95);
+        --pear-deep: oklch(54% 0.12 95);
+        --coral: oklch(63% 0.2 25);
+        --coral-soft: oklch(92% 0.04 25);
+        --mint: oklch(83% 0.12 155);
+        --focus: oklch(32% 0.14 245);
+        --shadow-dock: oklch(20% 0.012 250 / 0.12);
+        --shadow-whisper: oklch(20% 0.012 250 / 0.09);
+        --font-body: "Plus Jakarta Sans", ui-rounded, sans-serif;
+        --font-mono: "JetBrains Mono", ui-monospace, monospace;
+        --space-3xs: 0.125rem;
+        --space-2xs: 0.25rem;
+        --space-xs: 0.5rem;
+        --space-sm: 0.75rem;
+        --space-md: 1rem;
+        --space-lg: 1.5rem;
+        --space-xl: 2.5rem;
+        --space-2xl: 4rem;
+        --space-3xl: 6rem;
+        --space-4xl: 9rem;
+        --page-gutter: clamp(var(--space-md), 4vw, var(--space-xl));
+        --radius-sm: 0.65rem;
+        --radius-md: 1rem;
+        --radius-lg: 1.35rem;
+        --radius-pill: 999px;
+        --dur-micro: 120ms;
+        --dur-short: 220ms;
+        --dur-long: 420ms;
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+        --z-base: 1;
+        --z-raised: 10;
+        --z-sticky: 200;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        overflow-x: clip;
+      }
+
+      html {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--font-body);
+      }
+
+      body {
+        min-width: 20rem;
+        min-height: 100dvh;
+        margin: 0;
+        padding-bottom: var(--space-3xl);
+        background: var(--paper);
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        min-height: 2.75rem;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-pill);
+        padding: var(--space-sm) var(--space-md);
+        color: var(--ink);
+        background: var(--paper);
+        cursor: pointer;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        transition:
+          transform var(--dur-micro) var(--ease-out),
+          background-color var(--dur-micro) var(--ease-out),
+          border-color var(--dur-micro) var(--ease-out);
+      }
+
+      button:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 3px;
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      select {
+        min-height: 2.25rem;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-sm);
+        padding: var(--space-xs) var(--space-sm);
+        color: var(--ink);
+        background: var(--paper);
+      }
+
+      select:focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        button:not(:disabled):hover {
+          border-color: var(--cyan-deep);
+          background: var(--cyan-soft);
+          transform: translateY(-1px);
+        }
+      }
+
+      .button-primary {
+        border-color: var(--cyan-deep);
+        color: var(--ink);
+        background: var(--cyan);
+        box-shadow: 0 4px 0 var(--cyan-deep);
+      }
+
+      .button-primary:active {
+        box-shadow: 0 1px 0 var(--cyan-deep);
+        transform: translateY(3px);
+      }
+
+      .button-icon {
+        width: 2.75rem;
+        padding-inline: 0;
+      }
+
+      .mono,
+      code,
+      pre,
+      .eyebrow,
+      .status,
+      .history-index {
+        font-family: var(--font-mono);
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--cyan-deep);
+        font-size: 0.72rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .prototype-question {
+        margin: var(--space-xs) 0 0;
+        max-width: 66ch;
+        color: var(--ink-2);
+        font-size: clamp(0.95rem, 2vw, 1.08rem);
+        line-height: 1.55;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+        padding: var(--space-md) var(--page-gutter);
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        min-width: 0;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+      }
+
+      .wordmark-mark {
+        display: grid;
+        width: 2.25rem;
+        height: 2.25rem;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 2px solid var(--ink);
+        border-radius: 0.8rem;
+        background: var(--pear);
+        transform: rotate(-5deg);
+      }
+
+      .wordmark-mark.is-awake {
+        animation: mark-awake var(--dur-long) var(--ease-out) both;
+      }
+
+      @keyframes mark-awake {
+        50% {
+          transform: rotate(8deg) translateY(-3px);
+        }
+      }
+
+      .prototype-badge {
+        border: 1px solid var(--coral);
+        border-radius: var(--radius-pill);
+        padding: var(--space-xs) var(--space-sm);
+        color: var(--ink);
+        background: var(--coral-soft);
+        font: 500 0.68rem/1 var(--font-mono);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .intro {
+        display: grid;
+        gap: var(--space-lg);
+        max-width: 92rem;
+        margin-inline: auto;
+        padding: clamp(var(--space-xl), 5vw, var(--space-2xl)) var(--page-gutter)
+          clamp(var(--space-2xl), 7vw, var(--space-3xl));
+      }
+
+      h1 {
+        min-width: 0;
+        max-width: 18ch;
+        margin: 0;
+        font-size: clamp(2.35rem, 6vw, 5.25rem);
+        line-height: 0.98;
+        letter-spacing: -0.045em;
+        overflow-wrap: anywhere;
+      }
+
+      .intro-copy {
+        max-width: 49rem;
+      }
+
+      .intro-copy > p:last-child {
+        max-width: 62ch;
+        margin: var(--space-md) 0 0;
+        color: var(--ink-2);
+        line-height: 1.6;
+      }
+
+      .architecture-note {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-xs);
+        border-top: 1px solid var(--rule);
+        padding-top: var(--space-md);
+        color: var(--ink-2);
+        font-size: 0.9rem;
+      }
+
+      .architecture-note b {
+        color: var(--ink);
+      }
+
+      .storefront {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-xl);
+        max-width: 92rem;
+        margin-inline: auto;
+        padding: 0 var(--page-gutter) clamp(var(--space-3xl), 15vw, var(--space-4xl));
+      }
+
+      .store-copy h2 {
+        margin: 0;
+        font-size: clamp(1.7rem, 3vw, 2.8rem);
+        letter-spacing: -0.035em;
+      }
+
+      .store-copy p {
+        max-width: 45ch;
+        margin: var(--space-sm) 0 0;
+        color: var(--ink-2);
+        line-height: 1.55;
+      }
+
+      .products {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-md);
+      }
+
+      .product {
+        position: relative;
+        display: grid;
+        gap: var(--space-lg);
+        min-width: 0;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-lg);
+        padding: clamp(var(--space-md), 3vw, var(--space-xl));
+        background: var(--paper-2);
+        transition:
+          transform var(--dur-short) var(--ease-out),
+          background-color var(--dur-short) var(--ease-out);
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .product:hover {
+          transform: translateY(-2px);
+          background: var(--paper-3);
+        }
+      }
+
+      .product--main {
+        background: var(--cyan-soft);
+      }
+
+      .product-visual {
+        display: grid;
+        min-height: 12rem;
+        place-items: center;
+        border-radius: var(--radius-md);
+        background: var(--paper);
+        overflow: hidden;
+      }
+
+      .mug {
+        position: relative;
+        width: 7rem;
+        height: 7.8rem;
+        border: 4px solid var(--ink);
+        border-radius: 0.9rem 0.9rem 2rem 2rem;
+        background: var(--pear);
+        transform: rotate(-4deg);
+      }
+
+      .mug::after {
+        content: "";
+        position: absolute;
+        top: 1.2rem;
+        right: -2.6rem;
+        width: 3rem;
+        height: 3.8rem;
+        border: 4px solid var(--ink);
+        border-left: 0;
+        border-radius: 0 2rem 2rem 0;
+      }
+
+      .notebook {
+        width: 6.6rem;
+        height: 8.2rem;
+        border: 4px solid var(--ink);
+        border-radius: 0.45rem 1rem 1rem 0.45rem;
+        background: var(--coral-soft);
+        box-shadow: inset 1rem 0 0 var(--coral);
+        transform: rotate(4deg);
+      }
+
+      .product-info {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .product-info h3 {
+        margin: 0;
+        font-size: 1.35rem;
+        letter-spacing: -0.025em;
+      }
+
+      .product-info p {
+        margin: var(--space-2xs) 0 0;
+        color: var(--ink-2);
+      }
+
+      .cart-summary {
+        position: sticky;
+        top: var(--space-md);
+        display: grid;
+        align-self: start;
+        gap: var(--space-lg);
+        border: 1px solid var(--ink);
+        border-radius: var(--radius-lg);
+        padding: var(--space-lg);
+        background: var(--paper);
+        box-shadow: 0 5px 0 var(--ink);
+      }
+
+      .cart-summary-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .cart-summary h2 {
+        margin: 0;
+        font-size: 1.3rem;
+      }
+
+      .cart-count {
+        display: grid;
+        min-width: 2.4rem;
+        height: 2.4rem;
+        place-items: center;
+        border-radius: var(--radius-pill);
+        background: var(--pear);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .cart-count.is-ticking {
+        animation: count-tick var(--dur-long) var(--ease-out) both;
+      }
+
+      @keyframes count-tick {
+        50% {
+          transform: scale(1.08);
+        }
+      }
+
+      .cart-lines {
+        display: grid;
+        gap: var(--space-sm);
+        margin: 0;
+      }
+
+      .cart-lines > div,
+      .cart-total {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--space-md);
+      }
+
+      .cart-lines dt,
+      .cart-lines dd {
+        margin: 0;
+      }
+
+      .cart-total {
+        border-top: 1px solid var(--rule);
+        padding-top: var(--space-md);
+        font-weight: 700;
+      }
+
+      .store-state-note {
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm);
+        background: var(--paper-2);
+        color: var(--ink-2);
+        font-size: 0.86rem;
+        line-height: 1.5;
+      }
+
+      .store-state-note[data-tone="history"] {
+        background: var(--coral-soft);
+      }
+
+      .devtools-launcher {
+        position: fixed;
+        right: max(1rem, env(safe-area-inset-right));
+        bottom: max(1rem, env(safe-area-inset-bottom));
+        z-index: var(--z-sticky);
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        min-height: 3.25rem;
+        border: 2px solid var(--ink);
+        color: var(--ink);
+        background: var(--pear);
+        box-shadow: 0 5px 0 var(--ink);
+      }
+
+      .devtools-launcher[aria-expanded="true"] {
+        display: none;
+      }
+
+      .pulse-dot {
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 50%;
+        background: var(--coral);
+      }
+
+      .devtools {
+        position: fixed;
+        inset-inline: 0;
+        bottom: 0;
+        z-index: var(--z-sticky);
+        display: none;
+        grid-template-rows: auto minmax(0, 1fr);
+        height: min(42rem, 50dvh);
+        border-top: 2px solid var(--ink);
+        background: var(--paper);
+        box-shadow: 0 -12px 30px var(--shadow-dock);
+      }
+
+      .devtools.is-open {
+        display: grid;
+        animation: dock-in var(--dur-long) var(--ease-out) both;
+      }
+
+      .devtools.is-expanded {
+        inset: 0;
+        height: 100dvh;
+        border-top: 0;
+      }
+
+      @keyframes dock-in {
+        from {
+          opacity: 0;
+          transform: translateY(1.25rem);
+        }
+      }
+
+      .devtools-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--space-md);
+        min-height: 3.5rem;
+        border-bottom: 1px solid var(--rule);
+        padding: var(--space-sm) var(--page-gutter);
+        background: var(--paper-2);
+      }
+
+      .devtools-title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        min-width: 0;
+      }
+
+      .devtools-title strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status {
+        display: none;
+        align-items: center;
+        gap: var(--space-xs);
+        color: var(--ink-2);
+        font-size: 0.7rem;
+        white-space: nowrap;
+      }
+
+      .status::before {
+        content: "";
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: var(--mint);
+        box-shadow: 0 0 0 1px var(--ink);
+      }
+
+      .devtools-head-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .ide-picker {
+        display: none;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .devtools-body {
+        display: grid;
+        grid-template-areas:
+          "map"
+          "controls"
+          "history";
+        grid-template-rows: minmax(16rem, 1fr) auto minmax(12rem, 0.8fr);
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .map-pane {
+        grid-area: map;
+        min-width: 0;
+        padding: var(--space-md);
+        background: var(--paper);
+      }
+
+      .pane-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: start;
+        justify-content: space-between;
+        gap: var(--space-md);
+        margin-bottom: var(--space-sm);
+      }
+
+      .pane-head h2,
+      .pane-head h3 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: -0.015em;
+      }
+
+      .pane-head p {
+        margin: var(--space-2xs) 0 0;
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+
+      .map-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: end;
+        gap: var(--space-xs);
+      }
+
+      .segmented {
+        display: flex;
+        gap: var(--space-2xs);
+        min-inline-size: 0;
+        margin: 0;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-pill);
+        padding: var(--space-2xs);
+        background: var(--paper-2);
+      }
+
+      .segmented button {
+        min-height: 2.75rem;
+        border: 0;
+        padding: var(--space-xs) var(--space-sm);
+        background: transparent;
+        font-size: 0.76rem;
+      }
+
+      .segmented button[aria-pressed="true"] {
+        background: var(--paper);
+        box-shadow: 0 1px 2px var(--shadow-whisper);
+      }
+
+      .graph-canvas {
+        position: relative;
+        min-height: 11rem;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-md);
+        background: var(--paper-2);
+        overflow: hidden;
+      }
+
+      .graph-shell {
+        position: relative;
+        min-height: 0;
+      }
+
+      .graph-canvas::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(var(--rule) 1px, transparent 1px);
+        background-size: 18px 18px;
+        opacity: 0.45;
+        pointer-events: none;
+      }
+
+      .focus-graph {
+        position: relative;
+        z-index: var(--z-base);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-content: center;
+        gap: var(--space-md);
+        min-height: 11rem;
+        padding: var(--space-md);
+      }
+
+      .focus-current,
+      .focus-target {
+        display: grid;
+        gap: var(--space-xs);
+        border: 2px solid var(--ink);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm);
+        background: var(--pear);
+        box-shadow: 0 4px 0 var(--ink);
+      }
+
+      .focus-targets {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+        gap: var(--space-sm);
+      }
+
+      .focus-target {
+        border-width: 1px;
+        background: var(--paper);
+        box-shadow: none;
+      }
+
+      .focus-arrow {
+        color: var(--cyan-deep);
+        font: 500 0.72rem/1.4 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .full-graph {
+        position: relative;
+        z-index: var(--z-base);
+        display: block;
+        width: 100%;
+        min-width: 0;
+        height: auto;
+      }
+
+      .graph-scroll {
+        position: relative;
+        z-index: var(--z-base);
+        cursor: grab;
+        overflow: auto;
+        touch-action: none;
+      }
+
+      .graph-scroll.is-panning {
+        cursor: grabbing;
+      }
+
+      .graph-zoom {
+        position: absolute;
+        right: var(--space-sm);
+        bottom: var(--space-sm);
+        z-index: var(--z-raised);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        min-inline-size: 0;
+        margin: 0;
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-pill);
+        padding: var(--space-2xs);
+        background: var(--paper);
+        box-shadow: 0 1px 2px var(--shadow-whisper);
+      }
+
+      .graph-zoom[hidden] {
+        display: none;
+      }
+
+      .graph-zoom button {
+        min-height: 2.25rem;
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 0.72rem;
+      }
+
+      .zoom-level {
+        min-width: 3.2rem;
+        color: var(--muted);
+        font: 500 0.66rem/1 var(--font-mono);
+        text-align: center;
+      }
+
+      .graph-edge {
+        fill: none;
+        stroke: var(--rule);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0.42;
+      }
+
+      .graph-edge.is-active {
+        stroke: var(--cyan-deep);
+        stroke-width: 5;
+        stroke-dasharray: 12 8;
+        opacity: 1;
+        animation: edge-flow 760ms linear infinite;
+      }
+
+      @keyframes edge-flow {
+        from {
+          stroke-dashoffset: 20;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      .graph-edge-label {
+        fill: var(--ink-2);
+        stroke: var(--paper-2);
+        stroke-width: 6px;
+        paint-order: stroke;
+        font: 500 10px var(--font-mono);
+        text-anchor: middle;
+      }
+
+      .graph-node rect {
+        fill: var(--paper);
+        stroke: var(--ink);
+        stroke-width: 2;
+      }
+
+      .graph-node text {
+        fill: var(--ink);
+        font-family: var(--font-body);
+        font-size: 15px;
+        font-weight: 700;
+        text-anchor: middle;
+      }
+
+      .graph-node.is-active rect {
+        fill: var(--pear);
+        stroke-width: 4;
+      }
+
+      .graph-node.is-visited rect {
+        fill: var(--cyan-soft);
+      }
+
+      .graph-source-dot {
+        fill: var(--cyan-deep);
+        stroke: var(--paper);
+        stroke-width: 3;
+      }
+
+      .controls-pane {
+        grid-area: controls;
+        display: grid;
+        gap: var(--space-md);
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
+        padding: var(--space-md);
+        background: var(--paper-2);
+      }
+
+      .control-section {
+        display: grid;
+        gap: var(--space-xs);
+      }
+
+      .control-section h3 {
+        margin: 0;
+        font-size: 0.9rem;
+      }
+
+      .quick-events,
+      .scenario-tabs,
+      .scenario-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+      }
+
+      .quick-events button,
+      .scenario-tabs button {
+        min-height: 2.75rem;
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 0.78rem;
+      }
+
+      .scenario-tabs button[aria-pressed="true"] {
+        border-color: var(--ink);
+        background: var(--pear);
+      }
+
+      .scenario-copy {
+        min-height: 3rem;
+        color: var(--ink-2);
+        font-size: 0.82rem;
+        line-height: 1.5;
+      }
+
+      .scenario-copy strong {
+        display: block;
+        color: var(--ink);
+      }
+
+      .history-pane {
+        grid-area: history;
+        min-width: 0;
+        padding: var(--space-sm);
+        background: var(--paper);
+      }
+
+      .history-pane .pane-head {
+        gap: var(--space-xs);
+        margin-bottom: var(--space-xs);
+      }
+
+      .history-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+
+      .history-mode {
+        display: flex;
+        gap: var(--space-2xs);
+        min-inline-size: 0;
+        margin: var(--space-xs) 0 0;
+        border: 0;
+        padding: 0;
+      }
+
+      .history-mode button {
+        min-height: 2rem;
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 0.7rem;
+      }
+
+      .history-mode button[aria-pressed="true"] {
+        border-color: var(--cyan-deep);
+        background: var(--cyan-soft);
+      }
+
+      .history-position {
+        min-width: 4.5rem;
+        color: var(--muted);
+        font: 500 0.72rem/1 var(--font-mono);
+        text-align: center;
+      }
+
+      .history-list {
+        display: grid;
+        gap: var(--space-2xs);
+        max-height: 16rem;
+        margin: 0;
+        padding: 0;
+        overflow: auto;
+        list-style: none;
+      }
+
+      .history-entry {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--space-2xs);
+        width: 100%;
+        min-height: 2.25rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--rule);
+        padding: var(--space-2xs);
+        background: var(--paper);
+      }
+
+      .history-entry[aria-current="step"] {
+        border-color: var(--cyan-deep);
+        background: var(--cyan-soft);
+      }
+
+      .history-select {
+        display: grid;
+        grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--space-2xs);
+        min-width: 0;
+        min-height: 2rem;
+        border: 0;
+        padding: var(--space-2xs);
+        background: transparent;
+        text-align: left;
+      }
+
+      .history-index {
+        color: var(--muted);
+        font-size: 0.62rem;
+      }
+
+      .history-event {
+        min-width: 0;
+      }
+
+      .history-event strong,
+      .history-event span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .history-event strong {
+        font-size: 0.72rem;
+        line-height: 1.2;
+      }
+
+      .history-event span {
+        margin-top: var(--space-3xs);
+        color: var(--muted);
+        font-size: 0.64rem;
+        line-height: 1.2;
+      }
+
+      .history-state {
+        border-radius: var(--radius-pill);
+        padding: var(--space-2xs);
+        background: var(--paper-3);
+        font: 500 0.6rem/1 var(--font-mono);
+        white-space: nowrap;
+      }
+
+      .source-link {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2xs);
+        min-height: 2rem;
+        border: 0;
+        border-radius: var(--radius-pill);
+        padding: var(--space-xs);
+        color: var(--cyan-deep);
+        background: transparent;
+        font: 500 0.65rem/1 var(--font-mono);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .focus-source {
+        justify-self: start;
+        margin-top: var(--space-2xs);
+      }
+
+      .snapshot {
+        margin-top: var(--space-md);
+      }
+
+      .snapshot summary {
+        cursor: pointer;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+
+      .snapshot pre {
+        max-height: 12rem;
+        margin: var(--space-sm) 0 0;
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm);
+        color: var(--paper);
+        background: var(--ink);
+        font-size: 0.7rem;
+        line-height: 1.5;
+        overflow: auto;
+      }
+
+      .dock-notice {
+        display: flex;
+        align-items: start;
+        gap: var(--space-xs);
+        border-radius: var(--radius-sm);
+        padding: var(--space-sm);
+        background: var(--coral-soft);
+        color: var(--ink-2);
+        font-size: 0.78rem;
+        line-height: 1.45;
+      }
+
+      .dock-notice[hidden] {
+        display: none;
+      }
+
+      .colophon {
+        max-width: 92rem;
+        margin-inline: auto;
+        border-top: 1px solid var(--rule);
+        padding: var(--space-lg) var(--page-gutter) var(--space-3xl);
+        color: var(--muted);
+        font: 400 0.72rem/1.6 var(--font-mono);
+      }
+
+      .star-burst {
+        position: fixed;
+        z-index: calc(var(--z-sticky) + 1);
+        width: 1.5rem;
+        height: 1.5rem;
+        background:
+          linear-gradient(90deg, transparent 47%, var(--coral) 47% 53%, transparent 53%),
+          linear-gradient(0deg, transparent 47%, var(--coral) 47% 53%, transparent 53%);
+        pointer-events: none;
+        animation: star 420ms var(--ease-out) forwards;
+      }
+
+      @keyframes star {
+        from {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(0) rotate(0deg);
+        }
+        to {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(1.5) rotate(45deg);
+        }
+      }
+
+      @media (pointer: coarse) {
+        .history-entry,
+        .history-select,
+        .graph-zoom button {
+          min-height: 2.75rem;
+        }
+      }
+
+      @media (min-width: 40rem) {
+        .status {
+          display: inline-flex;
+        }
+
+        .ide-picker {
+          display: flex;
+        }
+
+        .devtools button,
+        .devtools select,
+        .quick-events button,
+        .scenario-tabs button,
+        .segmented button {
+          min-height: 2.25rem;
+        }
+
+        .architecture-note {
+          grid-template-columns: auto minmax(0, 1fr);
+          column-gap: var(--space-lg);
+        }
+
+        .products {
+          grid-template-columns: minmax(0, 1.5fr) minmax(12rem, 0.75fr);
+        }
+
+        .product--main .product-visual {
+          min-height: 16rem;
+        }
+
+        .devtools-body {
+          grid-template-areas:
+            "map controls"
+            "history controls";
+          grid-template-columns: minmax(0, 1.5fr) minmax(17rem, 0.75fr);
+          grid-template-rows: minmax(14rem, 1fr) minmax(12rem, 0.75fr);
+          overflow: hidden;
+        }
+
+        .controls-pane {
+          border-top: 0;
+          border-bottom: 0;
+          border-left: 1px solid var(--rule);
+          overflow: auto;
+        }
+
+        .history-pane {
+          border-top: 1px solid var(--rule);
+          overflow: auto;
+        }
+
+        .focus-graph {
+          grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.3fr);
+          align-items: center;
+        }
+      }
+
+      @media (min-width: 60rem) {
+        .intro {
+          grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.55fr);
+          align-items: end;
+        }
+
+        .storefront {
+          grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
+          align-items: start;
+        }
+
+        .devtools-body {
+          grid-template-areas: "map controls history";
+          grid-template-columns: minmax(24rem, 1.45fr) minmax(18rem, 0.72fr) minmax(18rem, 0.72fr);
+          grid-template-rows: minmax(0, 1fr);
+        }
+
+        .history-pane {
+          border-top: 0;
+          border-left: 1px solid var(--rule);
+          overflow: auto;
+        }
+
+        .history-list {
+          max-height: none;
+        }
+      }
+
+      .devtools.is-map-maximized .devtools-body {
+        grid-template-areas: "map";
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+      }
+
+      .devtools.is-map-maximized .controls-pane,
+      .devtools.is-map-maximized .history-pane {
+        display: none;
+      }
+
+      .devtools.is-map-maximized .map-pane {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .devtools.is-map-maximized .graph-shell,
+      .devtools.is-map-maximized .graph-canvas,
+      .devtools.is-map-maximized .graph-scroll,
+      .devtools.is-map-maximized .full-graph {
+        height: 100%;
+        min-height: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        button,
+        .devtools,
+        .star-burst,
+        .wordmark-mark,
+        .cart-count,
+        .product {
+          animation: none;
+          transition-duration: 0.01ms;
+        }
+
+        .graph-edge.is-active {
+          stroke-dasharray: none;
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wordmark">
+        <span class="wordmark-mark" aria-hidden="true">↝</span>
+        <span>effect / machine</span>
+      </div>
+      <span class="prototype-badge">Throwaway prototype</span>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="prototype-title">
+        <div class="intro-copy">
+          <p class="eyebrow">Prototype question</p>
+          <h1 id="prototype-title">Can one compact viewer explain behavior and its code?</h1>
+          <p>
+            Click the storefront’s real controls. The docked graph follows the running cart. Then
+            open a named path, move through history, and inspect the same behavior without pretending
+            that external effects ran backward.
+          </p>
+        </div>
+        <div>
+          <p class="prototype-question">
+            One renderer-neutral session model; two future hosts: an in-page browser dock and a
+            standalone viewer connected to browser or Node machines.
+          </p>
+          <div class="architecture-note">
+            <b>Connected now</b>
+            <span>browser · direct adapter · live session</span>
+            <b>Deliberately later</b>
+            <span>Node transport · persistence · branching history · generated event forms</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="storefront" aria-label="Tiny storefront">
+        <div>
+          <div class="store-copy">
+            <p class="eyebrow">The host application</p>
+            <h2>Useful things for thinking.</h2>
+            <p>These are normal application buttons. The devtools observes the machine beside them.</p>
+          </div>
+          <div class="products" style="margin-top: var(--space-xl)">
+            <article class="product product--main">
+              <div class="product-visual" aria-hidden="true"><div class="mug"></div></div>
+              <div class="product-info">
+                <div>
+                  <h3>Debugging mug</h3>
+                  <p>Keeps one hypothesis warm.</p>
+                </div>
+                <button type="button" class="button-primary" data-host-event="ADD_ITEM" data-sku="mug">
+                  Add mug · $18
+                </button>
+              </div>
+            </article>
+            <article class="product">
+              <div class="product-visual" aria-hidden="true"><div class="notebook"></div></div>
+              <div class="product-info">
+                <div>
+                  <h3>State notebook</h3>
+                  <p>For transitions worth keeping.</p>
+                </div>
+                <button type="button" data-host-event="ADD_ITEM" data-sku="notebook">Add notebook · $12</button>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <aside class="cart-summary" aria-live="polite">
+          <div class="cart-summary-head">
+            <h2>Your cart</h2>
+            <span class="cart-count" id="cart-count">0</span>
+          </div>
+          <dl class="cart-lines" id="cart-lines"></dl>
+          <div class="cart-total"><span>Total</span><span id="cart-total">$0</span></div>
+          <p class="store-state-note" id="store-state-note"></p>
+          <button type="button" class="button-primary" id="checkout-button" data-host-event="BEGIN_CHECKOUT">
+            Begin checkout
+          </button>
+          <button type="button" id="order-button" data-host-event="SUBMIT_ORDER" hidden>Place order</button>
+          <button type="button" id="back-button" data-host-event="BACK_TO_SHOP" hidden>Back to shop</button>
+          <button type="button" id="reset-button" data-command="reset-session">Reset cart</button>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="colophon">
+      THROWAWAY PROTOTYPE · ONE SELF-CONTAINED HTML FILE · THE MACHINE IS A SMALL PURE FACSIMILE,
+      NOT THE LIBRARY RUNTIME · VALIDATES VIEWER INTERACTIONS, NOT TRANSPORT OR REPLAY SEMANTICS.
+    </footer>
+
+    <button type="button" class="devtools-launcher" id="devtools-launcher" aria-expanded="false">
+      <span class="pulse-dot" aria-hidden="true"></span>
+      Inspect cart machine
+    </button>
+
+    <aside class="devtools" id="devtools" aria-label="Cart machine devtools">
+      <header class="devtools-head">
+        <div class="devtools-title">
+          <strong>Cart machine</strong>
+          <span class="status">browser · direct</span>
+        </div>
+        <div class="devtools-head-actions">
+          <label class="ide-picker" for="ide-mode">
+            <span class="visually-hidden">Source link action</span>
+            <select id="ide-mode" aria-label="Source link action">
+              <option value="vscode">Open in VS Code</option>
+              <option value="cursor">Open in Cursor</option>
+              <option value="copy">Copy file reference</option>
+            </select>
+          </label>
+          <button type="button" class="button-icon" id="expand-devtools" aria-label="Expand devtools" title="Expand">↗</button>
+          <button type="button" class="button-icon" id="close-devtools" aria-label="Close devtools" title="Close">×</button>
+        </div>
+      </header>
+      <div class="devtools-body">
+        <section class="map-pane" aria-labelledby="map-title">
+          <div class="pane-head">
+            <div>
+              <h2 id="map-title">State map</h2>
+              <p id="map-caption">The selected snapshot lights the graph.</p>
+            </div>
+            <div class="map-actions">
+              <fieldset class="segmented">
+                <legend class="visually-hidden">Graph detail</legend>
+                <button type="button" data-graph-mode="focus" aria-pressed="true">Focus</button>
+                <button type="button" data-graph-mode="full" aria-pressed="false">Full map</button>
+              </fieldset>
+              <button type="button" id="maximize-map">Map only</button>
+            </div>
+          </div>
+          <div class="graph-shell">
+            <div class="graph-canvas" id="graph-canvas"></div>
+            <fieldset class="graph-zoom" id="graph-zoom" hidden>
+              <legend class="visually-hidden">Map zoom</legend>
+              <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+              <output class="zoom-level" id="zoom-level" aria-live="polite">100%</output>
+              <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+              <button type="button" id="zoom-reset">Fit</button>
+            </fieldset>
+          </div>
+        </section>
+
+        <section class="controls-pane" aria-label="Events and scenarios">
+          <div class="dock-notice" id="history-notice" hidden>
+            You are inspecting an earlier snapshot. Return to live before dispatching; replay starts
+            a fresh sandbox instead of reversing effects.
+          </div>
+          <div class="control-section">
+            <h3>Quick events</h3>
+            <div class="quick-events" id="quick-events"></div>
+          </div>
+          <div class="control-section">
+            <h3>Named paths</h3>
+            <div class="scenario-tabs" id="scenario-tabs"></div>
+            <div class="scenario-copy" id="scenario-copy"></div>
+            <div class="scenario-actions">
+              <button type="button" id="start-scenario">Start fresh</button>
+              <button type="button" id="next-scenario-step" class="button-primary">Run next step</button>
+              <button type="button" id="run-scenario">Run entire path</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="history-pane" aria-labelledby="history-title">
+          <div class="pane-head">
+            <div>
+              <h3 id="history-title">Semantic history</h3>
+              <p id="history-caption">Causal steps collapse their internal events.</p>
+              <fieldset class="history-mode">
+                <legend class="visually-hidden">History detail</legend>
+                <button type="button" data-history-mode="steps" aria-pressed="true">Steps</button>
+                <button type="button" data-history-mode="events" aria-pressed="false">All events</button>
+              </fieldset>
+            </div>
+            <div class="history-toolbar">
+              <button type="button" class="button-icon" id="history-back" aria-label="Previous snapshot">←</button>
+              <span class="history-position" id="history-position">1 / 1</span>
+              <button type="button" class="button-icon" id="history-forward" aria-label="Next snapshot">→</button>
+            </div>
+          </div>
+          <ol class="history-list" id="history-list"></ol>
+          <details class="snapshot">
+            <summary>Selected tagged state</summary>
+            <pre id="snapshot-json"></pre>
+          </details>
+        </section>
+      </div>
+    </aside>
+
+    <script type="module">
+      // Pure prototype logic. No DOM references live inside this module.
+      const ScenarioSession = (() => {
+        const copy = (value) => JSON.parse(JSON.stringify(value))
+
+        const collapseSteps = (entries) => {
+          const steps = []
+          for (const entry of entries) {
+            const current = steps.at(-1)
+            if (current?.traceId === entry.traceId) {
+              current.endIndex = entry.index
+              current.eventCount += 1
+              current.eventTags.push(entry.event._tag)
+              current.state = copy(entry.state)
+              continue
+            }
+            steps.push({
+              ...copy(entry),
+              startIndex: entry.index,
+              endIndex: entry.index,
+              eventCount: 1,
+              eventTags: [entry.event._tag],
+            })
+          }
+          return steps
+        }
+
+        const create = ({ initial, initialSource, transition }) => {
+          let liveState = copy(initial())
+          let history = [
+            {
+              index: 0,
+              label: "Machine started",
+              origin: "system",
+              event: { _tag: "@machine/started" },
+              traceId: "startup",
+              previousTag: null,
+              state: copy(liveState),
+              source: copy(initialSource),
+            },
+          ]
+          let cursor = 0
+          const listeners = new Set()
+
+          const publish = () => {
+            const view = api.view()
+            for (const listener of listeners) listener(view)
+          }
+
+          const api = {
+            subscribe(listener) {
+              listeners.add(listener)
+              listener(api.view())
+              return () => listeners.delete(listener)
+            },
+            view() {
+              return {
+                liveState: copy(liveState),
+                selectedState: copy(history[cursor].state),
+                history: copy(history),
+                steps: collapseSteps(history),
+                cursor,
+                atHead: cursor === history.length - 1,
+              }
+            },
+            can(event) {
+              if (cursor !== history.length - 1) return false
+              return transition(copy(liveState), copy(event)) !== null
+            },
+            dispatch(event, { label = event._tag, origin = "user", traceId = `trace-${history.length}` } = {}) {
+              if (cursor !== history.length - 1) {
+                return { accepted: false, reason: "history-cursor" }
+              }
+              const previous = copy(liveState)
+              const result = transition(previous, copy(event))
+              if (result === null) return { accepted: false, reason: "protocol-defect" }
+              liveState = copy(result.state)
+              history = [
+                ...history,
+                {
+                  index: history.length,
+                  label,
+                  origin,
+                  event: copy(event),
+                  traceId,
+                  previousTag: previous._tag,
+                  state: copy(liveState),
+                  source: copy(result.source),
+                },
+              ]
+              cursor = history.length - 1
+              publish()
+              return { accepted: true, followUp: result.followUp ? copy(result.followUp) : null }
+            },
+            reset() {
+              liveState = copy(initial())
+              history = [
+                {
+                  index: 0,
+                  label: "Machine started",
+                  origin: "system",
+                  event: { _tag: "@machine/started" },
+                  traceId: "startup",
+                  previousTag: null,
+                  state: copy(liveState),
+                  source: copy(initialSource),
+                },
+              ]
+              cursor = 0
+              publish()
+            },
+            select(index) {
+              cursor = Math.max(0, Math.min(index, history.length - 1))
+              publish()
+            },
+            move(delta) {
+              api.select(cursor + delta)
+            },
+          }
+
+          return api
+        }
+
+        return { create }
+      })()
+
+      const catalog = {
+        mug: { name: "Debugging mug", price: 18 },
+        notebook: { name: "State notebook", price: 12 },
+      }
+
+      const sourceFile = "/Users/juliaortiz/Documents/dev.nosync/statemachine/examples/scenario-viewer.prototype.html"
+      const sourceRefs = {
+        states: {
+          Browsing: { file: sourceFile, line: 1617, column: 11 },
+          Adding: { file: sourceFile, line: 1630, column: 11 },
+          Checkout: { file: sourceFile, line: 1636, column: 11 },
+          Ordering: { file: sourceFile, line: 1650, column: 11 },
+          PaymentFailed: { file: sourceFile, line: 1658, column: 11 },
+          Ordered: { file: sourceFile, line: 1667, column: 11 },
+        },
+        transitions: {
+          "Browsing:ADD_ITEM": { file: sourceFile, line: 1618, column: 13 },
+          "Browsing:BEGIN_CHECKOUT": { file: sourceFile, line: 1624, column: 13 },
+          "Browsing:PRICE_RECALCULATED": { file: sourceFile, line: 1627, column: 13 },
+          "Adding:ITEM_ADDED": { file: sourceFile, line: 1631, column: 13 },
+          "Checkout:BACK_TO_SHOP": { file: sourceFile, line: 1637, column: 13 },
+          "Checkout:SUBMIT_ORDER": { file: sourceFile, line: 1638, column: 13 },
+          "Ordering:ORDER_PLACED": { file: sourceFile, line: 1651, column: 13 },
+          "Ordering:PAYMENT_DECLINED": { file: sourceFile, line: 1654, column: 13 },
+          "PaymentFailed:RETRY_PAYMENT": { file: sourceFile, line: 1659, column: 13 },
+          "PaymentFailed:BACK_TO_SHOP": { file: sourceFile, line: 1665, column: 13 },
+          "Ordered:RESET": { file: sourceFile, line: 1668, column: 13 },
+        },
+      }
+
+      const totalOf = (items) =>
+        Object.entries(items).reduce((total, [sku, count]) => total + catalog[sku].price * count, 0)
+
+      const browsing = (items = {}) => ({ _tag: "Browsing", items, total: totalOf(items) })
+
+      const reduceCart = (state, event) => {
+        switch (state._tag) {
+          case "Browsing":
+            if (event._tag === "ADD_ITEM" && catalog[event.sku]) {
+              return {
+                state: { ...state, _tag: "Adding", pendingSku: event.sku },
+                followUp: { event: { _tag: "ITEM_ADDED", sku: event.sku }, label: `${catalog[event.sku].name} committed`, delay: 520 },
+              }
+            }
+            if (event._tag === "BEGIN_CHECKOUT" && Object.keys(state.items).length > 0) {
+              return { state: { ...state, _tag: "Checkout" } }
+            }
+            if (event._tag === "PRICE_RECALCULATED") return { state }
+            if (event._tag === "RESET") return { state: browsing() }
+            return null
+          case "Adding":
+            if (event._tag === "ITEM_ADDED" && event.sku === state.pendingSku) {
+              const items = { ...state.items, [event.sku]: (state.items[event.sku] ?? 0) + 1 }
+              return { state: browsing(items) }
+            }
+            return null
+          case "Checkout":
+            if (event._tag === "BACK_TO_SHOP") return { state: browsing(state.items) }
+            if (event._tag === "SUBMIT_ORDER") {
+              const outcome = event.outcome ?? "success"
+              return {
+                state: { ...state, _tag: "Ordering" },
+                followUp: {
+                  event: outcome === "decline" ? { _tag: "PAYMENT_DECLINED" } : { _tag: "ORDER_PLACED" },
+                  label: outcome === "decline" ? "Payment declined" : "Order placed",
+                  delay: 720,
+                },
+              }
+            }
+            return null
+          case "Ordering":
+            if (event._tag === "ORDER_PLACED") {
+              return { state: { ...state, _tag: "Ordered", orderId: "ord_1042" } }
+            }
+            if (event._tag === "PAYMENT_DECLINED") {
+              return { state: { ...state, _tag: "PaymentFailed", reason: "Card declined" } }
+            }
+            return null
+          case "PaymentFailed":
+            if (event._tag === "RETRY_PAYMENT") {
+              return {
+                state: { items: state.items, total: state.total, _tag: "Ordering" },
+                followUp: { event: { _tag: "ORDER_PLACED" }, label: "Retry succeeded", delay: 720 },
+              }
+            }
+            if (event._tag === "BACK_TO_SHOP") return { state: browsing(state.items) }
+            return null
+          case "Ordered":
+            if (event._tag === "RESET") return { state: browsing() }
+            return null
+          default:
+            return null
+        }
+      }
+
+      const transition = (state, event) => {
+        const result = reduceCart(state, event)
+        if (result === null) return null
+        return {
+          ...result,
+          source: sourceRefs.transitions[`${state._tag}:${event._tag}`] ?? sourceRefs.states[state._tag],
+        }
+      }
+
+      const graph = {
+        nodes: [
+          { id: "Browsing", label: "Browsing", x: 40, y: 160, w: 140, h: 58, source: sourceRefs.states.Browsing },
+          { id: "Adding", label: "Adding item", x: 260, y: 40, w: 140, h: 58, source: sourceRefs.states.Adding },
+          { id: "Checkout", label: "Checkout", x: 260, y: 260, w: 140, h: 58, source: sourceRefs.states.Checkout },
+          { id: "Ordering", label: "Placing order", x: 500, y: 260, w: 150, h: 58, source: sourceRefs.states.Ordering },
+          { id: "Ordered", label: "Ordered", x: 740, y: 150, w: 130, h: 58, source: sourceRefs.states.Ordered },
+          { id: "PaymentFailed", label: "Payment failed", x: 720, y: 350, w: 160, h: 58, source: sourceRefs.states.PaymentFailed },
+        ],
+        edges: [
+          { source: "Browsing", target: "Adding", event: "ADD_ITEM", route: [[180, 178], [210, 178], [210, 69], [260, 69]], labelX: 220, labelY: 118, sourceRef: sourceRefs.transitions["Browsing:ADD_ITEM"] },
+          { source: "Adding", target: "Browsing", event: "ITEM_ADDED", route: [[260, 55], [225, 55], [225, 130], [24, 130], [24, 189], [40, 189]], labelX: 125, labelY: 122, sourceRef: sourceRefs.transitions["Adding:ITEM_ADDED"] },
+          { source: "Browsing", target: "Checkout", event: "BEGIN_CHECKOUT", route: [[180, 198], [210, 198], [210, 289], [260, 289]], labelX: 220, labelY: 248, sourceRef: sourceRefs.transitions["Browsing:BEGIN_CHECKOUT"] },
+          { source: "Checkout", target: "Browsing", event: "BACK_TO_SHOP", route: [[260, 305], [230, 305], [230, 390], [14, 390], [14, 204], [40, 204]], labelX: 120, labelY: 382, sourceRef: sourceRefs.transitions["Checkout:BACK_TO_SHOP"] },
+          { source: "Checkout", target: "Ordering", event: "SUBMIT_ORDER", route: [[400, 289], [500, 289]], labelX: 450, labelY: 280, sourceRef: sourceRefs.transitions["Checkout:SUBMIT_ORDER"] },
+          { source: "Ordering", target: "Ordered", event: "ORDER_PLACED", route: [[650, 278], [680, 278], [680, 179], [740, 179]], labelX: 690, labelY: 228, sourceRef: sourceRefs.transitions["Ordering:ORDER_PLACED"] },
+          { source: "Ordering", target: "PaymentFailed", event: "PAYMENT_DECLINED", route: [[650, 300], [680, 300], [680, 379], [720, 379]], labelX: 690, labelY: 338, sourceRef: sourceRefs.transitions["Ordering:PAYMENT_DECLINED"] },
+          { source: "PaymentFailed", target: "Ordering", event: "RETRY_PAYMENT", route: [[720, 396], [695, 396], [695, 420], [475, 420], [475, 307], [500, 307]], labelX: 590, labelY: 414, sourceRef: sourceRefs.transitions["PaymentFailed:RETRY_PAYMENT"] },
+          { source: "PaymentFailed", target: "Browsing", event: "BACK_TO_SHOP", route: [[720, 406], [705, 406], [705, 444], [5, 444], [5, 214], [40, 214]], labelX: 355, labelY: 438, sourceRef: sourceRefs.transitions["PaymentFailed:BACK_TO_SHOP"] },
+          { source: "Browsing", target: "Browsing", event: "PRICE_RECALCULATED", route: [[40, 176], [20, 176], [20, 150], [110, 150], [110, 160]], labelX: 66, labelY: 144, sourceRef: sourceRefs.transitions["Browsing:PRICE_RECALCULATED"] },
+        ],
+      }
+
+      const quickEvents = [
+        { label: "Add mug", event: { _tag: "ADD_ITEM", sku: "mug" } },
+        { label: "Add notebook", event: { _tag: "ADD_ITEM", sku: "notebook" } },
+        { label: "Checkout", event: { _tag: "BEGIN_CHECKOUT" } },
+        { label: "Place order", event: { _tag: "SUBMIT_ORDER" } },
+        { label: "Back to shop", event: { _tag: "BACK_TO_SHOP" } },
+        { label: "Retry payment", event: { _tag: "RETRY_PAYMENT" } },
+      ]
+
+      const scenarios = [
+        {
+          id: "happy",
+          name: "Quick purchase",
+          description: "Add the mug, enter checkout, and place a successful order.",
+          steps: [
+            { label: "Add the debugging mug", event: { _tag: "ADD_ITEM", sku: "mug" } },
+            { label: "Begin checkout", event: { _tag: "BEGIN_CHECKOUT" } },
+            { label: "Place the order", event: { _tag: "SUBMIT_ORDER", outcome: "success" } },
+          ],
+        },
+        {
+          id: "decline",
+          name: "Decline, then retry",
+          description: "Exercise a typed payment failure and the retry path with a second outcome.",
+          steps: [
+            { label: "Add the state notebook", event: { _tag: "ADD_ITEM", sku: "notebook" } },
+            { label: "Begin checkout", event: { _tag: "BEGIN_CHECKOUT" } },
+            { label: "Use the declined card", event: { _tag: "SUBMIT_ORDER", outcome: "decline" } },
+            { label: "Retry with another card", event: { _tag: "RETRY_PAYMENT" } },
+          ],
+        },
+        {
+          id: "two-items",
+          name: "Build a cart",
+          description: "A short reproducible setup path for inspecting payload-bearing events.",
+          steps: [
+            { label: "Add the debugging mug", event: { _tag: "ADD_ITEM", sku: "mug" } },
+            { label: "Add the state notebook", event: { _tag: "ADD_ITEM", sku: "notebook" } },
+          ],
+        },
+        {
+          id: "noisy",
+          name: "Noisy session",
+          description: "Collapse eighteen internal recalculations into one causal step, then reveal every event on demand.",
+          steps: [
+            { label: "Add the debugging mug", event: { _tag: "ADD_ITEM", sku: "mug" } },
+            { label: "Price recalculation burst", event: { _tag: "PRICE_RECALCULATED" }, burst: 18 },
+            { label: "Begin checkout", event: { _tag: "BEGIN_CHECKOUT" } },
+          ],
+        },
+      ]
+
+      const session = ScenarioSession.create({ initial: browsing, initialSource: sourceRefs.states.Browsing, transition })
+      let graphMode = "focus"
+      let historyMode = "steps"
+      let ideMode = "vscode"
+      let selectedScenarioId = scenarios[0].id
+      let scenarioStep = 0
+      let timerGeneration = 0
+      let scenarioRunning = false
+      let displayedCartCount = 0
+      let traceSequence = 0
+      const graphWorld = { width: 900, height: 460 }
+      let graphViewport = { x: 0, y: 0, ...graphWorld }
+      let graphPan = null
+
+      const byId = (id) => document.getElementById(id)
+      const escapeHtml = (value) =>
+        String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;")
+
+      const sourceLabel = ({ file, line }) => `${file.split("/").slice(-2).join("/")}:${line}`
+      const sourceHref = ({ file, line, column = 1 }) =>
+        ideMode === "copy" ? "#copy-source" : `${ideMode}://file/${encodeURI(file)}:${line}:${column}`
+      const sourceAttributes = (source) =>
+        `href="${sourceHref(source)}" data-source-file="${escapeHtml(source.file)}" data-source-line="${source.line}" data-source-column="${source.column ?? 1}"`
+      const renderSourceLink = (source, className = "", compact = false) =>
+        `<a class="source-link ${className}" ${sourceAttributes(source)} title="${ideMode === "copy" ? "Copy" : `Open in ${ideMode === "cursor" ? "Cursor" : "VS Code"}`} ${escapeHtml(source.file)}:${source.line}:${source.column ?? 1}">${compact ? `L${source.line}` : escapeHtml(sourceLabel(source))} ↗</a>`
+
+      const graphScale = () => graphWorld.width / graphViewport.width
+
+      const applyGraphViewport = () => {
+        const svg = document.querySelector(".full-graph")
+        if (svg) svg.setAttribute("viewBox", `${graphViewport.x} ${graphViewport.y} ${graphViewport.width} ${graphViewport.height}`)
+        byId("zoom-level").textContent = `${Math.round(graphScale() * 100)}%`
+        byId("zoom-out").disabled = graphScale() <= 0.5
+        byId("zoom-in").disabled = graphScale() >= 4
+      }
+
+      const zoomGraph = (factor, clientPoint = null) => {
+        const svg = document.querySelector(".full-graph")
+        const nextScale = Math.max(0.5, Math.min(4, graphScale() * factor))
+        const nextWidth = graphWorld.width / nextScale
+        const nextHeight = graphWorld.height / nextScale
+        let ratioX = 0.5
+        let ratioY = 0.5
+        if (svg && clientPoint) {
+          const rect = svg.getBoundingClientRect()
+          ratioX = (clientPoint.x - rect.left) / rect.width
+          ratioY = (clientPoint.y - rect.top) / rect.height
+        }
+        const anchorX = graphViewport.x + graphViewport.width * ratioX
+        const anchorY = graphViewport.y + graphViewport.height * ratioY
+        graphViewport = {
+          x: anchorX - nextWidth * ratioX,
+          y: anchorY - nextHeight * ratioY,
+          width: nextWidth,
+          height: nextHeight,
+        }
+        applyGraphViewport()
+      }
+
+      const resetGraphViewport = () => {
+        graphViewport = { x: 0, y: 0, ...graphWorld }
+        applyGraphViewport()
+      }
+
+      const sleep = (millis) => new Promise((resolve) => setTimeout(resolve, millis))
+
+      const selectedScenario = () => scenarios.find(({ id }) => id === selectedScenarioId)
+
+      const nextTraceId = () => `trace-${++traceSequence}`
+
+      const send = async (event, label, origin = "user", traceId = nextTraceId()) => {
+        const result = session.dispatch(event, { label, origin, traceId })
+        if (!result.accepted) return false
+        if (result.followUp !== null) {
+          const generation = timerGeneration
+          await sleep(result.followUp.delay)
+          if (generation !== timerGeneration) return true
+          await send(result.followUp.event, result.followUp.label, "effect", traceId)
+        }
+        return true
+      }
+
+      const runStep = async (step) => {
+        const traceId = nextTraceId()
+        const repetitions = step.burst ?? 1
+        for (let index = 0; index < repetitions; index += 1) {
+          const accepted = await send(step.event, step.label, step.burst ? "runtime noise" : "scenario", traceId)
+          if (!accepted) return false
+        }
+        return true
+      }
+
+      const resetSession = () => {
+        timerGeneration += 1
+        traceSequence = 0
+        scenarioStep = 0
+        scenarioRunning = false
+        session.reset()
+      }
+
+      const runScenarioStep = async () => {
+        if (scenarioRunning) return
+        const scenario = selectedScenario()
+        if (!scenario || scenarioStep >= scenario.steps.length) return
+        scenarioRunning = true
+        render()
+        const step = scenario.steps[scenarioStep]
+        const accepted = await runStep(step)
+        if (accepted) scenarioStep += 1
+        scenarioRunning = false
+        render()
+      }
+
+      const runEntireScenario = async () => {
+        resetSession()
+        scenarioRunning = true
+        render()
+        const scenario = selectedScenario()
+        for (const step of scenario.steps) {
+          const accepted = await runStep(step)
+          if (!accepted) break
+          scenarioStep += 1
+          await sleep(180)
+        }
+        scenarioRunning = false
+        render()
+      }
+
+      const edgeId = (edge) => `${edge.source}-${edge.target}`
+      const nodeById = (id) => graph.nodes.find((node) => node.id === id)
+
+      const renderFocusGraph = (view) => {
+        const active = view.selectedState._tag
+        const outgoing = graph.edges.filter(({ source }) => source === active)
+        const activeNode = nodeById(active)
+        return `
+          <div class="focus-graph">
+            <div class="focus-current">
+              <span class="eyebrow">Selected snapshot</span>
+              <strong>${escapeHtml(activeNode?.label ?? active)}</strong>
+              ${renderSourceLink(activeNode.source, "focus-source")}
+            </div>
+            <div class="focus-targets">
+              ${
+                outgoing.length === 0
+                  ? '<div class="focus-target"><span class="focus-arrow">final state</span><strong>No outgoing transitions</strong></div>'
+                  : outgoing
+                      .map((edge) => {
+                        const target = nodeById(edge.target)
+                        return `<div class="focus-target"><span class="focus-arrow">${escapeHtml(edge.event)} →</span><strong>${escapeHtml(target?.label ?? edge.target)}</strong>${renderSourceLink(edge.sourceRef, "focus-source")}</div>`
+                      })
+                      .join("")
+              }
+            </div>
+          </div>`
+      }
+
+      const renderFullGraph = (view) => {
+        const visited = new Set(view.history.slice(0, view.cursor + 1).map(({ state }) => state._tag))
+        const edges = graph.edges
+          .map((edge) => {
+            const active = edge.source === view.selectedState._tag
+            const route = edge.route.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x} ${y}`).join(" ")
+            return `
+              <path id="${edgeId(edge)}" class="graph-edge ${active ? "is-active" : ""}" d="${route}" marker-end="url(#arrow)" />
+              <a ${sourceAttributes(edge.sourceRef)} aria-label="Open source for ${escapeHtml(edge.event)}"><text class="graph-edge-label" x="${edge.labelX}" y="${edge.labelY}">${escapeHtml(edge.event)}</text></a>`
+          })
+          .join("")
+        const nodes = graph.nodes
+          .map(
+            (node) => `
+              <a ${sourceAttributes(node.source)} aria-label="Open source for ${escapeHtml(node.label)}">
+                <g class="graph-node ${node.id === view.selectedState._tag ? "is-active" : visited.has(node.id) ? "is-visited" : ""}" transform="translate(${node.x} ${node.y})">
+                  <rect width="${node.w}" height="${node.h}" rx="15" />
+                  <text x="${node.w / 2}" y="${node.h / 2 + 5}">${escapeHtml(node.label)}</text>
+                  <circle class="graph-source-dot" cx="${node.w - 10}" cy="10" r="5"><title>${escapeHtml(sourceLabel(node.source))}</title></circle>
+                </g>
+              </a>`,
+          )
+          .join("")
+        return `
+          <div class="graph-scroll">
+            <svg class="full-graph" viewBox="${graphViewport.x} ${graphViewport.y} ${graphViewport.width} ${graphViewport.height}" role="img" aria-label="Cart machine state graph">
+              <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--cyan-deep)" /></marker></defs>
+              ${edges}${nodes}
+            </svg>
+          </div>`
+      }
+
+      const stateMessage = (state) => {
+        switch (state._tag) {
+          case "Browsing": return state.total === 0 ? "The cart is empty. Add something to move the graph." : "The cart can accept another item or begin checkout."
+          case "Adding": return `The add-item Effect is committing ${catalog[state.pendingSku].name}.`
+          case "Checkout": return "Checkout is ready. Place the order or return to the shop."
+          case "Ordering": return "The payment Effect is running. Its result will return through the event queue."
+          case "PaymentFailed": return "Payment failed as modeled behavior. Retry or return to the shop."
+          case "Ordered": return `Order ${state.orderId} is complete.`
+        }
+      }
+
+      const renderStorefront = (view) => {
+        const state = view.selectedState
+        const items = state.items ?? {}
+        const count = Object.values(items).reduce((sum, value) => sum + value, 0)
+        const countElement = byId("cart-count")
+        countElement.textContent = String(count)
+        if (count !== displayedCartCount && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          countElement.classList.remove("is-ticking")
+          requestAnimationFrame(() => countElement.classList.add("is-ticking"))
+        }
+        displayedCartCount = count
+        byId("cart-total").textContent = `$${state.total ?? 0}`
+        byId("cart-lines").innerHTML =
+          count === 0
+            ? '<div><dt>Nothing here yet</dt><dd>—</dd></div>'
+            : Object.entries(items)
+                .map(([sku, amount]) => `<div><dt>${escapeHtml(catalog[sku].name)} × ${amount}</dt><dd>$${catalog[sku].price * amount}</dd></div>`)
+                .join("")
+        const note = byId("store-state-note")
+        note.textContent = view.atHead ? stateMessage(state) : `Historical view · live machine remains in ${view.liveState._tag}.`
+        note.dataset.tone = view.atHead ? "live" : "history"
+
+        const hostButtons = document.querySelectorAll("[data-host-event]")
+        for (const button of hostButtons) {
+          const tag = button.dataset.hostEvent
+          const event =
+            tag === "ADD_ITEM"
+              ? { _tag: tag, sku: button.dataset.sku }
+              : { _tag: tag }
+          button.disabled = scenarioRunning || !session.can(event)
+        }
+        byId("checkout-button").hidden = state._tag !== "Browsing"
+        byId("order-button").hidden = state._tag !== "Checkout"
+        byId("back-button").hidden = !["Checkout", "PaymentFailed"].includes(state._tag)
+      }
+
+      const render = () => {
+        const view = session.view()
+        const renderedHistory = historyMode === "steps" ? view.steps : view.history.map((entry) => ({ ...entry, startIndex: entry.index, endIndex: entry.index, eventCount: 1, eventTags: [entry.event._tag] }))
+        const historyPosition = Math.max(0, renderedHistory.findIndex(({ startIndex, endIndex }) => view.cursor >= startIndex && view.cursor <= endIndex))
+        renderStorefront(view)
+        byId("graph-canvas").innerHTML = graphMode === "focus" ? renderFocusGraph(view) : renderFullGraph(view)
+        byId("graph-zoom").hidden = graphMode !== "full"
+        if (graphMode === "full") applyGraphViewport()
+        byId("map-caption").textContent = view.atHead
+          ? `Live · ${view.selectedState._tag}`
+          : `History ${view.cursor} · ${view.selectedState._tag} (live: ${view.liveState._tag})`
+
+        for (const button of document.querySelectorAll("[data-graph-mode]")) {
+          button.setAttribute("aria-pressed", String(button.dataset.graphMode === graphMode))
+        }
+
+        for (const button of document.querySelectorAll("[data-history-mode]")) {
+          button.setAttribute("aria-pressed", String(button.dataset.historyMode === historyMode))
+        }
+
+        byId("history-notice").hidden = view.atHead
+        byId("history-caption").textContent = historyMode === "steps"
+          ? `${view.history.length} events → ${view.steps.length} causal steps`
+          : `${view.history.length} raw committed events`
+        byId("history-position").textContent = `${historyPosition + 1} / ${renderedHistory.length}`
+        byId("history-back").disabled = historyPosition === 0
+        byId("history-forward").disabled = historyPosition === renderedHistory.length - 1
+        if (historyPosition > 0) byId("history-back").dataset.historyIndex = String(renderedHistory[historyPosition - 1].endIndex)
+        else delete byId("history-back").dataset.historyIndex
+        if (historyPosition < renderedHistory.length - 1) byId("history-forward").dataset.historyIndex = String(renderedHistory[historyPosition + 1].endIndex)
+        else delete byId("history-forward").dataset.historyIndex
+        byId("history-list").innerHTML = renderedHistory
+          .map(
+            (entry, index) => `
+              <li class="history-entry" ${index === historyPosition ? 'aria-current="step"' : ""}>
+                <button type="button" class="history-select" data-history-index="${entry.endIndex}">
+                  <span class="history-index">${String(index).padStart(2, "0")}</span>
+                  <span class="history-event"><strong>${escapeHtml(entry.label)}</strong><span>${historyMode === "steps" ? `${entry.eventCount} event${entry.eventCount === 1 ? "" : "s"} · ${escapeHtml(entry.eventTags[0])}${entry.eventCount > 1 ? ` → ${escapeHtml(entry.eventTags.at(-1))}` : ""}` : `${escapeHtml(entry.origin)} · ${escapeHtml(entry.previousTag ?? "∅")} → ${escapeHtml(entry.state._tag)}`}</span></span>
+                  <span class="history-state">${escapeHtml(entry.state._tag)}</span>
+                </button>
+                ${renderSourceLink(entry.source, "", true)}
+              </li>`,
+          )
+          .join("")
+        byId("snapshot-json").textContent = JSON.stringify(view.selectedState, null, 2)
+
+        byId("quick-events").innerHTML = quickEvents
+          .map(({ label, event }, index) => `<button type="button" data-quick-index="${index}" ${scenarioRunning || !session.can(event) ? "disabled" : ""}>${escapeHtml(label)}</button>`)
+          .join("")
+
+        byId("scenario-tabs").innerHTML = scenarios
+          .map(({ id, name }) => `<button type="button" data-scenario-id="${id}" aria-pressed="${id === selectedScenarioId}">${escapeHtml(name)}</button>`)
+          .join("")
+        const scenario = selectedScenario()
+        const next = scenario.steps[scenarioStep]
+        byId("scenario-copy").innerHTML = `<strong>${escapeHtml(scenario.description)}</strong>${next ? `Next ${scenarioStep + 1}/${scenario.steps.length}: ${escapeHtml(next.label)}` : "Path complete. Start fresh to replay it."}`
+        byId("next-scenario-step").disabled = scenarioRunning || scenarioStep >= scenario.steps.length || !view.atHead
+        byId("run-scenario").disabled = scenarioRunning
+        byId("start-scenario").disabled = scenarioRunning
+      }
+
+      session.subscribe(render)
+
+      document.addEventListener("click", async (domEvent) => {
+        const sourceAnchor = domEvent.target.closest("[data-source-file]")
+        if (sourceAnchor) {
+          if (ideMode === "copy") {
+            domEvent.preventDefault()
+            const reference = `${sourceAnchor.dataset.sourceFile}:${sourceAnchor.dataset.sourceLine}:${sourceAnchor.dataset.sourceColumn}`
+            await navigator.clipboard.writeText(reference)
+            sourceAnchor.textContent = "Copied"
+          }
+          return
+        }
+
+        const target = domEvent.target.closest("button")
+        if (!target || target.disabled) return
+
+        if (target.id === "devtools-launcher") {
+          const mark = document.querySelector(".wordmark-mark")
+          mark.classList.remove("is-awake")
+          requestAnimationFrame(() => mark.classList.add("is-awake"))
+          byId("devtools").classList.add("is-open")
+          target.setAttribute("aria-expanded", "true")
+          byId("close-devtools").focus()
+          return
+        }
+        if (target.id === "close-devtools") {
+          byId("devtools").classList.remove("is-open", "is-expanded", "is-map-maximized")
+          byId("expand-devtools").textContent = "↗"
+          byId("expand-devtools").setAttribute("aria-label", "Expand devtools")
+          byId("maximize-map").textContent = "Map only"
+          byId("devtools-launcher").setAttribute("aria-expanded", "false")
+          byId("devtools-launcher").focus()
+          return
+        }
+        if (target.id === "expand-devtools") {
+          byId("devtools").classList.remove("is-map-maximized")
+          byId("maximize-map").textContent = "Map only"
+          const expanded = byId("devtools").classList.toggle("is-expanded")
+          target.textContent = expanded ? "↘" : "↗"
+          target.setAttribute("aria-label", expanded ? "Dock devtools" : "Expand devtools")
+          return
+        }
+        if (target.id === "maximize-map") {
+          const maximized = byId("devtools").classList.toggle("is-map-maximized")
+          byId("devtools").classList.add("is-expanded")
+          byId("expand-devtools").textContent = "↘"
+          byId("expand-devtools").setAttribute("aria-label", "Dock devtools")
+          target.textContent = maximized ? "Show panels" : "Map only"
+          graphMode = "full"
+          render()
+          return
+        }
+
+        if (target.id === "zoom-in") {
+          zoomGraph(1.25)
+          return
+        }
+        if (target.id === "zoom-out") {
+          zoomGraph(0.8)
+          return
+        }
+        if (target.id === "zoom-reset") {
+          resetGraphViewport()
+          return
+        }
+
+        const graphChoice = target.dataset.graphMode
+        if (graphChoice) {
+          graphMode = graphChoice
+          render()
+          return
+        }
+
+        const historyChoice = target.dataset.historyMode
+        if (historyChoice) {
+          historyMode = historyChoice
+          render()
+          return
+        }
+
+        const historyIndex = target.dataset.historyIndex
+        if (historyIndex !== undefined) {
+          session.select(Number(historyIndex))
+          return
+        }
+        const scenarioId = target.dataset.scenarioId
+        if (scenarioId) {
+          selectedScenarioId = scenarioId
+          scenarioStep = 0
+          render()
+          return
+        }
+        if (target.id === "start-scenario") {
+          resetSession()
+          return
+        }
+        if (target.id === "next-scenario-step") return void runScenarioStep()
+        if (target.id === "run-scenario") return void runEntireScenario()
+
+        const quickIndex = target.dataset.quickIndex
+        if (quickIndex !== undefined) {
+          const quick = quickEvents[Number(quickIndex)]
+          await send(quick.event, quick.label, "quick event")
+          return
+        }
+
+        if (target.dataset.command === "reset-session") {
+          resetSession()
+          return
+        }
+
+        const eventTag = target.dataset.hostEvent
+        if (eventTag) {
+          const event = eventTag === "ADD_ITEM" ? { _tag: eventTag, sku: target.dataset.sku } : { _tag: eventTag }
+          const accepted = await send(event, target.textContent.trim(), "host app")
+          if (accepted && eventTag === "ADD_ITEM" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            const rect = target.getBoundingClientRect()
+            const star = document.createElement("span")
+            star.className = "star-burst"
+            star.style.left = `${rect.left + rect.width / 2}px`
+            star.style.top = `${rect.top}px`
+            document.body.append(star)
+            star.addEventListener("animationend", () => star.remove(), { once: true })
+          }
+        }
+      })
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !byId("devtools").classList.contains("is-open")) return
+        if (byId("devtools").classList.contains("is-map-maximized")) {
+          byId("devtools").classList.remove("is-map-maximized")
+          byId("maximize-map").textContent = "Map only"
+          return
+        }
+        byId("close-devtools").click()
+      })
+
+      byId("graph-canvas").addEventListener(
+        "wheel",
+        (event) => {
+          if (graphMode !== "full" || !event.target.closest(".full-graph")) return
+          event.preventDefault()
+          zoomGraph(event.deltaY < 0 ? 1.12 : 0.89, { x: event.clientX, y: event.clientY })
+        },
+        { passive: false },
+      )
+
+      byId("graph-canvas").addEventListener("pointerdown", (event) => {
+        if (graphMode !== "full" || event.button !== 0 || !event.target.closest(".full-graph") || event.target.closest("a")) return
+        const svg = document.querySelector(".full-graph")
+        const rect = svg.getBoundingClientRect()
+        graphPan = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, viewport: { ...graphViewport }, width: rect.width, height: rect.height }
+        event.currentTarget.setPointerCapture(event.pointerId)
+        event.target.closest(".graph-scroll").classList.add("is-panning")
+      })
+
+      byId("graph-canvas").addEventListener("pointermove", (event) => {
+        if (!graphPan || graphPan.pointerId !== event.pointerId) return
+        graphViewport = {
+          ...graphPan.viewport,
+          x: graphPan.viewport.x - ((event.clientX - graphPan.clientX) / graphPan.width) * graphPan.viewport.width,
+          y: graphPan.viewport.y - ((event.clientY - graphPan.clientY) / graphPan.height) * graphPan.viewport.height,
+        }
+        applyGraphViewport()
+      })
+
+      const endGraphPan = (event) => {
+        if (!graphPan || graphPan.pointerId !== event.pointerId) return
+        document.querySelector(".graph-scroll")?.classList.remove("is-panning")
+        graphPan = null
+      }
+
+      byId("graph-canvas").addEventListener("pointerup", endGraphPan)
+      byId("graph-canvas").addEventListener("pointercancel", endGraphPan)
+
+      document.addEventListener("change", (event) => {
+        if (event.target.id !== "ide-mode") return
+        ideMode = event.target.value
+        render()
+      })
+    </script>
+  </body>
+</html>

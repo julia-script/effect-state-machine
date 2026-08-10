@@ -116,6 +116,30 @@ _Avoid_: Visual editor, source graph
 An optional development surface that projects or observes machines through their public tooling contract. It may share a distribution package with the core, but core imports never load devtools code and the core never depends on it.
 _Avoid_: Framework binding, application adapter, core dependency
 
+**Devtools session**:
+The development view of one root machine instance: its definition metadata, current and historical snapshots, inspection events, and available controls. Child-machine and actor-system topology are outside the initial session model.
+_Avoid_: Application-wide machine registry, actor registry
+
+**History cursor**:
+A selection over snapshots already recorded by a devtools session. Moving it backward or forward changes only what the developer is inspecting; it does not change the live machine, replay events, or repeat external effects.
+_Avoid_: Time travel, undo, replay
+
+**Live head**:
+The newest snapshot recorded from the running machine while a developer may be inspecting an older snapshot with the history cursor. Returning to live moves the cursor to this position; it does not perform a machine transition.
+_Avoid_: Current cursor, replay target
+
+**Quick event**:
+A named machine event exposed by devtools-session setup for direct dispatch. It may contain a predefined decoded event or a factory evaluated on every dispatch, allowing fresh or randomized payloads without an application UI or hand-authored input form.
+_Avoid_: Named path, generated event form
+
+**Focused graph**:
+A partial graph projection centered on the selected snapshot's active state and a configurable depth of states reachable ahead of it. It reduces visual noise without changing the underlying machine definition or full graph model; future child-machine graphs may appear as collapsed nodes that can be expanded separately.
+_Avoid_: Separate graph, pruned machine definition
+
+**Source location**:
+Best-effort development metadata captured automatically when authored machine elements are constructed, identifying the declaration or decision function that produced them. Authors never maintain file paths or line numbers; tooling omits links when runtime stacks or source maps cannot resolve a trustworthy location.
+_Avoid_: Authored line number, exact statement mapping
+
 **Codebase literacy**:
 A developer's ability to navigate and explain the application behavior they ship, including code produced with agentic assistance. Preserving it is a public promise of the library.
 _Avoid_: Non-developer authoring, visual programming
