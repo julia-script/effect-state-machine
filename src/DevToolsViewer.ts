@@ -300,17 +300,6 @@ const svgGraph = <Details>(
   svg.style.touchAction = "none"
 
   const definitions = svgElement("defs")
-  const pattern = svgElement("pattern")
-  pattern.id = "machine-devtools-grid"
-  pattern.setAttribute("width", "18")
-  pattern.setAttribute("height", "18")
-  pattern.setAttribute("patternUnits", "userSpaceOnUse")
-  const dot = svgElement("circle")
-  dot.setAttribute("cx", "1")
-  dot.setAttribute("cy", "1")
-  dot.setAttribute("r", "1")
-  dot.setAttribute("fill", "var(--color-rule-strong)")
-  pattern.append(dot)
   const marker = svgElement("marker")
   marker.id = "machine-devtools-arrow"
   marker.setAttribute("viewBox", "0 0 10 10")
@@ -323,16 +312,7 @@ const svgGraph = <Details>(
   arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z")
   arrow.setAttribute("fill", "context-stroke")
   marker.append(arrow)
-  definitions.append(pattern, marker)
-
-  const background = svgElement("rect")
-  const [viewX, viewY, viewWidth, viewHeight] = layout.viewBox.split(" ")
-  background.setAttribute("x", viewX ?? "0")
-  background.setAttribute("y", viewY ?? "0")
-  background.setAttribute("width", viewWidth ?? "1000")
-  background.setAttribute("height", viewHeight ?? "560")
-  background.setAttribute("fill", "url(#machine-devtools-grid)")
-  background.setAttribute("opacity", "0.48")
+  definitions.append(marker)
 
   const scene = svgElement("g")
   scene.classList.add("machine-devtools__graph-scene")
@@ -424,7 +404,7 @@ const svgGraph = <Details>(
     scene.append(group)
   }
 
-  svg.append(definitions, background, scene)
+  svg.append(definitions, scene)
   shell.append(svg)
 
   const zoom = document.createElement("nav")
