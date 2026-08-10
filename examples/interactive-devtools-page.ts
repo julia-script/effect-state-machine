@@ -1,7 +1,9 @@
 import { Effect, Exit, Layer, Ref, Scope, Stream } from "effect"
+import { type RawSourceMap, SourceMapConsumer } from "source-map-js"
 import * as DevToolsSession from "../src/DevToolsSession.js"
 import * as DevToolsViewer from "../src/DevToolsViewer.js"
 import * as Machine from "../src/Machine.js"
+import type * as SourceLocation from "../src/SourceLocation.js"
 import { Checkout, Orders, PaymentDeclined } from "./Checkout.js"
 import { LargeMachine } from "./LargeMachine.js"
 import { Documents, LocalFirstDocument, Synchronizer } from "./LocalFirstDocument.js"
@@ -10,6 +12,35 @@ type Fixture = "checkout" | "document" | "large"
 const root = document.querySelector<HTMLElement>("#app")
 if (root === null) throw new Error("Missing #app")
 let activeScope: Scope.Closeable | undefined
+const projectRoot = "__INTERACTIVE_PROJECT_ROOT__"
+let mapSource: SourceLocation.Mapper | undefined
+
+const loadSourceMapper = async (): Promise<SourceLocation.Mapper | undefined> => {
+  try {
+    const response = await fetch(new URL("./interactive-devtools.js.map", location.href))
+    if (!response.ok) return undefined
+    const consumer = new SourceMapConsumer((await response.json()) as RawSourceMap)
+    return (generated) => {
+      if (!generated.file.endsWith("/interactive-devtools.js")) return generated
+      const original = consumer.originalPositionFor({
+        line: generated.line,
+        column: Math.max(0, generated.column - 1),
+      })
+      if (original.source == null || original.line == null || original.column == null) {
+        return undefined
+      }
+      const relative = original.source.replace(/^(?:\.\.\/)+/, "")
+      return {
+        file: `${projectRoot}/${relative}`,
+        line: original.line,
+        column: original.column + 1,
+        ...(original.name === undefined ? {} : { functionName: original.name }),
+      }
+    }
+  } catch {
+    return undefined
+  }
+}
 
 const button = (label: string, run: () => void): HTMLButtonElement => {
   const control = document.createElement("button")
@@ -19,7 +50,8 @@ const button = (label: string, run: () => void): HTMLButtonElement => {
   return control
 }
 
-const standalone = new URLSearchParams(location.search).get("mode") === "standalone"
+const mode = new URLSearchParams(location.search).get("mode")
+const standalone = mode === "viewer" || mode === "standalone"
 
 const shell = (fixture: Fixture) => {
   root.replaceChildren()
@@ -60,6 +92,7 @@ const shell = (fixture: Fixture) => {
 }
 
 const startCheckout = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.Closeable) => {
+  host.parentElement?.setAttribute("data-dock", "")
   const attempts = await Effect.runPromise(Ref.make(0))
   const orders = Layer.succeed(
     Orders,
@@ -84,6 +117,7 @@ const startCheckout = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
     DevToolsSession.attach({
       definition: Checkout.definition,
       handle,
+      mapSource,
       projectState: (state) => state,
       quickEvents: [
         {
@@ -119,13 +153,17 @@ const startCheckout = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
   )
   host.append(actions)
   await Effect.runPromise(
-    DevToolsViewer.mount({ session, container: viewer }).pipe(
-      Effect.provideService(Scope.Scope, scope),
-    ),
+    DevToolsViewer.mount({
+      session,
+      container: viewer,
+      presentation: "dock",
+      initiallyOpen: true,
+    }).pipe(Effect.provideService(Scope.Scope, scope)),
   )
 }
 
 const startDocument = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.Closeable) => {
+  host.parentElement?.setAttribute("data-dock", "")
   const deps = Layer.merge(
     Layer.succeed(
       Documents,
@@ -149,6 +187,7 @@ const startDocument = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
     DevToolsSession.attach({
       definition: LocalFirstDocument.definition,
       handle,
+      mapSource,
       projectState: (state) => ({ tag: state._tag }),
       quickEvents: [
         {
@@ -185,9 +224,12 @@ const startDocument = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
   )
   host.append(state, actions)
   await Effect.runPromise(
-    DevToolsViewer.mount({ session, container: viewer }).pipe(
-      Effect.provideService(Scope.Scope, scope),
-    ),
+    DevToolsViewer.mount({
+      session,
+      container: viewer,
+      presentation: "dock",
+      initiallyOpen: true,
+    }).pipe(Effect.provideService(Scope.Scope, scope)),
   )
 }
 
@@ -199,6 +241,7 @@ const startLarge = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.C
     DevToolsSession.attach({
       definition: LargeMachine.definition,
       handle,
+      mapSource,
       quickEvents: [
         { id: "next", label: "Next", group: "Move", event: { _tag: "Next" } },
         { id: "skip", label: "Skip seven", group: "Move", event: { _tag: "Skip" } },
@@ -209,13 +252,8 @@ const startLarge = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.C
   )
   host.innerHTML =
     "<h2>Large fixture</h2><p>A real 100-state, 400-edge machine. Focus stays bounded until you request the full map.</p>"
-  const actions = document.createElement("div")
-  actions.className = "host__actions"
-  actions.append(
-    button("Next", () => Effect.runFork(handle.send({ _tag: "Next" }).pipe(Effect.ignore))),
-    button("Skip", () => Effect.runFork(handle.send({ _tag: "Skip" }).pipe(Effect.ignore))),
-  )
-  host.append(actions)
+  host.hidden = true
+  host.parentElement?.setAttribute("data-standalone", "")
   await Effect.runPromise(
     DevToolsViewer.mount({ session, container: viewer }).pipe(
       Effect.provideService(Scope.Scope, scope),
@@ -234,4 +272,7 @@ const start = async (fixture: Fixture) => {
 }
 
 const fixture = new URLSearchParams(location.search).get("fixture")
-void start(fixture === "document" || fixture === "large" ? fixture : "checkout")
+void loadSourceMapper().then((mapper) => {
+  mapSource = mapper
+  return start(fixture === "document" || fixture === "large" ? fixture : "checkout")
+})

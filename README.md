@@ -151,10 +151,24 @@ const program = Effect.scoped(
       ],
     })
 
-    yield* Viewer.mount({ session, container: document.querySelector("#devtools")! })
+    yield* Viewer.mount({
+      session,
+      container: document.body,
+      presentation: "dock",
+    })
   }),
 )
 ```
+
+This is the supported browser connection today: the application creates the `MachineHandle`,
+attaches a `Session` in the same browser runtime, and mounts the viewer beside the real UI. With
+`presentation: "dock"`, the viewer behaves like React Query Devtools: a small launcher opens a
+bottom dock, which can expand to the full viewport. Use `presentation: "inline"` when the viewer
+owns a page or a dedicated panel instead.
+
+There is not yet a Node-to-browser or browser-tab-to-standalone-viewer transport. A Node process
+cannot connect to `interactive-devtools.html` in this milestone. That requires a transport protocol
+and a local viewer host; the standalone fixture page is not a remote devtools server.
 
 The renderer-independent `Session` API exposes Effects for reads and controls plus a Stream of
 immutable views. A view contains metadata-only semantic history, expandable raw inspection records,
@@ -184,10 +198,11 @@ Layers, exercise typed failures, advance an Effect `TestClock` through the retry
 the scoped conflict child, and inspect both focused and complete graph views. The page owns its
 `ManagedRuntime` and Promise bridge; the machine handle remains Effect-native.
 
-It also creates `dist/interactive-devtools.html`, the generic direct-session explorer. Use
-`?fixture=checkout`, `?fixture=document`, or `?fixture=large`; add `&mode=standalone` to hide the host
-application panel. The large fixture is a real 100-state, 400-edge machine whose bounded default
-projection avoids mounting the full topology until requested.
+It also creates `dist/interactive-devtools.html`, a browser fixture workbench for the direct-session
+viewer. Use `?fixture=checkout`, `?fixture=document`, or `?fixture=large`; add `&mode=viewer` to hide
+the sample host application panel. This is a local integration example, not a transport endpoint.
+The large fixture is a real 100-state, 400-edge machine whose readable focus projection is the
+default; the complete topology is an intentionally lower-detail overview until a node is hovered.
 
 ## Runtime contract
 

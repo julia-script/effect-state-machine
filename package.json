@@ -6,7 +6,12 @@
   "type": "module",
   "sideEffects": false,
   "files": [
-    "dist",
+    "dist/*.js",
+    "dist/*.js.map",
+    "dist/*.d.ts",
+    "dist/*.d.ts.map",
+    "!dist/interactive-devtools.js",
+    "!dist/interactive-devtools.js.map",
     "README.md"
   ],
   "exports": {
@@ -46,6 +51,7 @@
     "@effect/vitest": "4.0.0-beta.106",
     "effect": "4.0.0-beta.106",
     "esbuild": "0.28.1",
+    "source-map-js": "^1.2.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   },

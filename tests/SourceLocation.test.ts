@@ -56,6 +56,22 @@ describe("SourceLocation", () => {
     )
   })
 
+  it("filters internal frames after source-map projection", () => {
+    const reference = {
+      stack: () =>
+        "Error\n at capture (http://localhost/interactive-devtools.js:1:1)\n at authored (http://localhost/interactive-devtools.js:2:1)",
+    }
+    assert.deepStrictEqual(
+      SourceLocation.resolve(reference, {
+        map: (generated) =>
+          generated.line === 1
+            ? { file: "/workspace/src/Source.ts", line: 7, column: 17 }
+            : { file: "/workspace/examples/App.ts", line: 42, column: 9 },
+      }),
+      { file: "/workspace/examples/App.ts", line: 42, column: 9 },
+    )
+  })
+
   it("creates built-in VS Code and Cursor links and supports custom resolvers", () => {
     const source = { file: "/workspace/my file.ts", line: 12, column: 7 }
     assert.strictEqual(SourceLocation.vscode(source), "vscode://file/workspace/my%20file.ts:12:7")

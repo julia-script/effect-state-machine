@@ -29,6 +29,7 @@ try {
   assert.match(contents, /package\/dist\/devtools-viewer\.js/)
   assert.match(contents, /package\/dist\/devtools-viewer\.d\.ts/)
   assert.match(contents, /package\/dist\/devtools-viewer\.js\.map/)
+  assert.doesNotMatch(contents, /interactive-devtools|local-first-document|reference-workflow/)
   assert.doesNotMatch(contents, /prototype|src\/main|todo-effect-machine/)
 
   await writeFile(

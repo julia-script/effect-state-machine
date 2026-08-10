@@ -72,6 +72,9 @@ const interactiveBundle = await build({
   entryPoints: ["examples/interactive-devtools-page.ts"],
   bundle: true,
   write: false,
+  outfile: "dist/interactive-devtools.js",
+  sourcemap: "external",
+  sourcesContent: false,
   format: "iife",
   platform: "browser",
   target: ["es2022"],
@@ -87,9 +90,22 @@ const interactiveStyles = await build({
   charset: "utf8",
 })
 const interactiveTemplate = await readFile("examples/interactive-devtools-page.html", "utf8")
-const interactivePage = interactiveTemplate
-  .replace("/* PAGE_CSS */", () => interactiveStyles.outputFiles[0].text)
-  .replace("/* PAGE_BUNDLE */", () => interactiveBundle.outputFiles[0].text)
+const interactivePage = interactiveTemplate.replace(
+  "/* PAGE_CSS */",
+  () => interactiveStyles.outputFiles[0].text,
+)
+const interactiveScript = interactiveBundle.outputFiles.find((file) => file.path.endsWith(".js"))
+const interactiveSourceMap = interactiveBundle.outputFiles.find((file) =>
+  file.path.endsWith(".js.map"),
+)
+if (interactiveScript === undefined || interactiveSourceMap === undefined) {
+  throw new Error("Interactive devtools build did not emit JavaScript and its source map")
+}
+await writeFile(
+  "dist/interactive-devtools.js",
+  interactiveScript.text.replaceAll("__INTERACTIVE_PROJECT_ROOT__", process.cwd()),
+)
+await writeFile("dist/interactive-devtools.js.map", interactiveSourceMap.text)
 await writeFile("dist/interactive-devtools.html", interactivePage)
 
 console.log(

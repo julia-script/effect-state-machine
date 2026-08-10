@@ -78,7 +78,9 @@ export const resolve = (
   for (const frame of stack.split("\n")) {
     const parsed = parseFrame(frame)
     if (parsed === undefined || internalFrame(parsed.file)) continue
-    return options?.map?.(parsed) ?? parsed
+    const mapped = options?.map === undefined ? parsed : options.map(parsed)
+    if (mapped === undefined || internalFrame(mapped.file)) continue
+    return mapped
   }
   return undefined
 }
