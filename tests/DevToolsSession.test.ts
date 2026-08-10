@@ -22,6 +22,7 @@ describe("DevToolsSession", () => {
         definition: counterDefinition,
         handle,
         projectState: (state) => ({ count: state.count }),
+        projectEvent: (event) => event,
       }).pipe(Effect.provideService(Scope.Scope, sessionScope))
 
       yield* Effect.yieldNow
@@ -46,6 +47,7 @@ describe("DevToolsSession", () => {
       )
       const eventStep = advanced.history.semantic.find((step) => step.kind === "event")
       assert.strictEqual(eventStep?.eventTag, "Increment")
+      assert.deepStrictEqual(eventStep?.eventDetails, { _tag: "Increment", amount: 2 })
       assert.strictEqual(eventStep?.committedPosition, 1)
       assert.deepStrictEqual(eventStep?.raw, [1, 2, 3])
 
@@ -168,6 +170,7 @@ describe("DevToolsSession", () => {
           .find((step) => step.eventTag === "Increment")
         assert.strictEqual(yield* session.selectStep(eventStep?.index ?? -1), true)
         assert.strictEqual((yield* session.view).cursor, 2)
+        assert.strictEqual((yield* session.view).selectedStep?.index, eventStep?.index)
         assert.strictEqual((yield* session.view).focus.activity.traversedEdges.length, 1)
         yield* session.previous
         yield* session.returnToLive
@@ -240,6 +243,46 @@ describe("DevToolsSession", () => {
           assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Paused", count: 4 })
         }),
       ),
+  )
+
+  it.effect("decodes arbitrary events and retains explicitly projected payloads", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* Machine.run(counterDefinition, { count: 0 })
+        const session = yield* DevToolsSession.attach({
+          definition: counterDefinition,
+          handle,
+          projectState: (state) => state,
+          projectEvent: (event) => event,
+        })
+
+        yield* session.dispatchEvent({ _tag: "Increment", amount: 3 })
+        const advanced = yield* session.changes.pipe(
+          Stream.filter((view) => view.liveHead === 1),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        )
+        assert.deepStrictEqual(advanced.selected.state.details, { _tag: "Active", count: 3 })
+        assert.deepStrictEqual(advanced.selectedStep?.eventDetails, {
+          _tag: "Increment",
+          amount: 3,
+        })
+
+        const invalid = yield* Effect.flip(
+          session.dispatchEvent({ _tag: "Increment", amount: "three" }),
+        )
+        assert.strictEqual(invalid.reason, "invalid")
+        assert.strictEqual((yield* session.view).customEventFailure?.reason, "invalid")
+        assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 3 })
+
+        yield* handle.send({ _tag: "Pause" })
+        const unavailable = yield* Effect.flip(
+          session.dispatchEvent({ _tag: "Increment", amount: 1 }),
+        )
+        assert.strictEqual(unavailable.reason, "unavailable")
+        assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Paused", count: 3 })
+      }),
+    ),
   )
 
   it.effect("keeps a genuine can/send race as a machine defect", () =>

@@ -7,7 +7,7 @@ import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as Graph from "./Graph.js"
-import type * as Machine from "./Machine.js"
+import * as Machine from "./Machine.js"
 import type * as SourceLocation from "./SourceLocation.js"
 
 interface Tagged {
@@ -29,9 +29,13 @@ export interface SessionPosition<Details> {
   readonly state: StateMetadata<Details>
 }
 
-export interface RawInspectionRecord {
+type SessionInspectionEvent<EventDetails> = [EventDetails] extends [never]
+  ? Machine.InspectionEvent
+  : Machine.ProjectedInspectionEvent<EventDetails>
+
+export interface RawInspectionRecord<EventDetails = never> {
   readonly index: number
-  readonly event: Machine.InspectionEvent
+  readonly event: SessionInspectionEvent<EventDetails>
 }
 
 export type SemanticStepKind =
@@ -43,7 +47,7 @@ export type SemanticStepKind =
   | "defect"
   | "activity"
 
-export interface SemanticStep {
+export interface SemanticStep<EventDetails = never> {
   readonly index: number
   readonly kind: SemanticStepKind
   readonly title: string
@@ -52,6 +56,7 @@ export interface SemanticStep {
   readonly sourceStateTag?: string
   readonly targetStateTag?: string
   readonly eventTag?: string
+  readonly eventDetails?: EventDetails
   readonly invocation?: string
   readonly generation?: number
   readonly instanceId?: string
@@ -72,9 +77,9 @@ export interface SemanticStep {
   readonly raw: ReadonlyArray<number>
 }
 
-export interface SessionHistory {
-  readonly semantic: ReadonlyArray<SemanticStep>
-  readonly raw: ReadonlyArray<RawInspectionRecord>
+export interface SessionHistory<EventDetails = never> {
+  readonly semantic: ReadonlyArray<SemanticStep<EventDetails>>
+  readonly raw: ReadonlyArray<RawInspectionRecord<EventDetails>>
 }
 
 interface QuickEventBase {
@@ -101,12 +106,24 @@ export class QuickEventFailure extends Data.TaggedError("QuickEventFailure")<{
   readonly cause?: unknown
 }> {}
 
+export type CustomEventFailureReason = "invalid" | "unavailable"
+
+export class CustomEventFailure extends Data.TaggedError("CustomEventFailure")<{
+  readonly reason: CustomEventFailureReason
+  readonly cause?: unknown
+}> {}
+
 export interface ControlFailure {
   readonly quickEventId: string
   readonly reason: QuickEventFailureReason
 }
 
-export interface SessionView<Details = never> {
+export interface CustomControlFailure {
+  readonly reason: CustomEventFailureReason
+  readonly message?: string
+}
+
+export interface SessionView<StateDetails = never, EventDetails = never> {
   readonly machine: Readonly<{
     id: string
     description?: string
@@ -121,16 +138,18 @@ export interface SessionView<Details = never> {
   readonly liveHead: number
   readonly cursor: number
   readonly isLive: boolean
-  readonly selected: SessionPosition<Details>
-  readonly positions: ReadonlyArray<SessionPosition<Details>>
-  readonly history: SessionHistory
+  readonly selected: SessionPosition<StateDetails>
+  readonly selectedStep?: SemanticStep<EventDetails>
+  readonly positions: ReadonlyArray<SessionPosition<StateDetails>>
+  readonly history: SessionHistory<EventDetails>
   readonly quickEvents: ReadonlyArray<QuickEventControl>
   readonly controlFailure?: ControlFailure
+  readonly customEventFailure?: CustomControlFailure
 }
 
-export interface Session<Details = never> {
-  readonly view: Effect.Effect<SessionView<Details>>
-  readonly changes: Stream.Stream<SessionView<Details>>
+export interface Session<StateDetails = never, EventDetails = never> {
+  readonly view: Effect.Effect<SessionView<StateDetails, EventDetails>>
+  readonly changes: Stream.Stream<SessionView<StateDetails, EventDetails>>
   readonly previous: Effect.Effect<void>
   readonly next: Effect.Effect<void>
   readonly selectPosition: (position: number) => Effect.Effect<boolean>
@@ -138,35 +157,44 @@ export interface Session<Details = never> {
   readonly returnToLive: Effect.Effect<void>
   readonly setFocusDepth: (depth: Graph.FocusDepth) => Effect.Effect<void>
   readonly dispatchQuickEvent: (id: string) => Effect.Effect<void, QuickEventFailure>
+  readonly dispatchEvent: (event: unknown) => Effect.Effect<void, CustomEventFailure>
 }
 
-export interface AttachOptions<State extends Tagged, Event extends Tagged, Details = never> {
+export interface AttachOptions<
+  State extends Tagged,
+  Event extends Tagged,
+  StateDetails = never,
+  EventDetails = never,
+> {
   readonly definition: Machine.DefinitionMetadata
   readonly handle: Machine.MachineHandle<State, Event, State>
-  readonly projectState?: (state: State) => Details
-  readonly quickEvents?: ReadonlyArray<QuickEvent<Event>>
+  readonly projectState?: (state: State) => StateDetails
+  readonly projectEvent?: (event: Event) => EventDetails
+  readonly quickEvents?: ReadonlyArray<QuickEvent<NoInfer<Event>>>
   readonly mapSource?: SourceLocation.Mapper
 }
 
-interface InternalPosition<State extends Tagged, Details> {
+interface InternalPosition<State extends Tagged, StateDetails> {
   readonly state: State
-  readonly view: SessionPosition<Details>
+  readonly view: SessionPosition<StateDetails>
 }
 
-interface SessionModel<State extends Tagged, Details> {
+interface SessionModel<State extends Tagged, StateDetails, EventDetails> {
   readonly status: SessionStatus
-  readonly positions: ReadonlyArray<InternalPosition<State, Details>>
+  readonly positions: ReadonlyArray<InternalPosition<State, StateDetails>>
   readonly cursor: number
+  readonly selectedStep?: number
   readonly focusDepth: Graph.FocusDepth
   readonly pendingStates: ReadonlyArray<State>
   readonly pendingCommits: ReadonlyArray<Readonly<{ step?: number }>>
-  readonly raw: ReadonlyArray<RawInspectionRecord>
-  readonly semantic: ReadonlyArray<SemanticStep>
+  readonly raw: ReadonlyArray<RawInspectionRecord<EventDetails>>
+  readonly semantic: ReadonlyArray<SemanticStep<EventDetails>>
   readonly activeEventStep?: number
   readonly pendingOutcomeStep?: number
   readonly invocations: Readonly<Record<string, number>>
   readonly children: Readonly<Record<string, number>>
   readonly controlFailure?: ControlFailure
+  readonly customEventFailure?: CustomControlFailure
 }
 
 const freeze = <Value extends object>(value: Value): Readonly<Value> => Object.freeze(value)
@@ -176,10 +204,10 @@ const invocationKey = (event: {
   readonly generation: number
 }): string => `${event.invocation}:${event.generation}`
 
-const appendStep = <State extends Tagged, Details>(
-  model: SessionModel<State, Details>,
-  step: Omit<SemanticStep, "index">,
-): readonly [SessionModel<State, Details>, number] => {
+const appendStep = <State extends Tagged, StateDetails, EventDetails>(
+  model: SessionModel<State, StateDetails, EventDetails>,
+  step: Omit<SemanticStep<EventDetails>, "index">,
+): readonly [SessionModel<State, StateDetails, EventDetails>, number] => {
   const index = model.semantic.length
   return [
     {
@@ -190,38 +218,38 @@ const appendStep = <State extends Tagged, Details>(
   ]
 }
 
-const updateStep = <State extends Tagged, Details>(
-  model: SessionModel<State, Details>,
+const updateStep = <State extends Tagged, StateDetails, EventDetails>(
+  model: SessionModel<State, StateDetails, EventDetails>,
   index: number,
-  update: (step: SemanticStep) => SemanticStep,
-): SessionModel<State, Details> => ({
+  update: (step: SemanticStep<EventDetails>) => SemanticStep<EventDetails>,
+): SessionModel<State, StateDetails, EventDetails> => ({
   ...model,
   semantic: model.semantic.map((step, candidate) =>
     candidate === index ? freeze(update(step)) : step,
   ),
 })
 
-const attachRaw = <State extends Tagged, Details>(
-  model: SessionModel<State, Details>,
+const attachRaw = <State extends Tagged, StateDetails, EventDetails>(
+  model: SessionModel<State, StateDetails, EventDetails>,
   index: number,
   rawIndex: number,
-  fields: Partial<SemanticStep> = {},
-): SessionModel<State, Details> =>
+  fields: Partial<SemanticStep<EventDetails>> = {},
+): SessionModel<State, StateDetails, EventDetails> =>
   updateStep(model, index, (step) => ({
     ...step,
     ...fields,
     raw: [...step.raw, rawIndex],
   }))
 
-const statePositionHint = <State extends Tagged, Details>(
-  model: SessionModel<State, Details>,
+const statePositionHint = <State extends Tagged, StateDetails, EventDetails>(
+  model: SessionModel<State, StateDetails, EventDetails>,
 ): number => model.positions.length - 1 + model.pendingCommits.length
 
-const reconcileCommits = <State extends Tagged, Details>(
+const reconcileCommits = <State extends Tagged, StateDetails, EventDetails>(
   graph: Graph.Graph,
-  projectState: ((state: State) => Details) | undefined,
-  model: SessionModel<State, Details>,
-): SessionModel<State, Details> => {
+  projectState: ((state: State) => StateDetails) | undefined,
+  model: SessionModel<State, StateDetails, EventDetails>,
+): SessionModel<State, StateDetails, EventDetails> => {
   let next = model
   while (next.pendingStates.length > 0 && next.pendingCommits.length > 0) {
     const state = next.pendingStates[0]
@@ -245,12 +273,12 @@ const reconcileCommits = <State extends Tagged, Details>(
   return next
 }
 
-const appendInspection = <State extends Tagged, Details>(
-  model: SessionModel<State, Details>,
-  event: Machine.InspectionEvent,
-): SessionModel<State, Details> => {
+const appendInspection = <State extends Tagged, StateDetails, EventDetails>(
+  model: SessionModel<State, StateDetails, EventDetails>,
+  event: SessionInspectionEvent<EventDetails>,
+): SessionModel<State, StateDetails, EventDetails> => {
   const rawIndex = model.raw.length
-  let next: SessionModel<State, Details> = {
+  let next: SessionModel<State, StateDetails, EventDetails> = {
     ...model,
     raw: [...model.raw, freeze({ index: rawIndex, event })],
   }
@@ -276,6 +304,7 @@ const appendInspection = <State extends Tagged, Details>(
         statePosition: at,
         sourceStateTag: event.stateTag,
         eventTag: event.eventTag,
+        ...("details" in event ? { eventDetails: event.details } : {}),
         status: "received",
         raw: [rawIndex],
       })
@@ -465,15 +494,21 @@ const position = <State extends Tagged, Details>(
   }),
 })
 
-const toView = <State extends Tagged, Details>(
+const toView = <State extends Tagged, StateDetails, EventDetails>(
   definition: Machine.DefinitionMetadata,
   graph: Graph.Graph,
-  model: SessionModel<State, Details>,
+  model: SessionModel<State, StateDetails, EventDetails>,
   quickEvents: ReadonlyArray<QuickEventControl>,
-): SessionView<Details> => {
+): SessionView<StateDetails, EventDetails> => {
   const positions = freeze(model.positions.map((entry) => entry.view))
   const liveHead = positions.length - 1
   const selected = positions[model.cursor]
+  const selectedStep =
+    model.selectedStep === undefined
+      ? [...model.semantic]
+          .reverse()
+          .find((step) => (step.committedPosition ?? step.statePosition) === model.cursor)
+      : model.semantic[model.selectedStep]
   const focusedGraph = Graph.focus(graph, selected.state.tag, model.focusDepth)
   const transitions = model.semantic.flatMap(
     (step): ReadonlyArray<Graph.TransitionActivity> =>
@@ -507,6 +542,7 @@ const toView = <State extends Tagged, Details>(
     cursor: model.cursor,
     isLive: model.cursor === liveHead,
     selected,
+    ...(selectedStep === undefined ? {} : { selectedStep }),
     positions,
     history: freeze({
       semantic: freeze([...model.semantic]),
@@ -523,6 +559,9 @@ const toView = <State extends Tagged, Details>(
     ...(model.controlFailure === undefined
       ? {}
       : { controlFailure: freeze({ ...model.controlFailure }) }),
+    ...(model.customEventFailure === undefined
+      ? {}
+      : { customEventFailure: freeze({ ...model.customEventFailure }) }),
   })
 }
 
@@ -530,9 +569,14 @@ const toView = <State extends Tagged, Details>(
  * Observes an externally owned running machine for the lifetime of the current Scope.
  * Closing the Scope releases only the session fibers; it never interrupts the machine.
  */
-export const attach = <State extends Tagged, Event extends Tagged, Details = never>(
-  options: AttachOptions<State, Event, Details>,
-): Effect.Effect<Session<Details>, never, Scope.Scope> =>
+export const attach = <
+  State extends Tagged,
+  Event extends Tagged,
+  StateDetails = never,
+  EventDetails = never,
+>(
+  options: AttachOptions<State, Event, StateDetails, EventDetails>,
+): Effect.Effect<Session<StateDetails, EventDetails>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const graph = Graph.fromDefinition(options.definition, { mapSource: options.mapSource })
     const quickEvents = options.quickEvents ?? []
@@ -557,7 +601,7 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
     )
     const initial = yield* options.handle.snapshot
     const initialPosition = position(graph, initial, 0, options.projectState)
-    const model = yield* SubscriptionRef.make<SessionModel<State, Details>>({
+    const model = yield* SubscriptionRef.make<SessionModel<State, StateDetails, EventDetails>>({
       status: "running",
       positions: [initialPosition],
       cursor: 0,
@@ -588,7 +632,12 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
     yield* Deferred.await(subscribed)
 
     const inspectionSubscribed = yield* Deferred.make<void>()
-    yield* options.handle.inspection.pipe(
+    const inspection = (
+      options.projectEvent === undefined
+        ? options.handle.inspection
+        : options.handle.inspect(options.projectEvent)
+    ) as Stream.Stream<SessionInspectionEvent<EventDetails>>
+    yield* inspection.pipe(
       Stream.tap(() => Deferred.succeed(inspectionSubscribed, undefined)),
       Stream.runForEach((event) =>
         SubscriptionRef.update(model, (current) =>
@@ -624,10 +673,12 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
       previous: SubscriptionRef.update(model, (current) => ({
         ...current,
         cursor: Math.max(0, current.cursor - 1),
+        selectedStep: undefined,
       })),
       next: SubscriptionRef.update(model, (current) => ({
         ...current,
         cursor: Math.min(current.positions.length - 1, current.cursor + 1),
+        selectedStep: undefined,
       })),
       selectPosition: (selectedPosition) =>
         SubscriptionRef.modify(model, (current) => {
@@ -638,17 +689,18 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
           ) {
             return [false, current]
           }
-          return [true, { ...current, cursor: selectedPosition }]
+          return [true, { ...current, cursor: selectedPosition, selectedStep: undefined }]
         }),
       selectStep: (selectedStep) =>
         SubscriptionRef.modify(model, (current) => {
           const step = current.semantic[selectedStep]
           if (step === undefined) return [false, current]
-          return [true, { ...current, cursor: step.statePosition }]
+          return [true, { ...current, cursor: step.statePosition, selectedStep }]
         }),
       returnToLive: SubscriptionRef.update(model, (current) => ({
         ...current,
         cursor: current.positions.length - 1,
+        selectedStep: undefined,
       })),
       setFocusDepth: (focusDepth) =>
         SubscriptionRef.update(model, (current) => ({ ...current, focusDepth })),
@@ -711,5 +763,49 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
           }))
           yield* options.handle.send(event)
         }),
+      dispatchEvent: (input) =>
+        // Definition metadata intentionally erases codec requirements. Devtools can
+        // decode the service-free event Schemas accepted by the v0 machine builder.
+        (
+          Machine.decodeEvent(options.definition, input) as Effect.Effect<Event, unknown, never>
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new CustomEventFailure({
+                reason: "invalid",
+                cause,
+              }),
+          ),
+          Effect.tapError((failure) =>
+            SubscriptionRef.update(model, (state) => ({
+              ...state,
+              customEventFailure: {
+                reason: failure.reason,
+                message: String(failure.cause ?? "Event does not match the machine schema."),
+              },
+            })),
+          ),
+          Effect.flatMap((event) =>
+            Effect.gen(function* () {
+              const current = yield* SubscriptionRef.get(model)
+              if (current.status !== "running" || !(yield* options.handle.can(event))) {
+                const failure = new CustomEventFailure({ reason: "unavailable" })
+                yield* SubscriptionRef.update(model, (state) => ({
+                  ...state,
+                  customEventFailure: {
+                    reason: failure.reason,
+                    message: `This event is not accepted in ${state.positions[state.cursor]?.state._tag ?? "the current state"}.`,
+                  },
+                }))
+                return yield* Effect.fail(failure)
+              }
+              yield* SubscriptionRef.update(model, (state) => ({
+                ...state,
+                customEventFailure: undefined,
+              }))
+              yield* options.handle.send(event)
+            }),
+          ),
+        ),
     }
   })

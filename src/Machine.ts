@@ -502,10 +502,18 @@ export interface MachineHandle<
   readonly snapshot: Effect.Effect<State>
   readonly changes: Stream.Stream<State>
   readonly inspection: Stream.Stream<InspectionEvent>
+  inspect<EventDetails>(
+    projectEvent: (event: Event) => EventDetails,
+  ): Stream.Stream<ProjectedInspectionEvent<EventDetails>>
   readonly completion: Effect.Effect<Completion>
   readonly send: (event: Event) => Effect.Effect<void>
   readonly can: (event: Event) => Effect.Effect<boolean>
 }
+
+export type ProjectedInspectionEvent<EventDetails> =
+  | Exclude<InspectionEvent, Readonly<{ _tag: "EventReceived" }>>
+  | (Extract<InspectionEvent, Readonly<{ _tag: "EventReceived" }>> &
+      Readonly<{ details: EventDetails }>)
 
 export type InspectionEvent =
   | Readonly<{
@@ -610,6 +618,11 @@ export type InspectionEvent =
       generation: number
       branch?: SelectedBranch
     }>
+
+interface InternalInspectionRecord<Event extends Tagged> {
+  readonly metadata: InspectionEvent
+  readonly event?: Event
+}
 
 export class MachineDefinitionDefect extends Error {
   readonly name = "MachineDefinitionDefect"
@@ -1287,7 +1300,9 @@ export const run = <
 
     const stateRef = yield* SubscriptionRef.make(initial)
     const inbox = yield* Queue.unbounded<Envelope<Event>>()
-    const inspectionRef = yield* SubscriptionRef.make<ReadonlyArray<InspectionEvent>>([])
+    const inspectionRef = yield* SubscriptionRef.make<
+      ReadonlyArray<InternalInspectionRecord<Event>>
+    >([])
     const terminated = yield* Deferred.make<void>()
     const completion = yield* Deferred.make<Completion>()
     const status = yield* Ref.make<"Running" | "Completed" | "Defected">("Running")
@@ -1303,8 +1318,30 @@ export const run = <
     let childInstanceSequence = 0
     let activeChild: ActiveChild | undefined
 
-    const emit = (event: InspectionEvent) =>
-      SubscriptionRef.update(inspectionRef, (events) => [...events, event])
+    const emit = (metadata: InspectionEvent, event?: Event) =>
+      SubscriptionRef.update(inspectionRef, (events) => [
+        ...events,
+        { metadata, ...(event === undefined ? {} : { event }) },
+      ])
+
+    const inspection = <EventDetails>(
+      projectEvent?: (event: Event) => EventDetails,
+    ): Stream.Stream<InspectionEvent | ProjectedInspectionEvent<EventDetails>> =>
+      SubscriptionRef.changes(inspectionRef).pipe(
+        Stream.mapAccum(
+          () => 0,
+          (seen, records) => [
+            records.length,
+            records
+              .slice(seen)
+              .map((record) =>
+                projectEvent === undefined || record.event === undefined
+                  ? record.metadata
+                  : { ...record.metadata, details: projectEvent(record.event) },
+              ),
+          ],
+        ),
+      )
 
     const startInvocation = (state: State): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -1614,12 +1651,15 @@ export const run = <
           return yield* commit(current, next)
         }
 
-        yield* emit({
-          _tag: "EventReceived",
-          machineId: definition.id,
-          stateTag: current._tag,
-          eventTag: envelope.event._tag,
-        })
+        yield* emit(
+          {
+            _tag: "EventReceived",
+            machineId: definition.id,
+            stateTag: current._tag,
+            eventTag: envelope.event._tag,
+          },
+          envelope.event,
+        )
 
         if (currentNode?.kind === "child") {
           const forwarded = currentNode.forward[envelope.event._tag]
@@ -1765,12 +1805,11 @@ export const run = <
       changes: Stream.takeUntil(SubscriptionRef.changes(stateRef), (state) =>
         finalTags.has(state._tag),
       ),
-      inspection: SubscriptionRef.changes(inspectionRef).pipe(
-        Stream.mapAccum(
-          () => 0,
-          (seen, events) => [events.length, events.slice(seen)] as const,
-        ),
-      ),
+      inspection: inspection() as Stream.Stream<InspectionEvent>,
+      inspect: (projectEvent) =>
+        inspection(projectEvent) as Stream.Stream<
+          ProjectedInspectionEvent<ReturnType<typeof projectEvent>>
+        >,
       completion: Deferred.await(completion),
       can: (event) =>
         Effect.gen(function* () {

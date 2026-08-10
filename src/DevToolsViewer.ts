@@ -8,8 +8,8 @@ import * as SourceLocation from "./SourceLocation.js"
 export type Presentation = "inline" | "dock"
 export type SourceAction = "cursor" | "vscode" | "copy"
 
-export interface MountOptions<Details> {
-  readonly session: DevToolsSession.Session<Details>
+export interface MountOptions<StateDetails, EventDetails = never> {
+  readonly session: DevToolsSession.Session<StateDetails, EventDetails>
   readonly container: HTMLElement
   readonly hidden?: boolean
   readonly presentation?: Presentation
@@ -42,6 +42,8 @@ interface ViewerState {
   graphOnly: boolean
   expanded: boolean
   open: boolean
+  customEventDraft: string
+  customEventError?: string
 }
 
 const NODE_WIDTH = 144
@@ -84,7 +86,9 @@ const fitViewBox = (points: ReadonlyArray<Point>, targetAspect = 1.7): string =>
   return `${minX} ${minY} ${width} ${height}`
 }
 
-const layoutGraph = <Details>(view: DevToolsSession.SessionView<Details>): GraphLayout => {
+const layoutGraph = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+): GraphLayout => {
   const nodes = view.focus.graph.nodes
   const positions = new Map<string, Point>()
 
@@ -128,7 +132,7 @@ const layoutGraph = <Details>(view: DevToolsSession.SessionView<Details>): Graph
       const verticalOffset = ((maxLayerSize - layer.length) * 92) / 2
       for (const [index, node] of layer.entries()) {
         positions.set(node.id, {
-          x: 64 + distance * 224,
+          x: 64 + distance * 300,
           y: 64 + verticalOffset + index * 92,
         })
       }
@@ -140,7 +144,7 @@ const layoutGraph = <Details>(view: DevToolsSession.SessionView<Details>): Graph
 
 const sourceResolver = (
   action: ViewerState["sourceAction"],
-  options: MountOptions<unknown>,
+  options: MountOptions<unknown, unknown>,
 ): SourceLocation.EditorResolver | undefined => {
   if (action === "cursor") return SourceLocation.cursor
   if (action === "vscode") return SourceLocation.vscode
@@ -155,7 +159,7 @@ const sourceControl = (
   source: SourceLocation.Location,
   label: string,
   action: ViewerState["sourceAction"],
-  options: MountOptions<unknown>,
+  options: MountOptions<unknown, unknown>,
 ): HTMLElement => {
   if (action === "copy") {
     const control = button(label, "machine-devtools__source-link")
@@ -188,9 +192,9 @@ const sourceControl = (
   return link
 }
 
-const stepLocation = <Details>(
-  view: DevToolsSession.SessionView<Details>,
-  step: DevToolsSession.SemanticStep,
+const stepLocation = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  step: DevToolsSession.SemanticStep<EventDetails>,
 ): SourceLocation.Location | undefined => {
   const edge = view.graph.edges.find(
     (candidate) =>
@@ -207,10 +211,10 @@ const stepLocation = <Details>(
 const edgeLabel = (edge: Graph.Edge): string =>
   edge.event?.tag ?? edge.outcome?.kind ?? "transition"
 
-const focusGraph = <Details>(
-  view: DevToolsSession.SessionView<Details>,
+const focusGraph = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
   state: ViewerState,
-  options: MountOptions<Details>,
+  options: MountOptions<StateDetails, EventDetails>,
 ): HTMLElement => {
   const canvas = document.createElement("div")
   canvas.className = "machine-devtools__focus-graph"
@@ -219,7 +223,9 @@ const focusGraph = <Details>(
   const current = document.createElement("article")
   current.className = "machine-devtools__focus-current"
   const eyebrow = document.createElement("span")
-  eyebrow.textContent = view.isLive ? "Live state" : `History · ${view.cursor}/${view.liveHead}`
+  eyebrow.textContent = view.isLive
+    ? "STATE · LIVE"
+    : `STATE · HISTORY ${view.cursor}/${view.liveHead}`
   const title = document.createElement("strong")
   title.textContent = activeNode?.title ?? activeTag
   current.append(eyebrow, title)
@@ -246,11 +252,25 @@ const focusGraph = <Details>(
     const route = document.createElement("article")
     route.className = "machine-devtools__focus-target"
     if (view.focus.activity.traversedEdges.includes(edge.id)) route.dataset.traversed = ""
-    const event = document.createElement("span")
-    event.textContent = `${edgeLabel(edge)} →`
+    const event = document.createElement("div")
+    event.className = "machine-devtools__focus-event"
+    const eventKind = document.createElement("span")
+    eventKind.textContent = "EVENT"
+    const eventName = document.createElement("strong")
+    eventName.textContent = edgeLabel(edge)
+    event.append(eventKind, eventName)
+    const arrow = document.createElement("span")
+    arrow.className = "machine-devtools__focus-arrow"
+    arrow.textContent = "→"
+    arrow.setAttribute("aria-hidden", "true")
+    const targetState = document.createElement("div")
+    targetState.className = "machine-devtools__focus-state"
+    const targetKind = document.createElement("span")
+    targetKind.textContent = "STATE"
     const targetTitle = document.createElement("strong")
     targetTitle.textContent = target?.title ?? edge.target
-    route.append(event, targetTitle)
+    targetState.append(targetKind, targetTitle)
+    route.append(event, arrow, targetState)
     if (edge.description !== undefined) {
       const description = document.createElement("p")
       description.textContent = edge.description
@@ -369,11 +389,11 @@ const routedEdge = (source: Point, target: Point, index: number): EdgeRoute => {
   }
 }
 
-const svgGraph = <Details>(
-  view: DevToolsSession.SessionView<Details>,
+const svgGraph = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
   camera: Camera,
   state: ViewerState,
-  options: MountOptions<Details>,
+  options: MountOptions<StateDetails, EventDetails>,
 ): HTMLElement => {
   const shell = document.createElement("div")
   shell.className = "machine-devtools__graph-shell"
@@ -427,17 +447,29 @@ const svgGraph = <Details>(
     path.setAttribute("marker-end", "url(#machine-devtools-arrow)")
     scene.append(path)
 
-    const label = svgElement("text")
-    label.classList.add("machine-devtools__edge-label")
-    if (traversed) label.classList.add("is-active")
-    label.dataset.source = edge.source
-    label.dataset.target = edge.target
-    label.textContent = edgeLabel(edge)
-    label.setAttribute("x", String(route.label.x))
-    label.setAttribute("y", String(route.label.y))
-    label.setAttribute("text-anchor", "middle")
-    scene.append(label)
-    edgeElements.set(edge.id, [path, label])
+    const eventName = edgeLabel(edge)
+    const eventWidth = Math.min(144, Math.max(96, eventName.length * 7 + 28))
+    const eventNode = svgElement("g")
+    eventNode.classList.add("machine-devtools__edge-label")
+    if (traversed) eventNode.classList.add("is-active")
+    eventNode.dataset.source = edge.source
+    eventNode.dataset.target = edge.target
+    eventNode.setAttribute(
+      "transform",
+      `translate(${route.label.x - eventWidth / 2} ${route.label.y - 20})`,
+    )
+    const eventSurface = svgElement("rect")
+    eventSurface.setAttribute("width", String(eventWidth))
+    eventSurface.setAttribute("height", "40")
+    eventSurface.setAttribute("rx", "20")
+    const eventText = svgElement("text")
+    eventText.textContent = eventName
+    eventText.setAttribute("x", String(eventWidth / 2))
+    eventText.setAttribute("y", "25")
+    eventText.setAttribute("text-anchor", "middle")
+    eventNode.append(eventSurface, eventText)
+    scene.append(eventNode)
+    edgeElements.set(edge.id, [path, eventNode])
   }
 
   const setHoveredNode = (nodeId: string | undefined) => {
@@ -543,22 +575,22 @@ const svgGraph = <Details>(
   return shell
 }
 
-const graphPanel = <Details>(
-  view: DevToolsSession.SessionView<Details>,
-  session: DevToolsSession.Session<Details>,
+const graphPanel = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  session: DevToolsSession.Session<StateDetails, EventDetails>,
   camera: Camera,
   state: ViewerState,
-  options: MountOptions<Details>,
+  options: MountOptions<StateDetails, EventDetails>,
   rerender: () => void,
 ): HTMLElement => {
   const section = document.createElement("section")
   section.className = "machine-devtools__map-pane"
-  section.setAttribute("aria-label", "Machine graph")
+  section.setAttribute("aria-label", "Machine behavior graph")
   const heading = document.createElement("header")
   heading.className = "machine-devtools__pane-head"
   const copy = document.createElement("div")
   const title = document.createElement("h2")
-  title.textContent = "State map"
+  title.textContent = "Behavior map"
   const caption = document.createElement("p")
   caption.textContent = view.isLive
     ? `Live · ${view.selected.state.title}`
@@ -595,15 +627,17 @@ const graphPanel = <Details>(
   return section
 }
 
-const quickEventPanel = <Details>(
-  view: DevToolsSession.SessionView<Details>,
-  session: DevToolsSession.Session<Details>,
+const quickEventPanel = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  session: DevToolsSession.Session<StateDetails, EventDetails>,
+  state: ViewerState,
+  rerender: () => void,
 ): HTMLElement => {
   const section = document.createElement("section")
   section.className = "machine-devtools__quick-events"
-  section.setAttribute("aria-label", "Quick events")
+  section.setAttribute("aria-label", "Event dispatch")
   const heading = document.createElement("h2")
-  heading.textContent = "Quick events"
+  heading.textContent = "Events"
   section.append(heading)
   if (!view.isLive) {
     const notice = document.createElement("p")
@@ -638,10 +672,93 @@ const quickEventPanel = <Details>(
     failure.textContent = `${view.controlFailure.quickEventId}: ${view.controlFailure.reason}`
     section.append(failure)
   }
+
+  const eventTags = [
+    ...new Set(
+      view.graph.edges.flatMap(
+        (edge): ReadonlyArray<string> => (edge.event === undefined ? [] : [edge.event.tag]),
+      ),
+    ),
+  ].sort()
+  if (state.customEventDraft === "" && eventTags[0] !== undefined) {
+    state.customEventDraft = JSON.stringify({ _tag: eventTags[0] }, null, 2)
+  }
+
+  const custom = document.createElement("form")
+  custom.className = "machine-devtools__custom-event"
+  const customHeading = document.createElement("h3")
+  customHeading.textContent = "Custom event"
+  const tagLabel = document.createElement("label")
+  tagLabel.textContent = "Event type"
+  const tag = document.createElement("select")
+  tag.setAttribute("aria-label", "Custom event type")
+  let selectedTag: string | undefined
+  try {
+    const parsed = JSON.parse(state.customEventDraft) as unknown
+    if (typeof parsed === "object" && parsed !== null && "_tag" in parsed) {
+      const candidate = (parsed as { readonly _tag?: unknown })._tag
+      if (typeof candidate === "string") selectedTag = candidate
+    }
+  } catch {
+    // Keep the user's invalid draft intact until they repair it.
+  }
+  for (const eventTag of eventTags) {
+    const option = document.createElement("option")
+    option.value = eventTag
+    option.textContent = eventTag
+    option.selected = eventTag === selectedTag
+    tag.append(option)
+  }
+  tag.addEventListener("change", () => {
+    state.customEventDraft = JSON.stringify({ _tag: tag.value }, null, 2)
+    state.customEventError = undefined
+    rerender()
+  })
+  tagLabel.append(tag)
+
+  const payloadLabel = document.createElement("label")
+  payloadLabel.textContent = "Event JSON"
+  const payload = document.createElement("textarea")
+  payload.value = state.customEventDraft
+  payload.rows = 5
+  payload.spellcheck = false
+  payload.setAttribute("aria-describedby", "machine-devtools-custom-event-help")
+  payload.addEventListener("input", () => {
+    state.customEventDraft = payload.value
+  })
+  const help = document.createElement("p")
+  help.id = "machine-devtools-custom-event-help"
+  help.className = "machine-devtools__field-help"
+  const failureMessage = state.customEventError ?? view.customEventFailure?.message
+  if (failureMessage === undefined) {
+    help.textContent = "Decoded with the machine's Event Schema before dispatch."
+  } else {
+    payload.setAttribute("aria-invalid", "true")
+    help.dataset.error = ""
+    help.textContent = failureMessage
+  }
+  payloadLabel.append(payload, help)
+
+  const dispatch = button("Dispatch event")
+  dispatch.type = "submit"
+  dispatch.disabled = !view.isLive || view.status !== "running"
+  custom.addEventListener("submit", (event) => {
+    event.preventDefault()
+    try {
+      const input = JSON.parse(state.customEventDraft) as unknown
+      state.customEventError = undefined
+      Effect.runFork(session.dispatchEvent(input).pipe(Effect.ignore))
+    } catch {
+      state.customEventError = "The event is not valid JSON. Fix the syntax and try again."
+      rerender()
+    }
+  })
+  custom.append(customHeading, tagLabel, payloadLabel, dispatch)
+  section.append(custom)
   return section
 }
 
-const stepSummary = (step: DevToolsSession.SemanticStep): string => {
+const stepSummary = <EventDetails>(step: DevToolsSession.SemanticStep<EventDetails>): string => {
   const parts: Array<string> = [step.kind]
   if (step.sourceStateTag !== undefined || step.targetStateTag !== undefined) {
     parts.push(
@@ -657,7 +774,9 @@ const stepSummary = (step: DevToolsSession.SemanticStep): string => {
   return parts.join(" · ")
 }
 
-const rawSummary = (record: DevToolsSession.RawInspectionRecord): string => {
+const rawSummary = <EventDetails>(
+  record: DevToolsSession.RawInspectionRecord<EventDetails>,
+): string => {
   const values = Object.entries(record.event).flatMap(([key, value]) => {
     if (key === "_tag" || key === "machineId" || key === "defect") return []
     if (typeof value !== "string" && typeof value !== "number") return []
@@ -666,11 +785,19 @@ const rawSummary = (record: DevToolsSession.RawInspectionRecord): string => {
   return values.length === 0 ? record.event._tag : `${record.event._tag} · ${values.join(" · ")}`
 }
 
-const historyPanel = <Details>(
-  view: DevToolsSession.SessionView<Details>,
-  session: DevToolsSession.Session<Details>,
+const formatPayload = (value: unknown): string => {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value)
+  } catch {
+    return "This projected value cannot be serialized as JSON."
+  }
+}
+
+const historyPanel = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  session: DevToolsSession.Session<StateDetails, EventDetails>,
   state: ViewerState,
-  options: MountOptions<Details>,
+  options: MountOptions<StateDetails, EventDetails>,
   rerender: () => void,
 ): HTMLElement => {
   const section = document.createElement("section")
@@ -703,9 +830,7 @@ const historyPanel = <Details>(
 
   const list = document.createElement("ol")
   list.className = "machine-devtools__history-list"
-  const activeStep = [...view.history.semantic]
-    .reverse()
-    .find((step) => (step.committedPosition ?? step.statePosition) === view.cursor)
+  const activeStep = view.selectedStep
   if (state.historyMode === "steps") {
     for (const step of view.history.semantic) {
       const item = document.createElement("li")
@@ -767,26 +892,44 @@ const historyPanel = <Details>(
     }
   }
 
-  const snapshot = document.createElement("details")
-  snapshot.className = "machine-devtools__snapshot"
-  const summary = document.createElement("summary")
-  summary.textContent = "Selected tagged state"
-  const pre = document.createElement("pre")
-  pre.textContent = JSON.stringify(
+  const inspectors = document.createElement("div")
+  inspectors.className = "machine-devtools__payload-inspectors"
+
+  const statePayload = document.createElement("details")
+  statePayload.className = "machine-devtools__snapshot"
+  statePayload.open = true
+  const stateSummary = document.createElement("summary")
+  stateSummary.textContent = `State · ${view.selected.state.tag}`
+  const statePre = document.createElement("pre")
+  statePre.textContent = formatPayload(
     view.selected.state.details ?? { _tag: view.selected.state.tag },
-    null,
-    2,
   )
-  snapshot.append(summary, pre)
-  section.append(heading, list, snapshot)
+  statePayload.append(stateSummary, statePre)
+
+  const eventPayload = document.createElement("details")
+  eventPayload.className = "machine-devtools__snapshot"
+  eventPayload.open = view.selectedStep?.eventTag !== undefined
+  const eventSummary = document.createElement("summary")
+  eventSummary.textContent = `Event · ${view.selectedStep?.eventTag ?? "none selected"}`
+  const eventPre = document.createElement("pre")
+  eventPre.textContent =
+    view.selectedStep?.eventTag === undefined
+      ? "Select an event in history to inspect its data."
+      : view.selectedStep.eventDetails === undefined
+        ? "Event projection is off. Add projectEvent when attaching devtools."
+        : formatPayload(view.selectedStep.eventDetails)
+  eventPayload.append(eventSummary, eventPre)
+
+  inspectors.append(statePayload, eventPayload)
+  section.append(heading, list, inspectors)
   return section
 }
 
-const viewerHeader = <Details>(
-  view: DevToolsSession.SessionView<Details>,
-  session: DevToolsSession.Session<Details>,
+const viewerHeader = <StateDetails, EventDetails>(
+  view: DevToolsSession.SessionView<StateDetails, EventDetails>,
+  session: DevToolsSession.Session<StateDetails, EventDetails>,
   state: ViewerState,
-  options: MountOptions<Details>,
+  options: MountOptions<StateDetails, EventDetails>,
   rerender: () => void,
 ): HTMLElement => {
   const header = document.createElement("header")
@@ -866,8 +1009,8 @@ const viewerHeader = <Details>(
 }
 
 /** Mounts the compact browser viewer either inline or as a React Query-style dock. */
-export const mount = <Details>(
-  options: MountOptions<Details>,
+export const mount = <StateDetails, EventDetails = never>(
+  options: MountOptions<StateDetails, EventDetails>,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
     const camera: Camera = { scale: 1, x: 0, y: 0 }
@@ -879,6 +1022,7 @@ export const mount = <Details>(
       graphOnly: false,
       expanded: false,
       open: options.initiallyOpen ?? presentation === "inline",
+      customEventDraft: "",
     }
     const root = yield* Effect.sync(() => {
       const element = document.createElement("div")
@@ -891,7 +1035,7 @@ export const mount = <Details>(
 
     yield* Effect.addFinalizer(() => Effect.sync(() => root.remove()))
 
-    let currentView: DevToolsSession.SessionView<Details> | undefined
+    let currentView: DevToolsSession.SessionView<StateDetails, EventDetails> | undefined
     const render = () => {
       if (currentView === undefined) return
       const view = currentView
@@ -922,7 +1066,7 @@ export const mount = <Details>(
       const graph = graphPanel(view, options.session, camera, state, options, render)
       const controls = document.createElement("aside")
       controls.className = "machine-devtools__controls-pane"
-      controls.append(quickEventPanel(view, options.session))
+      controls.append(quickEventPanel(view, options.session, state, render))
       const history = historyPanel(view, options.session, state, options, render)
       body.append(graph, controls, history)
       panel.append(header, body)

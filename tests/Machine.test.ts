@@ -178,6 +178,14 @@ describe("Machine", () => {
       const inspectionFiber = yield* Effect.forkChild(
         Stream.runCollect(Stream.take(handle.inspection, 4)),
       )
+      const projectedFiber = yield* Effect.forkChild(
+        Stream.runCollect(
+          Stream.take(
+            handle.inspect((event) => event),
+            4,
+          ),
+        ),
+      )
       yield* Effect.yieldNow
 
       yield* handle.send({ _tag: "Increment", amount: 1 })
@@ -193,6 +201,33 @@ describe("Machine", () => {
           machineId: "counter",
           stateTag: "Active",
           eventTag: "Increment",
+        },
+        {
+          _tag: "TransitionSelected",
+          machineId: "counter",
+          sourceStateTag: "Active",
+          targetStateTag: "Active",
+          eventTag: "Increment",
+        },
+        {
+          _tag: "StateChanged",
+          machineId: "counter",
+          previousStateTag: "Active",
+          nextStateTag: "Active",
+        },
+      ])
+      assert.deepStrictEqual(yield* Fiber.join(projectedFiber), [
+        {
+          _tag: "MachineStarted",
+          machineId: "counter",
+          initialStateTag: "Active",
+        },
+        {
+          _tag: "EventReceived",
+          machineId: "counter",
+          stateTag: "Active",
+          eventTag: "Increment",
+          details: { _tag: "Increment", amount: 1 },
         },
         {
           _tag: "TransitionSelected",

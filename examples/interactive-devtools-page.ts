@@ -119,6 +119,7 @@ const startCheckout = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
       handle,
       mapSource,
       projectState: (state) => state,
+      projectEvent: (event) => event,
       quickEvents: [
         {
           id: "add",
@@ -188,7 +189,8 @@ const startDocument = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
       definition: LocalFirstDocument.definition,
       handle,
       mapSource,
-      projectState: (state) => ({ tag: state._tag }),
+      projectState: (state) => state,
+      projectEvent: (event) => event,
       quickEvents: [
         {
           id: "edit",
@@ -242,6 +244,8 @@ const startLarge = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.C
       definition: LargeMachine.definition,
       handle,
       mapSource,
+      projectState: (state) => state,
+      projectEvent: (event) => event,
       quickEvents: [
         { id: "next", label: "Next", group: "Move", event: { _tag: "Next" } },
         { id: "skip", label: "Skip seven", group: "Move", event: { _tag: "Skip" } },
