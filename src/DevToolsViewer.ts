@@ -265,18 +265,108 @@ const focusGraph = <Details>(
   return canvas
 }
 
-const routedEdge = (source: Point, target: Point, index: number): string => {
+interface EdgeRoute {
+  readonly path: string
+  readonly label: Point
+}
+
+const roundedOrthogonalPath = (input: ReadonlyArray<Point>, radius = 8): string => {
+  const distinct = input.filter(
+    (point, index) =>
+      index === 0 || point.x !== input[index - 1]?.x || point.y !== input[index - 1]?.y,
+  )
+  const points = distinct.filter((point, index) => {
+    const previous = distinct[index - 1]
+    const next = distinct[index + 1]
+    if (previous === undefined || next === undefined) return true
+    return !(
+      (previous.x === point.x && point.x === next.x) ||
+      (previous.y === point.y && point.y === next.y)
+    )
+  })
+  const first = points[0]
+  if (first === undefined) return ""
+  if (points.length === 1) return `M ${first.x} ${first.y}`
+
+  const commands = [`M ${first.x} ${first.y}`]
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = points[index - 1]
+    const corner = points[index]
+    const next = points[index + 1]
+    if (previous === undefined || corner === undefined || next === undefined) continue
+    const incoming = Math.hypot(corner.x - previous.x, corner.y - previous.y)
+    const outgoing = Math.hypot(next.x - corner.x, next.y - corner.y)
+    const cornerRadius = Math.min(radius, incoming / 2, outgoing / 2)
+    const before = {
+      x: corner.x + ((previous.x - corner.x) / incoming) * cornerRadius,
+      y: corner.y + ((previous.y - corner.y) / incoming) * cornerRadius,
+    }
+    const after = {
+      x: corner.x + ((next.x - corner.x) / outgoing) * cornerRadius,
+      y: corner.y + ((next.y - corner.y) / outgoing) * cornerRadius,
+    }
+    commands.push(`L ${before.x} ${before.y}`, `Q ${corner.x} ${corner.y} ${after.x} ${after.y}`)
+  }
+  const last = points.at(-1)
+  if (last !== undefined) commands.push(`L ${last.x} ${last.y}`)
+  return commands.join(" ")
+}
+
+const routedEdge = (source: Point, target: Point, index: number): EdgeRoute => {
   const sourceX = source.x + NODE_WIDTH
   const targetX = target.x
   if (source.x === target.x && source.y === target.y) {
-    return `M ${source.x + NODE_WIDTH * 0.72} ${source.y - NODE_HEIGHT / 2} C ${source.x + NODE_WIDTH + 42} ${source.y - 86}, ${source.x - 26} ${source.y - 86}, ${source.x + NODE_WIDTH * 0.28} ${source.y - NODE_HEIGHT / 2}`
+    const start = { x: source.x + NODE_WIDTH * 0.72, y: source.y - NODE_HEIGHT / 2 }
+    const end = { x: source.x + NODE_WIDTH * 0.28, y: source.y - NODE_HEIGHT / 2 }
+    const loopY = source.y - NODE_HEIGHT / 2 - 38 - (index % 3) * 10
+    return {
+      path: roundedOrthogonalPath([start, { x: start.x, y: loopY }, { x: end.x, y: loopY }, end]),
+      label: { x: source.x + NODE_WIDTH / 2, y: loopY - 8 },
+    }
   }
   if (targetX > sourceX + 20) {
-    const middle = (sourceX + targetX) / 2
-    return `M ${sourceX} ${source.y} C ${middle} ${source.y}, ${middle} ${target.y}, ${targetX} ${target.y}`
+    const horizontalGap = targetX - sourceX
+    if (source.y === target.y && horizontalGap > 96) {
+      const lane = source.y + NODE_HEIGHT / 2 + 18 + (index % 3) * 8
+      const exitX = sourceX + 24
+      const entryX = targetX - 24
+      return {
+        path: roundedOrthogonalPath([
+          { x: sourceX, y: source.y },
+          { x: exitX, y: source.y },
+          { x: exitX, y: lane },
+          { x: entryX, y: lane },
+          { x: entryX, y: target.y },
+          { x: targetX, y: target.y },
+        ]),
+        label: { x: (exitX + entryX) / 2, y: lane - 8 },
+      }
+    }
+    const middle = (sourceX + targetX) / 2 + ((index % 5) - 2) * 6
+    return {
+      path: roundedOrthogonalPath([
+        { x: sourceX, y: source.y },
+        { x: middle, y: source.y },
+        { x: middle, y: target.y },
+        { x: targetX, y: target.y },
+      ]),
+      label: { x: (sourceX + middle) / 2, y: source.y - 8 },
+    }
   }
-  const lane = Math.max(source.y, target.y) + 54 + (index % 5) * 13
-  return `M ${sourceX} ${source.y} C ${sourceX + 44} ${source.y}, ${sourceX + 44} ${lane}, ${sourceX} ${lane} L ${targetX - 38} ${lane} C ${targetX - 12} ${lane}, ${targetX - 12} ${target.y}, ${targetX} ${target.y}`
+  const lane = Math.max(source.y, target.y) + 54 + (index % 7) * 12
+  const exitX = sourceX + 36 + (index % 4) * 10
+  const entryX = targetX - 36 - (index % 4) * 10
+  return {
+    path: roundedOrthogonalPath([
+      { x: sourceX, y: source.y },
+      { x: exitX, y: source.y },
+      { x: exitX, y: lane },
+      { x: entryX, y: lane },
+      { x: entryX, y: target.y },
+      { x: targetX, y: target.y },
+    ]),
+    label: { x: (exitX + entryX) / 2, y: lane - 8 },
+  }
 }
 
 const svgGraph = <Details>(
@@ -328,12 +418,13 @@ const svgGraph = <Details>(
     const target = layout.positions.get(edge.target)
     if (source === undefined || target === undefined) continue
     const traversed = view.focus.activity.traversedEdges.includes(edge.id)
+    const route = routedEdge(source, target, index)
     const path = svgElement("path")
     path.classList.add("machine-devtools__edge")
     if (traversed) path.classList.add("is-active")
     path.dataset.source = edge.source
     path.dataset.target = edge.target
-    path.setAttribute("d", routedEdge(source, target, index))
+    path.setAttribute("d", route.path)
     path.setAttribute("marker-end", "url(#machine-devtools-arrow)")
     if (traversed && !reducedMotion) {
       const animate = svgElement("animate")
@@ -352,8 +443,8 @@ const svgGraph = <Details>(
     label.dataset.source = edge.source
     label.dataset.target = edge.target
     label.textContent = edgeLabel(edge)
-    label.setAttribute("x", String((source.x + NODE_WIDTH + target.x) / 2))
-    label.setAttribute("y", String((source.y + target.y) / 2 - 9))
+    label.setAttribute("x", String(route.label.x))
+    label.setAttribute("y", String(route.label.y))
     label.setAttribute("text-anchor", "middle")
     scene.append(label)
     edgeElements.set(edge.id, [path, label])
