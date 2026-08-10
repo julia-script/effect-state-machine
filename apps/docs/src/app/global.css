@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+html {
+  scrollbar-gutter: stable;
+}
+
+/* `scrollbar-gutter: stable` already reserves the space, so undo the inline
+   compensation react-remove-scroll injects when a dialog locks the body. */
+html > body[data-scroll-locked] {
+  /* biome-ignore-start lint/complexity/noImportantStyles: overrides inline styles set by react-remove-scroll */
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+  /* biome-ignore-end lint/complexity/noImportantStyles: overrides inline styles set by react-remove-scroll */
+}
