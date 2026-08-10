@@ -3,9 +3,10 @@ import * as DevToolsSession from "../src/DevToolsSession.js"
 import * as DevToolsViewer from "../src/DevToolsViewer.js"
 import * as Machine from "../src/Machine.js"
 import { Checkout, Orders, PaymentDeclined } from "./Checkout.js"
+import { LargeMachine } from "./LargeMachine.js"
 import { Documents, LocalFirstDocument, Synchronizer } from "./LocalFirstDocument.js"
 
-type Fixture = "checkout" | "document"
+type Fixture = "checkout" | "document" | "large"
 const root = document.querySelector<HTMLElement>("#app")
 if (root === null) throw new Error("Missing #app")
 let activeScope: Scope.Closeable | undefined
@@ -30,10 +31,15 @@ const shell = (fixture: Fixture) => {
   const label = document.createElement("label")
   label.textContent = "Fixture"
   const select = document.createElement("select")
-  for (const value of ["checkout", "document"] as const) {
+  for (const value of ["checkout", "document", "large"] as const) {
     const option = document.createElement("option")
     option.value = value
-    option.textContent = value === "checkout" ? "Checkout" : "Local-first document"
+    option.textContent =
+      value === "checkout"
+        ? "Checkout"
+        : value === "document"
+          ? "Local-first document"
+          : "Large synthetic machine"
     option.selected = fixture === value
     select.append(option)
   }
@@ -185,15 +191,47 @@ const startDocument = async (host: HTMLElement, viewer: HTMLElement, scope: Scop
   )
 }
 
+const startLarge = async (host: HTMLElement, viewer: HTMLElement, scope: Scope.Closeable) => {
+  const handle = await Effect.runPromise(
+    Machine.run(LargeMachine.definition, {}).pipe(Effect.provideService(Scope.Scope, scope)),
+  )
+  const session = await Effect.runPromise(
+    DevToolsSession.attach({
+      definition: LargeMachine.definition,
+      handle,
+      quickEvents: [
+        { id: "next", label: "Next", group: "Move", event: { _tag: "Next" } },
+        { id: "skip", label: "Skip seven", group: "Move", event: { _tag: "Skip" } },
+        { id: "reset", label: "Reset", group: "Move", event: { _tag: "Reset" } },
+        { id: "stay", label: "Stay", group: "Move", event: { _tag: "Stay" } },
+      ],
+    }).pipe(Effect.provideService(Scope.Scope, scope)),
+  )
+  host.innerHTML =
+    "<h2>Large fixture</h2><p>A real 100-state, 400-edge machine. Focus stays bounded until you request the full map.</p>"
+  const actions = document.createElement("div")
+  actions.className = "host__actions"
+  actions.append(
+    button("Next", () => Effect.runFork(handle.send({ _tag: "Next" }).pipe(Effect.ignore))),
+    button("Skip", () => Effect.runFork(handle.send({ _tag: "Skip" }).pipe(Effect.ignore))),
+  )
+  host.append(actions)
+  await Effect.runPromise(
+    DevToolsViewer.mount({ session, container: viewer }).pipe(
+      Effect.provideService(Scope.Scope, scope),
+    ),
+  )
+}
+
 const start = async (fixture: Fixture) => {
   if (activeScope !== undefined) await Effect.runPromise(Scope.close(activeScope, Exit.void))
   const scope = await Effect.runPromise(Scope.make())
   activeScope = scope
   const { host, viewer } = shell(fixture)
   if (fixture === "checkout") await startCheckout(host, viewer, scope)
-  else await startDocument(host, viewer, scope)
+  else if (fixture === "document") await startDocument(host, viewer, scope)
+  else await startLarge(host, viewer, scope)
 }
 
-void start(
-  new URLSearchParams(location.search).get("fixture") === "document" ? "document" : "checkout",
-)
+const fixture = new URLSearchParams(location.search).get("fixture")
+void start(fixture === "document" || fixture === "large" ? fixture : "checkout")

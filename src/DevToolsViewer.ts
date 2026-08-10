@@ -256,7 +256,14 @@ export const mount = <Details>(
           live.addEventListener("click", () => {
             Effect.runFork(options.session.returnToLive)
           })
-          navigation.append(previous, next, live)
+          const graphOnly = document.createElement("button")
+          graphOnly.type = "button"
+          graphOnly.textContent = root.dataset.graphOnly === "true" ? "Show panels" : "Graph only"
+          graphOnly.addEventListener("click", () => {
+            root.dataset.graphOnly = root.dataset.graphOnly === "true" ? "false" : "true"
+            graphOnly.textContent = root.dataset.graphOnly === "true" ? "Show panels" : "Graph only"
+          })
+          navigation.append(previous, next, live, graphOnly)
           const quickEvents = document.createElement("section")
           quickEvents.setAttribute("aria-label", "Quick events")
           const groups = new Map<string, typeof view.quickEvents>()

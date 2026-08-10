@@ -180,6 +180,17 @@ button:disabled {
   color: var(--color-focus);
   font-size: var(--text-sm);
 }
+[data-effect-state-machine-devtools][data-graph-only="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+[data-effect-state-machine-devtools][data-graph-only="true"] section[aria-label="Machine graph"] {
+  grid-column: 1 / -1;
+}
+[data-effect-state-machine-devtools][data-graph-only="true"] section[aria-label="Quick events"],
+[data-effect-state-machine-devtools][data-graph-only="true"] > ol,
+[data-effect-state-machine-devtools][data-graph-only="true"] > details {
+  display: none;
+}
 @media (max-width: 52rem) {
   .workspace,
   [data-effect-state-machine-devtools] {
