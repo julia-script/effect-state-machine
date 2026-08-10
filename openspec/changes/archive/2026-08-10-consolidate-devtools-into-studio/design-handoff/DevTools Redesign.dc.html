@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&amp;family=IBM+Plex+Mono:wght@400;500;600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+:root{--dt-paper:oklch(96% 0.025 92);--dt-paper2:oklch(92% 0.04 95);--dt-surface:oklch(99% 0.012 92);--dt-ink:oklch(22% 0.035 284);--dt-muted:oklch(45% 0.035 284);--dt-rule:oklch(76% 0.045 92);--dt-rule-strong:oklch(54% 0.055 92);--dt-accent:oklch(67% 0.2 34);--dt-accent-ink:oklch(20% 0.045 284);--dt-pear:oklch(89% 0.17 112);--dt-cyan:oklch(86% 0.12 205);--dt-cyan-ink:oklch(24% 0.055 220);--dt-danger:oklch(41% 0.17 25);--dt-danger-soft:oklch(92% 0.055 25);--dt-success:oklch(43% 0.13 154);--dt-success-soft:oklch(92% 0.06 154);--dt-focus:oklch(38% 0.17 285);--dt-dot:oklch(80% 0.045 92)}
+.dt-dark{--dt-paper:oklch(24% 0.02 284);--dt-paper2:oklch(29% 0.025 284);--dt-surface:oklch(20% 0.02 284);--dt-ink:oklch(92% 0.02 92);--dt-muted:oklch(68% 0.025 284);--dt-rule:oklch(38% 0.03 284);--dt-rule-strong:oklch(52% 0.03 284);--dt-pear:oklch(34% 0.07 285);--dt-cyan:oklch(36% 0.06 220);--dt-cyan-ink:oklch(80% 0.08 205);--dt-danger:oklch(72% 0.17 25);--dt-danger-soft:oklch(32% 0.07 25);--dt-success:oklch(70% 0.13 154);--dt-success-soft:oklch(32% 0.06 154);--dt-focus:oklch(72% 0.15 285);--dt-dot:oklch(32% 0.03 284)}
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden}
+@keyframes dtFlow{from{stroke-dashoffset:32}to{stroke-dashoffset:0}}
+a{color:var(--dt-focus)}
+a:hover{color:var(--dt-accent)}
+</style>
+</helmet>
+<div data-screen-label="Machine devtools" class="{{ themeClass }}" style="height:100vh;display:flex;flex-direction:column;background:var(--dt-paper);color:var(--dt-ink);font-family:'IBM Plex Sans',sans-serif;overflow:hidden">
+<sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+  <header data-screen-label="Top bar" style="height:38px;flex:none;display:flex;align-items:center;gap:9px;padding:0 10px;background:var(--dt-pear);border-bottom:2px solid var(--dt-ink)">
+    <span style="font:800 13px 'Bricolage Grotesque',sans-serif">Machine devtools</span>
+    <select value="{{ machineSel }}" onChange="{{ onMachine }}" title="Machine — nested machines appear here" style="height:24px;border:1px solid var(--dt-ink);border-radius:6px;padding:0 5px;background:var(--dt-surface);font:600 11px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)">
+      <option value="checkout">checkout</option>
+      <option value="child">checkout / payment.worker</option>
+    </select>
+    <span style="display:inline-flex;align-items:center;gap:5px;font:600 10px 'IBM Plex Mono',monospace;color:var(--dt-muted)"><span style="width:8px;height:8px;border-radius:50%;border:1px solid var(--dt-ink);background:var(--dt-success)"></span>browser · direct</span>
+    <span style="padding:2px 9px;border-radius:999px;background:var(--dt-surface);border:1px solid var(--dt-rule-strong);font:600 10px 'IBM Plex Mono',monospace;color:var(--dt-cyan-ink)">{{ stateChip }}</span>
+    <span style="flex:1"></span>
+    <sc-if value="{{ hasNotice }}" hint-placeholder-val="{{ false }}"><span style="font:600 10px 'IBM Plex Mono',monospace;color:var(--dt-danger)">{{ notice }}</span></sc-if>
+    <button onClick="{{ onToggleTheme }}" title="Toggle dark theme" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--dt-ink);border-radius:6px;background:var(--dt-surface);font:600 12px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)">◐</button>
+    <select value="{{ sourceAction }}" onChange="{{ onSource }}" title="Source link action" style="height:24px;border:1px solid var(--dt-ink);border-radius:6px;padding:0 5px;background:var(--dt-surface);font:600 10px 'IBM Plex Sans',sans-serif;cursor:pointer;color:var(--dt-ink)">
+      <option value="cursor">Open in Cursor</option>
+      <option value="vscode">Open in VS Code</option>
+      <option value="copy">Copy reference</option>
+    </select>
+    <button onClick="{{ onClose }}" title="Close devtools" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--dt-ink);border-radius:6px;background:var(--dt-surface);font:600 13px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)" style-hover="background:var(--dt-paper2)">×</button>
+  </header>
+  <div style="flex:1;min-height:0;display:flex">
+    <div data-screen-label="Behavior map" ref="{{ graphRef }}" style="flex:1;min-width:0;position:relative;overflow:hidden;background-color:var(--dt-surface);background-image:radial-gradient(var(--dt-dot) 1px, transparent 1px);background-size:18px 18px">
+      <sc-if value="{{ jsonView }}" hint-placeholder-val="{{ false }}">
+        <pre style="position:absolute;inset:0;margin:0;padding:48px 16px 16px;overflow:auto;font:500 11px 'IBM Plex Mono',monospace;color:var(--dt-ink)">{{ graphJson }}</pre>
+      </sc-if>
+      <div style="position:absolute;inset:0;display:{{ sceneDisplay }};align-items:center;justify-content:center;overflow:hidden">
+        <div style="width:980px;height:420px;position:relative;flex:none;transform:scale({{ zoom }});transition:transform 120ms">
+          <svg width="980" height="420" viewBox="0 0 980 420" style="position:absolute;inset:0;overflow:visible">
+            <defs>
+              <marker id="dtArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"></path></marker>
+            </defs>
+            <g transform="translate(10 173)"><title>Browsing is the initial state for this machine instance.</title><circle cx="0" cy="0" r="4" style="fill:var(--dt-ink)"></circle><path d="M 7 0 H 36" style="fill:none;stroke:var(--dt-ink);stroke-width:1.6" marker-end="url(#dtArrow)"></path><text x="-6" y="-10" style="font:700 8px 'IBM Plex Mono',monospace;fill:var(--dt-ink);letter-spacing:0.08em">INITIAL</text></g>
+            <sc-for list="{{ edges }}" as="e" hint-placeholder-count="4">
+              <path d="{{ e.d }}" fill="none" marker-end="url(#dtArrow)" style="{{ e.style }}"></path>
+            </sc-for>
+          </svg>
+          <sc-for list="{{ edges }}" as="e" hint-placeholder-count="4">
+            <div title="{{ e.tip }}" onClick="{{ e.onClick }}" style="{{ e.pillStyle }}">{{ e.label }}</div>
+          </sc-for>
+          <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="5">
+            <div onClick="{{ n.onClick }}" title="{{ n.tip }}" style="{{ n.style }}">
+              <div style="font:800 12.5px 'Bricolage Grotesque',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.title }}</div>
+              <div style="font:600 9px 'IBM Plex Mono',monospace;color:var(--dt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.sub }}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ false }}">
+            <div data-screen-label="Node details" style="{{ selCardStyle }}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <strong style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:800 12.5px 'Bricolage Grotesque',sans-serif">{{ selTitle }}</strong>
+                <span style="flex:none;padding:1px 7px;border:1px solid var(--dt-ink);border-radius:999px;background:var(--dt-pear);font:700 8.5px 'IBM Plex Mono',monospace;letter-spacing:0.06em">{{ selKind }}</span>
+                <span style="flex:1"></span>
+                <button onClick="{{ onCloseSel }}" aria-label="Close details" style="width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--dt-ink);border-radius:5px;background:var(--dt-surface);font:600 11px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)">×</button>
+              </div>
+              <p style="margin:0;font:500 10px 'IBM Plex Sans',sans-serif;color:var(--dt-muted);line-height:1.4">{{ selDesc }}</p>
+              <sc-for list="{{ selMeta }}" as="m" hint-placeholder-count="2"><div style="font:600 9.5px 'IBM Plex Mono',monospace;color:var(--dt-cyan-ink)">{{ m }}</div></sc-for>
+              <details>
+                <summary style="font:700 9px 'IBM Plex Mono',monospace;letter-spacing:0.08em;color:var(--dt-muted);cursor:pointer">JSON SCHEMA</summary>
+                <pre style="margin:4px 0 0;max-height:150px;overflow:auto;font:500 9.5px 'IBM Plex Mono',monospace">{{ selSchemaJson }}</pre>
+              </details>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <div style="position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--dt-ink);border-radius:999px;background:var(--dt-surface);box-shadow:0 2px 0 var(--dt-ink)">
+        <span style="padding:0 4px 0 8px;font:700 9px 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--dt-muted)">DEPTH</span>
+        <button onClick="{{ onDepthDown }}" aria-label="Show fewer hops" style="{{ depthDownStyle }}">−</button>
+        <span title="Hops rendered around the active state" style="min-width:44px;text-align:center;font:600 10px 'IBM Plex Mono',monospace">{{ depthLabel }}</span>
+        <button onClick="{{ onDepthUp }}" aria-label="Show more hops" style="{{ depthUpStyle }}">+</button>
+        <span style="width:1px;align-self:stretch;margin:3px 3px;background:var(--dt-rule)"></span>
+        <button onClick="{{ onToggleAll }}" title="Show the whole machine" style="{{ allBtnStyle }}">All</button>
+        <span style="width:1px;align-self:stretch;margin:3px 3px;background:var(--dt-rule)"></span>
+        <button onClick="{{ onToggleJson }}" title="View the machine graph as raw JSON" style="{{ jsonBtnStyle }}">{ } JSON</button>
+      </div>
+      <div style="position:absolute;left:10px;bottom:10px;display:{{ zoomDisplay }};align-items:center;gap:2px;padding:3px;border:1px solid var(--dt-ink);border-radius:8px;background:var(--dt-surface);box-shadow:0 2px 0 var(--dt-ink)">
+        <button onClick="{{ onZoomOut }}" aria-label="Zoom out" style="{{ zoomBtnStyle }}">−</button>
+        <span style="min-width:38px;text-align:center;font:600 10px 'IBM Plex Mono',monospace">{{ zoomLabel }}</span>
+        <button onClick="{{ onZoomIn }}" aria-label="Zoom in" style="{{ zoomBtnStyle }}">+</button>
+        <button onClick="{{ onZoomFit }}" style="{{ zoomBtnStyle }};width:auto;padding:0 8px;font:600 10px 'IBM Plex Sans',sans-serif">Fit</button>
+      </div>
+      <sc-if value="{{ collapsed }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ onToggleRail }}" title="Show panels" style="position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--dt-ink);border-radius:999px;background:var(--dt-surface);box-shadow:0 2px 0 var(--dt-ink);font:600 10.5px 'IBM Plex Sans',sans-serif;cursor:pointer;color:var(--dt-ink)">⟨ Panels</button>
+      </sc-if>
+    </div>
+    <sc-if value="{{ showRail }}" hint-placeholder-val="{{ true }}">
+      <aside data-screen-label="Side rail" style="width:{{ railWidth }}px;flex:none;display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--dt-rule-strong);background:var(--dt-paper)">
+        <section data-screen-label="State" style="flex:none;display:flex;flex-direction:column;border-bottom:2px solid var(--dt-ink);background:var(--dt-surface)">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px 5px">
+            <h2 style="margin:0;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--dt-muted)">STATE</h2>
+            <strong style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:800 14px 'Bricolage Grotesque',sans-serif">{{ stateChip }}</strong>
+            <span style="flex:1"></span>
+            <button onClick="{{ onToggleDiff }}" title="Highlight changes vs the previous step" style="{{ diffBtnStyle }}">± diff</button>
+            <button onClick="{{ onCopySrc }}" title="Copy source reference" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:0;color:var(--dt-focus);font:600 9.5px 'IBM Plex Mono',monospace;text-decoration:underline;text-underline-offset:0.16em;cursor:pointer">{{ srcLine }}</button>
+          </div>
+          <pre style="margin:0;padding:2px 10px 8px;max-height:190px;min-height:72px;overflow:auto;font:500 11px 'IBM Plex Mono',monospace">{{ stateContent }}</pre>
+          <details style="border-top:1px dashed var(--dt-rule);padding:6px 10px 8px">
+            <summary style="font:700 9px 'IBM Plex Mono',monospace;letter-spacing:0.08em;color:var(--dt-muted);cursor:pointer">EVENT PAYLOAD · {{ eventTag }}</summary>
+            <pre style="margin:4px 0 0;max-height:110px;overflow:auto;font:500 10px 'IBM Plex Mono',monospace">{{ eventJson }}</pre>
+          </details>
+        </section>
+        <section data-screen-label="Events" style="flex:none;padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--dt-rule)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+            <h2 style="margin:0;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--dt-muted)">EVENTS</h2>
+            <span style="display:inline-flex;align-items:center;gap:6px">
+              <sc-if value="{{ notLive }}" hint-placeholder-val="{{ false }}"><span style="padding:2px 8px;border-radius:6px;background:var(--dt-danger-soft);color:var(--dt-danger);font:600 9.5px 'IBM Plex Mono',monospace">time-traveling</span></sc-if>
+              <button onClick="{{ onToggleRail }}" title="Collapse panels" style="width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--dt-ink);border-radius:6px;background:var(--dt-surface);font:600 11px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)" style-hover="background:var(--dt-paper2)">⟩</button>
+            </span>
+          </div>
+          <sc-for list="{{ quickGroups }}" as="g" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:700 9px 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--dt-muted)">{{ g.name }}</span>
+              <div style="display:flex;flex-wrap:wrap;gap:5px">
+                <sc-for list="{{ g.items }}" as="q" hint-placeholder-count="3"><button onClick="{{ q.onFire }}" disabled="{{ q.disabled }}" title="{{ q.tip }}" style="{{ q.style }}">{{ q.label }}</button></sc-for>
+              </div>
+            </div>
+          </sc-for>
+          <details style="border-top:1px dashed var(--dt-rule);padding-top:6px">
+            <summary style="font:700 10px 'IBM Plex Mono',monospace;letter-spacing:0.08em;color:var(--dt-muted);cursor:pointer">CUSTOM EVENT</summary>
+            <div style="display:flex;flex-direction:column;gap:6px;padding-top:7px">
+              <select value="{{ draftTag }}" onChange="{{ onTag }}" style="height:24px;border:1px solid var(--dt-ink);border-radius:6px;padding:0 5px;background:var(--dt-surface);font:600 10.5px 'IBM Plex Mono',monospace;cursor:pointer;color:var(--dt-ink)">
+                <option value="AddItem">AddItem</option>
+                <option value="BeginCheckout">BeginCheckout</option>
+                <option value="SubmitOrder">SubmitOrder</option>
+                <option value="RetryPayment">RetryPayment</option>
+                <option value="BackToShop">BackToShop</option>
+              </select>
+              <textarea value="{{ draft }}" onChange="{{ onDraft }}" rows="4" spellcheck="false" style="border:1px solid var(--dt-ink);border-radius:6px;padding:6px;background:var(--dt-surface);font:500 10.5px 'IBM Plex Mono',monospace;resize:vertical;color:var(--dt-ink)"></textarea>
+              <div style="display:flex;align-items:start;gap:8px">
+                <button onClick="{{ onDispatch }}" style="{{ dispatchStyle }}">Dispatch</button>
+                <span style="{{ draftHelpStyle }}">{{ draftHelp }}</span>
+              </div>
+            </div>
+          </details>
+        </section>
+        <section data-screen-label="History" style="flex:1;min-height:0;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:5px;padding:8px 10px 6px">
+            <h2 style="margin:0;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--dt-muted)">HISTORY</h2>
+            <span style="font:500 9.5px 'IBM Plex Mono',monospace;color:var(--dt-muted)">{{ historyCount }}</span>
+            <span style="flex:1"></span>
+            <button onClick="{{ onPrev }}" aria-label="Previous step" style="{{ prevStyle }}">◀</button>
+            <span style="font:600 10px 'IBM Plex Mono',monospace;min-width:34px;text-align:center">{{ posLabel }}</span>
+            <button onClick="{{ onNext }}" aria-label="Next step" style="{{ nextStyle }}">▶</button>
+            <button onClick="{{ onLive }}" style="{{ liveStyle }}">{{ liveLabel }}</button>
+          </div>
+          <ol ref="{{ histRef }}" style="flex:1;min-height:0;overflow:auto;margin:0;padding:0;list-style:none;border-top:1px solid var(--dt-rule)">
+            <sc-for list="{{ historyItems }}" as="h" hint-placeholder-count="4">
+              <li><button onClick="{{ h.onSelect }}" style="{{ h.style }}">
+                <span style="font:600 10px 'IBM Plex Mono',monospace;color:var(--dt-muted)">{{ h.idx }}</span>
+                <span style="min-width:0;display:flex;flex-direction:column">
+                  <span style="font:600 11.5px 'IBM Plex Sans',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.title }}</span>
+                  <span style="font:500 9.5px 'IBM Plex Mono',monospace;color:var(--dt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.meta }}</span>
+                </span>
+                <span style="font:600 9.5px 'IBM Plex Mono',monospace;color:var(--dt-cyan-ink)">{{ h.state }}</span>
+              </button></li>
+            </sc-for>
+          </ol>
+        </section>
+      </aside>
+    </sc-if>
+  </div>
+</sc-if>
+<sc-if value="{{ closed }}" hint-placeholder-val="{{ false }}">
+  <button onClick="{{ onOpen }}" style="position:fixed;right:16px;bottom:16px;display:flex;align-items:center;gap:8px;padding:8px 14px;border:2px solid var(--dt-ink);border-radius:10px;background:var(--dt-pear);box-shadow:0 3px 0 var(--dt-ink);font:700 12px 'IBM Plex Sans',sans-serif;cursor:pointer;color:var(--dt-ink)"><span style="width:9px;height:9px;border-radius:50%;border:1px solid var(--dt-ink);background:var(--dt-success)"></span>Inspect checkout</button>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1366,&quot;height&quot;:830},&quot;railWidth&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:300,&quot;min&quot;:260,&quot;max&quot;:360,&quot;step&quot;:10,&quot;unit&quot;:&quot;px&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;simulateInvoke&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  state = {
+    history: [{ tag: "Browsing", data: { items: 0 }, title: "Machine started", evt: null, evtData: null, edgeId: null }],
+    cursor: 0, depth: "nearby", go: null, zoom: 1, tab: "state", open: true,
+    notice: "", draft: '{\n  "_tag": "AddItem",\n  "amount": 1\n}', draftErr: "",
+    machineSel: "checkout", sourceAction: "cursor"
+  };
+  NODES = [
+    { id: "Browsing", x: 50, y: 150, sub: "Build a cart.", tip: "State: Build a cart." },
+    { id: "Checkout", x: 300, y: 150, sub: "Review the order.", tip: "State: Review the order." },
+    { id: "PlacingOrder", x: 550, y: 150, sub: "invoke · Orders.place", tip: "Invokes Orders.place. First attempt fails; retry succeeds." },
+    { id: "Ordered", x: 800, y: 70, sub: "final · order complete", final: true, tip: "Final state. Finish with an order." },
+    { id: "PaymentFailed", x: 550, y: 300, sub: "retry an expected decline", tip: "Let the shopper retry an expected decline." }
+  ];
+  EDGES = [
+    { id: "e1", src: "Browsing", tgt: "Browsing", label: "AddItem", d: "M 144 150 V 114 H 98 V 147", lx: 121, ly: 103, tip: "AddItem — Add items to the cart." },
+    { id: "e2", src: "Browsing", tgt: "Checkout", label: "BeginCheckout", d: "M 198 173 H 297", lx: 247, ly: 173, tip: "BeginCheckout — Review the cart." },
+    { id: "e3", src: "Checkout", tgt: "PlacingOrder", label: "SubmitOrder", d: "M 448 173 H 547", lx: 497, ly: 173, tip: "SubmitOrder — Place the reviewed order." },
+    { id: "e4", src: "Checkout", tgt: "Browsing", label: "BackToShop", d: "M 340 196 V 254 H 140 V 199", lx: 240, ly: 254, tip: "BackToShop — Return to browsing." },
+    { id: "e5", src: "PlacingOrder", tgt: "Ordered", label: "success", d: "M 698 162 H 749 V 93 H 797", lx: 749, ly: 128, tip: "Orders.place succeeded." },
+    { id: "e6", src: "PlacingOrder", tgt: "PaymentFailed", label: "failure", d: "M 624 196 V 297", lx: 624, ly: 247, tip: "PaymentDeclined — an expected decline." },
+    { id: "e7", src: "PaymentFailed", tgt: "PlacingOrder", label: "RetryPayment", d: "M 550 312 H 510 V 184 H 547", lx: 510, ly: 247, tip: "RetryPayment — Retry a declined payment." },
+    { id: "e8", src: "PaymentFailed", tgt: "Browsing", label: "BackToShop", d: "M 550 334 H 124 V 199", lx: 330, ly: 334, tip: "BackToShop — Return to browsing." }
+  ];
+  STATE_FIELDS = { Browsing: { items: "Number" }, Checkout: { items: "Number" }, PlacingOrder: { items: "Number" }, PaymentFailed: { items: "Number", message: "String" }, Ordered: { orderId: "String" } };
+  EVENT_FIELDS = { AddItem: { amount: "Number" }, BeginCheckout: {}, SubmitOrder: {}, RetryPayment: {}, BackToShop: {} };
+  DESC = { AddItem: "Add items to the cart.", BeginCheckout: "Review the cart.", SubmitOrder: "Place the reviewed order.", RetryPayment: "Retry a declined payment.", BackToShop: "Return to browsing." };
+  T = {
+    Browsing: {
+      AddItem: { target: "Browsing", edge: "e1", reduce: (s, e) => ({ items: s.items + (e.amount || 1) }) },
+      BeginCheckout: { target: "Checkout", edge: "e2", reduce: (s) => ({ items: s.items }) }
+    },
+    Checkout: {
+      SubmitOrder: { target: "PlacingOrder", edge: "e3", reduce: (s) => ({ items: s.items }) },
+      BackToShop: { target: "Browsing", edge: "e4", reduce: (s) => ({ items: s.items }) }
+    },
+    PaymentFailed: {
+      RetryPayment: { target: "PlacingOrder", edge: "e7", reduce: (s) => ({ items: s.items }) },
+      BackToShop: { target: "Browsing", edge: "e8", reduce: (s) => ({ items: s.items }) }
+    }
+  };
+  histRef = React.createRef();
+  graphRef = React.createRef();
+  att = 0;
+  fit() {
+    const el = this.graphRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const z = Math.min((r.width - 60) / 980, (r.height - 60) / 420, 1.15);
+    this.setState({ zoom: Math.max(0.35, z) });
+  }
+  componentDidMount() {
+    this.fit();
+    this._onResize = () => this.fit();
+    window.addEventListener("resize", this._onResize);
+  }
+  componentWillUnmount() {
+    window.removeEventListener("resize", this._onResize);
+    clearTimeout(this._nt);
+  }
+  push(snap) {
+    this.setState((s) => {
+      const live = s.cursor === s.history.length - 1;
+      return { history: [...s.history, snap], cursor: live ? s.history.length : s.cursor };
+    }, () => { if (snap.tag === "PlacingOrder") this.invoke(); });
+  }
+  invoke() {
+    if ((this.props.simulateInvoke ?? true) === false) return;
+    this.att += 1;
+    const n = this.att;
+    setTimeout(() => {
+      const h = this.state.history;
+      const last = h[h.length - 1];
+      if (last.tag !== "PlacingOrder") return;
+      if (n === 1) this.push({ tag: "PaymentFailed", data: { items: last.data.items, message: "Try another payment method." }, title: "Orders.place → failure", evt: "invoke", evtData: { _tag: "PaymentDeclined", message: "Try another payment method." }, edgeId: "e6" });
+      else this.push({ tag: "Ordered", data: { orderId: "order-" + n }, title: "Orders.place → success", evt: "invoke", evtData: { _tag: "InvocationSucceeded", value: "order-" + n }, edgeId: "e5" });
+    }, 850);
+  }
+  send(evt, data) {
+    const s = this.state;
+    if (s.cursor !== s.history.length - 1) return;
+    const cur = s.history[s.cursor];
+    const tr = (this.T[cur.tag] || {})[evt];
+    if (!tr) { this.setState({ draftErr: evt + " is ignored while in " + cur.tag + "." }); return; }
+    this.setState({ draftErr: "" });
+    const payload = data || {};
+    this.push({ tag: tr.target, data: tr.reduce(cur.data, payload), title: evt, evt, evtData: { _tag: evt, ...payload }, edgeId: tr.edge });
+  }
+  componentDidUpdate() {
+    const el = this.histRef.current;
+    if (el && this.state.cursor === this.state.history.length - 1) el.scrollTop = el.scrollHeight;
+  }
+  flash(msg) {
+    this.setState({ notice: msg });
+    clearTimeout(this._nt);
+    this._nt = setTimeout(() => this.setState({ notice: "" }), 2600);
+  }
+  renderVals() {
+    const S = this.state;
+    const h = S.history;
+    const view = h[S.cursor];
+    const live = S.cursor === h.length - 1;
+    const collapsed = S.go ?? false;
+    const ink = "var(--dt-ink)", surface = "var(--dt-surface)", pear = "var(--dt-pear)";
+    const seg = (on) => `min-height:22px;padding:1px 10px;border:1px solid ${on ? ink : "transparent"};border-radius:999px;background:${on ? pear : "transparent"};font:600 10.5px 'IBM Plex Sans',sans-serif;cursor:pointer;color:${ink}`;
+    const iconb = (dis) => `width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid ${ink};border-radius:6px;background:${surface};font:600 10px 'IBM Plex Mono',monospace;cursor:${dis ? "default" : "pointer"};opacity:${dis ? "0.35" : "1"};color:${ink}`;
+    const tab = (on) => `min-height:22px;padding:2px 10px;border:1px solid ${on ? ink : "var(--dt-rule)"};border-bottom:${on ? "1px solid " + surface : "0"};margin-bottom:-1px;border-radius:6px 6px 0 0;background:${on ? surface : "var(--dt-paper2)"};font:600 10px 'IBM Plex Mono',monospace;cursor:pointer;color:${ink}`;
+    const available = live && this.T[view.tag] ? Object.keys(this.T[view.tag]) : [];
+    const mkQuick = (label, evt, make) => {
+      const dis = !available.includes(evt);
+      return { label, tip: this.DESC[evt], disabled: dis, onFire: () => this.send(evt, make ? make() : {}), style: `min-height:24px;padding:2px 10px;border:1px solid ${ink};border-radius:6px;background:var(--dt-accent);color:var(--dt-accent-ink);font:600 11px 'IBM Plex Sans',sans-serif;cursor:${dis ? "not-allowed" : "pointer"};opacity:${dis ? "0.35" : "1"}` };
+    };
+    const quickGroups = [
+      { name: "CART", items: [mkQuick("Add random", "AddItem", () => ({ amount: 1 + Math.floor(Math.random() * 3) })), mkQuick("Checkout", "BeginCheckout"), mkQuick("Back to shop", "BackToShop")] },
+      { name: "PAYMENT", items: [mkQuick("Submit order", "SubmitOrder"), mkQuick("Retry payment", "RetryPayment")] }
+    ];
+    const MAX_DEPTH = 9;
+    const depth = typeof S.depth === "number" ? S.depth : 1;
+    const all = S.all ?? true;
+    let visible = new Set(this.NODES.map((n) => n.id));
+    if (!all) {
+      visible = new Set([view.tag]);
+      for (let hop = 0; hop < depth; hop += 1) {
+        const next = new Set(visible);
+        for (const e of this.EDGES) { if (visible.has(e.src)) next.add(e.tgt); if (visible.has(e.tgt)) next.add(e.src); }
+        visible = next;
+      }
+    }
+    const nodes = this.NODES.filter((n) => visible.has(n.id)).map((n) => {
+      const active = n.id === view.tag;
+      return { title: n.id, sub: n.sub, tip: n.tip,
+        onClick: () => this.setState((s) => ({ sel: s.sel && s.sel.kind === "state" && s.sel.id === n.id ? null : { kind: "state", id: n.id, cx: Math.min(n.x, 700), cy: n.y > 230 ? n.y - 175 : n.y + 56, orig: n.y > 230 ? "bottom" : "top" } })),
+        style: `position:absolute;left:${n.x}px;top:${n.y}px;width:148px;height:46px;display:flex;flex-direction:column;justify-content:center;gap:1px;padding:4px 10px;border:${active ? "2.5px" : "1.5px"} ${n.final ? "double" : "solid"} ${ink};${n.final ? "border-width:3.5px;" : ""}border-radius:10px;background:${active ? pear : surface};box-shadow:${active ? "0 3px 0 " + ink : "none"};cursor:pointer` };
+    });
+    const traversed = S.cursor > 0 ? view.edgeId : null;
+    const edges = this.EDGES.filter((e) => visible.has(e.src) && visible.has(e.tgt)).map((e) => {
+      const on = e.id === traversed;
+      return { d: e.d, label: e.label, tip: e.tip,
+        onClick: () => { const kind = e.label === "success" || e.label === "failure" ? "outcome" : "event"; this.setState((s) => ({ sel: s.sel && s.sel.kind === kind && s.sel.id === e.label ? null : { kind, id: e.label, cx: Math.min(Math.max(e.lx - 125, 4), 700), cy: e.ly > 230 ? e.ly - 185 : e.ly + 16, orig: e.ly > 230 ? "bottom" : "top" } })); },
+        style: on ? "fill:none;stroke:var(--dt-focus);stroke-width:3;opacity:1;stroke-dasharray:9 7;animation:dtFlow 1s linear infinite" : "fill:none;stroke:var(--dt-rule-strong);stroke-width:1.6;opacity:0.55",
+        pillStyle: `position:absolute;left:${e.lx}px;top:${e.ly}px;transform:translate(-50%,-50%);padding:2px 10px;border-radius:999px;border:1px solid ${on ? "var(--dt-focus)" : "var(--dt-accent-ink)"};background:${on ? "var(--dt-focus)" : "var(--dt-accent)"};color:${on ? surface : "var(--dt-accent-ink)"};font:700 10px 'IBM Plex Mono',monospace;white-space:nowrap;cursor:help` };
+    });
+    const depthLabel = depth + (depth === 1 ? " hop" : " hops");
+    const onDepthDown = () => this.setState({ depth: Math.max(1, depth - 1), all: false });
+    const onDepthUp = () => this.setState({ depth: Math.min(MAX_DEPTH, depth + 1), all: false });
+    const prev = h[S.cursor - 1];
+    const diffOn = S.diffOn ?? true;
+    let stateContent = JSON.stringify({ _tag: view.tag, ...view.data }, null, 2);
+    if (diffOn && prev) {
+      const before = { _tag: prev.tag, ...prev.data };
+      const after = { _tag: view.tag, ...view.data };
+      const keys = [...new Set([...Object.keys(after), ...Object.keys(before)])];
+      const delStyle = "display:block;margin:0 -10px;padding:0 10px;color:var(--dt-danger);background:var(--dt-danger-soft)";
+      const addStyle = "display:block;margin:0 -10px;padding:0 10px;color:var(--dt-success);background:var(--dt-success-soft)";
+      const toStyleObj = (s) => Object.fromEntries(s.split(";").map((r) => { const i = r.indexOf(":"); const p = r.slice(0, i).trim(); return [p.replace(/-(.)/g, (_, c) => c.toUpperCase()), r.slice(i + 1).trim()]; }));
+      const rows = [React.createElement("div", { key: "o" }, "{")];
+      keys.forEach((k, i) => {
+        const b = JSON.stringify(before[k]);
+        const a = JSON.stringify(after[k]);
+        if (b === a) rows.push(React.createElement("div", { key: i }, `  "${k}": ${a}`));
+        else {
+          if (b !== undefined) rows.push(React.createElement("div", { key: i + "d", style: toStyleObj(delStyle) }, `- "${k}": ${b}`));
+          if (a !== undefined) rows.push(React.createElement("div", { key: i + "a", style: toStyleObj(addStyle) }, `+ "${k}": ${a}`));
+        }
+      });
+      rows.push(React.createElement("div", { key: "c" }, "}"));
+      stateContent = React.createElement(React.Fragment, null, rows);
+    }
+    const historyItems = h.map((snap, i) => {
+      const prev = h[i - 1];
+      const sel = i === S.cursor;
+      return { idx: String(i).padStart(2, "0"), title: snap.title, state: snap.tag,
+        meta: prev ? `${prev.tag} → ${snap.tag}` : "initial · " + snap.tag,
+        onSelect: () => this.setState({ cursor: i }),
+        style: `width:100%;display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 10px;border:0;border-bottom:1px solid var(--dt-paper2);background:${sel ? "var(--dt-cyan)" : "transparent"};text-align:left;cursor:pointer;font-family:inherit;color:${ink}` };
+    });
+    const stateJson = JSON.stringify({ _tag: view.tag, ...view.data }, null, 2);
+    const eventJson = view.evtData ? JSON.stringify(view.evtData, null, 2) : "No event on this step.\nSelect a step fired by an event.";
+    const sel = S.sel;
+    const jsonType = (t) => ({ type: t === "Number" ? "number" : "string" });
+    const structSchema = (tag, fields) => ({
+      type: "object",
+      properties: { _tag: { const: tag }, ...Object.fromEntries(Object.entries(fields).map(([k, t]) => [k, jsonType(t)])) },
+      required: ["_tag", ...Object.keys(fields)],
+      additionalProperties: false
+    });
+    let selVals = { hasSel: false, selTitle: "", selKind: "", selDesc: "", selMeta: [], selSchemaJson: "", selCardStyle: "" };
+    if (sel) {
+      let title = sel.id, kind = sel.kind, desc = "", meta = [], schema = {};
+      if (sel.kind === "state") {
+        const node = this.NODES.find((n) => n.id === sel.id) || {};
+        kind = node.final ? "final state" : sel.id === "PlacingOrder" ? "invoke" : "state";
+        desc = node.tip || "";
+        if (sel.id === "PlacingOrder") meta = ["invokes Orders.place", "success → Ordered", "failure → PaymentFailed"];
+        else if (node.final) meta = ["terminal — machine completes"];
+        else meta = this.EDGES.filter((e) => e.src === sel.id && e.label !== "success" && e.label !== "failure").map((e) => `on ${e.label} → ${e.tgt}`);
+        schema = structSchema(sel.id, this.STATE_FIELDS[sel.id] || {});
+      } else if (sel.kind === "event") {
+        desc = this.DESC[sel.id] || "";
+        meta = this.EDGES.filter((e) => e.label === sel.id).map((e) => `${e.src} → ${e.tgt}`);
+        schema = structSchema(sel.id, this.EVENT_FIELDS[sel.id] || {});
+      } else if (sel.id === "success") {
+        title = "success · Orders.place";
+        desc = "Invocation resolved with the placed order's id.";
+        meta = ["PlacingOrder → Ordered"];
+        schema = { type: "string", description: "orderId" };
+      } else {
+        title = "failure · Orders.place";
+        desc = "Invocation failed with a typed, expected error.";
+        meta = ["PlacingOrder → PaymentFailed"];
+        schema = structSchema("PaymentDeclined", { message: "String" });
+      }
+      selVals = {
+        hasSel: true, selTitle: title, selKind: kind, selDesc: desc, selMeta: meta,
+        selSchemaJson: JSON.stringify(schema, null, 2),
+        selCardStyle: `position:absolute;left:${sel.cx}px;top:${sel.cy}px;width:258px;transform:scale(${1 / S.zoom});transform-origin:${sel.orig || "top"} left;display:flex;flex-direction:column;gap:5px;padding:8px 10px;border:2px solid ${ink};border-radius:10px;background:${surface};box-shadow:0 3px 0 ${ink};z-index:5;cursor:default`
+      };
+    }
+    let draftTag = "AddItem";
+    try { const p = JSON.parse(S.draft); if (p && typeof p._tag === "string") draftTag = p._tag; } catch (_) {}
+    const behind = h.length - 1 - S.cursor;
+    return {
+      open: S.open, closed: !S.open, collapsed, showRail: !collapsed, notLive: !live,
+      stateChip: view.tag, machineSel: S.machineSel, sourceAction: S.sourceAction,
+      notice: S.notice, hasNotice: S.notice !== "",
+      zoom: S.zoom, zoomLabel: Math.round(S.zoom * 100) + "%", zoomBtnStyle: iconb(false),
+      onZoomIn: () => this.setState((s) => ({ zoom: Math.min(2.5, s.zoom * 1.2) })),
+      onZoomOut: () => this.setState((s) => ({ zoom: Math.max(0.4, s.zoom / 1.2) })),
+      onZoomFit: () => this.fit(),
+      graphRef: this.graphRef,
+      nodes, edges, quickGroups, historyItems, histRef: this.histRef,
+      depthLabel, onDepthDown, onDepthUp,
+      depthDownStyle: iconb(!all && depth === 1), depthUpStyle: iconb(!all && depth >= MAX_DEPTH),
+      allBtnStyle: seg(all), onToggleAll: () => this.setState({ all: !all }),
+      jsonView: S.jsonView ?? false, sceneDisplay: (S.jsonView ?? false) ? "none" : "flex", zoomDisplay: (S.jsonView ?? false) ? "none" : "flex",
+      jsonBtnStyle: seg(S.jsonView ?? false),
+      onToggleJson: () => this.setState({ jsonView: !(S.jsonView ?? false) }),
+      graphJson: JSON.stringify({
+        id: "checkout",
+        description: "A checkout flow with expected payment failure and retry.",
+        initial: "Browsing",
+        states: this.NODES.map((n) => ({ id: n.id, description: n.tip, fields: this.STATE_FIELDS[n.id] || {}, ...(n.id === "PlacingOrder" ? { invoke: "Orders.place" } : {}), ...(n.final ? { final: true } : {}) })),
+        events: Object.fromEntries(Object.entries(this.EVENT_FIELDS).map(([k, f]) => [k, { description: this.DESC[k], fields: f }])),
+        transitions: this.EDGES.map((e) => ({ from: e.src, event: e.label, to: e.tgt }))
+      }, null, 2),
+      onToggleDiff: () => this.setState({ diffOn: !diffOn }),
+      diffBtnStyle: `min-height:20px;white-space:nowrap;align-self:center;padding:0 8px;border:1px solid ${diffOn ? ink : "var(--dt-rule)"};border-radius:999px;background:${diffOn ? pear : "transparent"};font:600 9.5px 'IBM Plex Mono',monospace;cursor:pointer;color:${ink}`,
+      onToggleRail: () => this.setState({ go: !collapsed }, () => this.fit()),
+      historyCount: `${h.length} steps`, posLabel: `${S.cursor + 1}/${h.length}`,
+      prevStyle: iconb(S.cursor === 0), nextStyle: iconb(live),
+      onPrev: () => this.setState((s) => ({ cursor: Math.max(0, s.cursor - 1) })),
+      onNext: () => this.setState((s) => ({ cursor: Math.min(s.history.length - 1, s.cursor + 1) })),
+      liveLabel: live ? "Live" : `Live +${behind}`,
+      liveStyle: `min-height:22px;padding:1px 10px;border:1px solid ${ink};border-radius:999px;background:${live ? pear : "var(--dt-accent)"};font:700 10px 'IBM Plex Sans',sans-serif;cursor:${live ? "default" : "pointer"};color:var(--dt-accent-ink)`,
+      onLive: () => this.setState((s) => ({ cursor: s.history.length - 1 })),
+      stateContent, eventJson, eventTag: view.evtData ? view.evtData._tag : "none",
+      ...selVals, onCloseSel: () => this.setState({ sel: null }),
+      srcLine: "Checkout.ts:41",
+      onCopySrc: () => { navigator.clipboard?.writeText("examples/Checkout.ts:41:5"); this.flash("Copied file reference"); },
+      draft: S.draft, draftTag,
+      onDraft: (e) => this.setState({ draft: e.target.value, draftErr: "" }),
+      onTag: (e) => this.setState({ draft: JSON.stringify({ _tag: e.target.value }, null, 2), draftErr: "" }),
+      onDispatch: () => {
+        try {
+          const p = JSON.parse(this.state.draft);
+          if (!p || typeof p._tag !== "string") { this.setState({ draftErr: "The event needs a string _tag." }); return; }
+          const { _tag, ...rest } = p;
+          this.send(_tag, rest);
+        } catch (_) { this.setState({ draftErr: "Not valid JSON. Fix the syntax and try again." }); }
+      },
+      dispatchStyle: `min-height:24px;padding:2px 12px;border:1px solid ${ink};border-radius:6px;background:${ink};color:var(--dt-paper);font:600 11px 'IBM Plex Sans',sans-serif;cursor:pointer;flex:none`,
+      draftHelp: S.draftErr !== "" ? S.draftErr : (this.DESC[draftTag] || "Decoded with the Event Schema before dispatch."),
+      draftHelpStyle: `font:500 9.5px 'IBM Plex ${S.draftErr !== "" ? "Mono" : "Sans"}',${S.draftErr !== "" ? "monospace" : "sans-serif"};color:${S.draftErr !== "" ? "var(--dt-danger)" : "var(--dt-muted)"};line-height:1.4;padding-top:4px`,
+      onMachine: (e) => { if (e.target.value !== "checkout") this.flash("Nested-machine navigation — pattern TBD"); },
+      onSource: (e) => this.setState({ sourceAction: e.target.value }),
+      themeClass: (S.theme ?? (this.props.theme ?? "light")) === "dark" ? "dt-dark" : "",
+      onToggleTheme: () => this.setState({ theme: (S.theme ?? (this.props.theme ?? "light")) === "dark" ? "light" : "dark" }),
+      onClose: () => this.setState({ open: false }),
+      onOpen: () => this.setState({ open: true }),
+      railWidth: this.props.railWidth ?? 300
+    };
+  }
+}
+</script>
+</body>
+</html>
