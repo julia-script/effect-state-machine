@@ -6,7 +6,12 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!dist", "!!.history"]
+    "includes": [
+      "**",
+      "!!dist",
+      "!!.history",
+      "!!openspec"
+    ]
   },
   "formatter": {
     "enabled": true,
