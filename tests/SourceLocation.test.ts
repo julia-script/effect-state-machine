@@ -19,6 +19,10 @@ describe("SourceLocation", () => {
       functionName: "render",
     })
     assert.strictEqual(SourceLocation.parseFrame("at node:internal/process:1:1"), undefined)
+    assert.strictEqual(
+      SourceLocation.parseFrame("at http://localhost/dist/example.html:100:4"),
+      undefined,
+    )
     assert.strictEqual(SourceLocation.parseFrame("not a frame"), undefined)
   })
 

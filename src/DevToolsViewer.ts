@@ -77,7 +77,7 @@ const renderGraph = <Details>(
         : `M ${source.x + 70} ${source.y} L ${target.x} ${target.y}`,
     )
     path.setAttribute("fill", "none")
-    path.setAttribute("stroke", traversed ? "#075a9c" : "#84909d")
+    path.setAttribute("stroke", traversed ? "var(--color-focus)" : "var(--color-muted)")
     path.setAttribute("stroke-width", traversed ? "4" : "2")
     path.setAttribute("marker-end", "url(#devtools-arrow)")
     if (traversed) {
@@ -111,8 +111,11 @@ const renderGraph = <Details>(
     rect.setAttribute("width", "150")
     rect.setAttribute("height", "56")
     rect.setAttribute("rx", "14")
-    rect.setAttribute("fill", view.focus.activity.activeNode === node.id ? "#f7d33d" : "#edf6fa")
-    rect.setAttribute("stroke", "#17212b")
+    rect.setAttribute(
+      "fill",
+      view.focus.activity.activeNode === node.id ? "var(--color-pear)" : "var(--color-surface)",
+    )
+    rect.setAttribute("stroke", "var(--color-ink)")
     rect.setAttribute("stroke-width", view.focus.activity.activeNode === node.id ? "4" : "2")
     const label = svgElement("text")
     label.textContent = node.title
@@ -135,7 +138,7 @@ const renderGraph = <Details>(
   marker.setAttribute("orient", "auto-start-reverse")
   const arrow = svgElement("path")
   arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z")
-  arrow.setAttribute("fill", "#075a9c")
+  arrow.setAttribute("fill", "var(--color-focus)")
   marker.append(arrow)
   definitions.append(marker)
   svg.append(definitions, scene)

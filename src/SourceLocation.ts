@@ -27,6 +27,7 @@ const location = (
     file.length === 0 ||
     file === "<anonymous>" ||
     file.startsWith("node:") ||
+    (/^https?:/.test(file) && /\.html(?:$|[?#])/.test(file)) ||
     !Number.isInteger(parsedLine) ||
     !Number.isInteger(parsedColumn) ||
     parsedLine < 1 ||

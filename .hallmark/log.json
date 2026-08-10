@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-08-10",
+    "macrostructure": "Map / Diagram",
+    "theme": "Hum",
+    "enrichment": "live graph",
+    "brief": "Compact generic machine explorer for embedded and fixture-driven development"
+  },
+  {
     "date": "2026-08-09",
     "macrostructure": "Workbench",
     "theme": "Hum",

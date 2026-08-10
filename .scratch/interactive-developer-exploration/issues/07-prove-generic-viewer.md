@@ -8,26 +8,35 @@ inside a standalone fixture shell.
 from devtools setup; 05 — Explore focused graph projections interactively; 06 — Jump automatically
 from behavior to source code
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The existing local-first document workflow runs through the generic public devtools session
+- [x] The existing local-first document workflow runs through the generic public devtools session
       and viewer without workflow-specific rendering code.
-- [ ] A real checkout-style machine built with the public library replaces the prototype's pure
+- [x] A real checkout-style machine built with the public library replaces the prototype's pure
       facsimile and covers browsing, cart updates, checkout, invoked order placement, expected
       payment failure, retry, and terminal success.
-- [ ] Ordinary controls in each host application visibly advance the same graph and history observed
+- [x] Ordinary controls in each host application visibly advance the same graph and history observed
       by devtools.
-- [ ] Both applications configure useful predefined and factory-backed quick events beside session
+- [x] Both applications configure useful predefined and factory-backed quick events beside session
       setup.
-- [ ] The same viewer components and session view model render both machines without branching on
+- [x] The same viewer components and session view model render both machines without branching on
       machine identity, event names, state names, or payload shapes.
-- [ ] The viewer can be hosted as an embedded dock beside the live application.
-- [ ] The same viewer can be hosted in a standalone development shell against a direct fixture
+- [x] The viewer can be hosted as an embedded dock beside the live application.
+- [x] The same viewer can be hosted in a standalone development shell against a direct fixture
       session.
-- [ ] The standalone shell does not introduce cross-tab, browser, Node, WebSocket, or remote
+- [x] The standalone shell does not introduce cross-tab, browser, Node, WebSocket, or remote
       transport semantics.
-- [ ] Focus depth, semantic/raw history, cursor navigation, return to live, quick events, state
+- [x] Focus depth, semantic/raw history, cursor navigation, return to live, quick events, state
       projection, and source navigation work in both proof machines where applicable.
-- [ ] Browser acceptance tests exercise both machines only through visible application and devtools
+- [x] Browser acceptance tests exercise both machines only through visible application and devtools
       controls and reject machine-specific viewer branches.
 
+## Answer
+
+Added a real Schema-first checkout machine with an injected `Orders` service, expected
+`PaymentDeclined` failure, explicit retry, and terminal success. A compact production proof page now
+hosts either checkout or the existing local-first document machine while mounting exactly the same
+generic session/viewer code. Both hosts expose ordinary application controls and configure fixed and
+factory quick events; `?mode=standalone` removes the host panel without introducing transport. Public
+acceptance tests cover the checkout lifecycle, and an in-browser acceptance pass exercised both
+fixtures, host controls, quick controls, semantic history, historical navigation, and terminal state.
