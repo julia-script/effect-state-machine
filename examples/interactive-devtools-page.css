@@ -1,5 +1,6 @@
 /* Hallmark · genre: playful · macrostructure: Workbench · designed-as-app
  * Compact, information-first developer tooling. The live graph is the primary surface.
+ * pre-emit critique: P5 H5 E5 S5 R5 V5
  */
 @import "../tokens.css";
 
@@ -429,30 +430,52 @@ select:disabled {
 .machine-devtools__edge {
   fill: none;
   stroke: var(--color-rule-strong);
-  stroke-width: 1.5;
-  opacity: 0.42;
+  stroke-width: 1.65;
+  opacity: 0.56;
   transition:
     opacity var(--dur-micro),
     stroke-width var(--dur-micro);
 }
 
-.machine-devtools__edge.is-active,
-.machine-devtools__edge.is-related {
+.machine-devtools__edge.is-active {
   stroke: var(--color-focus);
   stroke-width: 3;
   opacity: 1;
 }
 
-.machine-devtools__edge.is-active {
+.machine-devtools__edge.is-active,
+.machine-devtools__edge.is-outgoing,
+.machine-devtools__edge.is-incoming,
+.machine-devtools__edge.is-loop {
   stroke-dasharray: 9 7;
+  animation: machine-devtools-edge-flow 1s linear infinite;
 }
 
-.machine-devtools__graph[data-full] .machine-devtools__edge {
-  opacity: 0.12;
+.machine-devtools__edge.is-outgoing {
+  stroke: var(--color-focus);
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.machine-devtools__edge.is-incoming {
+  stroke: var(--color-success);
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.machine-devtools__edge.is-loop {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.machine-devtools__graph[data-full]
+  .machine-devtools__edge:not(.is-active):not(.is-outgoing):not(.is-incoming):not(.is-loop) {
+  opacity: 0.24;
 }
 
 .machine-devtools__graph-scene[data-hovering]
-  .machine-devtools__edge:not(.is-related):not(.is-active) {
+  .machine-devtools__edge:not(.is-outgoing):not(.is-incoming):not(.is-loop):not(.is-active) {
   opacity: 0.025;
 }
 
@@ -466,13 +489,32 @@ select:disabled {
   pointer-events: none;
 }
 
-.machine-devtools__graph[data-full] .machine-devtools__edge-label:not(.is-active):not(.is-related) {
+.machine-devtools__graph[data-full]
+  .machine-devtools__edge-label:not(.is-active):not(.is-outgoing):not(.is-incoming):not(.is-loop) {
   display: none;
 }
 
 .machine-devtools__edge-label.is-active,
-.machine-devtools__edge-label.is-related {
+.machine-devtools__edge-label.is-outgoing {
   fill: var(--color-focus);
+}
+
+.machine-devtools__edge-label.is-incoming {
+  fill: var(--color-success);
+}
+
+.machine-devtools__edge-label.is-loop {
+  fill: var(--color-accent);
+}
+
+@keyframes machine-devtools-edge-flow {
+  from {
+    stroke-dashoffset: 32;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .machine-devtools__node rect {
@@ -761,5 +803,9 @@ select:disabled {
     scroll-behavior: auto;
     animation-duration: 0.01ms;
     transition-duration: 0.01ms;
+  }
+
+  .machine-devtools__edge {
+    animation: none;
   }
 }

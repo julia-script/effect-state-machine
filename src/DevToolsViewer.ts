@@ -411,7 +411,6 @@ const svgGraph = <Details>(
   }
   applyCamera()
 
-  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true
   const edgeElements = new Map<string, ReadonlyArray<SVGElement>>()
   for (const [index, edge] of view.focus.graph.edges.entries()) {
     const source = layout.positions.get(edge.source)
@@ -426,15 +425,6 @@ const svgGraph = <Details>(
     path.dataset.target = edge.target
     path.setAttribute("d", route.path)
     path.setAttribute("marker-end", "url(#machine-devtools-arrow)")
-    if (traversed && !reducedMotion) {
-      const animate = svgElement("animate")
-      animate.setAttribute("attributeName", "stroke-dashoffset")
-      animate.setAttribute("from", "32")
-      animate.setAttribute("to", "0")
-      animate.setAttribute("dur", "1s")
-      animate.setAttribute("repeatCount", "indefinite")
-      path.append(animate)
-    }
     scene.append(path)
 
     const label = svgElement("text")
@@ -454,9 +444,13 @@ const svgGraph = <Details>(
     if (nodeId === undefined) delete scene.dataset.hovering
     else scene.dataset.hovering = ""
     for (const edge of view.focus.graph.edges) {
-      const related = nodeId !== undefined && (edge.source === nodeId || edge.target === nodeId)
+      const loop = nodeId !== undefined && edge.source === nodeId && edge.target === nodeId
+      const outgoing = nodeId !== undefined && edge.source === nodeId && !loop
+      const incoming = nodeId !== undefined && edge.target === nodeId && !loop
       for (const element of edgeElements.get(edge.id) ?? []) {
-        element.classList.toggle("is-related", related)
+        element.classList.toggle("is-outgoing", outgoing)
+        element.classList.toggle("is-incoming", incoming)
+        element.classList.toggle("is-loop", loop)
       }
     }
   }
