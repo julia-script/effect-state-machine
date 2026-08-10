@@ -69,11 +69,24 @@ export const layout = async (graph: Graph.Graph, initialTag?: string): Promise<E
       "elk.padding": "[top=24,left=24,bottom=24,right=24]",
     },
     children: [
-      ...(hasStart ? [{ id: START_ID, width: START_SIZE, height: START_SIZE }] : []),
+      ...(hasStart
+        ? [
+            {
+              id: START_ID,
+              width: START_SIZE,
+              height: START_SIZE,
+              layoutOptions: { "elk.layered.layering.layerConstraint": "FIRST_SEPARATE" },
+            },
+          ]
+        : []),
       ...graph.nodes.map((node) => ({
         id: node.id,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
+        // The entry state stays in the top layer; cycles route back up to it.
+        ...(node.id === initialTag
+          ? { layoutOptions: { "elk.layered.layering.layerConstraint": "FIRST" } }
+          : {}),
       })),
       ...graph.edges.map((edge) => ({
         id: transitionId(edge.id),
