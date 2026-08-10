@@ -38,12 +38,42 @@ export const mount = <Details>(
           const state = document.createElement("span")
           state.textContent = ` ${view.selected.state.title}`
           state.dataset.stateTag = view.selected.state.tag
+          const navigation = document.createElement("nav")
+          navigation.setAttribute("aria-label", "History navigation")
+          const previous = document.createElement("button")
+          previous.type = "button"
+          previous.textContent = "Previous"
+          previous.disabled = view.cursor === 0
+          previous.addEventListener("click", () => {
+            Effect.runFork(options.session.previous)
+          })
+          const next = document.createElement("button")
+          next.type = "button"
+          next.textContent = "Next"
+          next.disabled = view.cursor === view.liveHead
+          next.addEventListener("click", () => {
+            Effect.runFork(options.session.next)
+          })
+          const live = document.createElement("button")
+          live.type = "button"
+          live.textContent = view.isLive ? "Live" : `Return live (+${view.liveHead - view.cursor})`
+          live.disabled = view.isLive
+          live.addEventListener("click", () => {
+            Effect.runFork(options.session.returnToLive)
+          })
+          navigation.append(previous, next, live)
           const history = document.createElement("ol")
           history.setAttribute("aria-label", "Semantic history")
           for (const step of view.history.semantic.slice(-6)) {
             const item = document.createElement("li")
-            item.textContent = step.title
             item.dataset.stepKind = step.kind
+            const select = document.createElement("button")
+            select.type = "button"
+            select.textContent = step.title
+            select.addEventListener("click", () => {
+              Effect.runFork(options.session.selectStep(step.index))
+            })
+            item.append(select)
             history.append(item)
           }
           const raw = document.createElement("details")
@@ -56,7 +86,7 @@ export const mount = <Details>(
             rawList.append(item)
           }
           raw.append(summary, rawList)
-          root.append(machine, state, history, raw)
+          root.append(machine, state, navigation, history, raw)
         }),
       ),
       Effect.forkScoped,

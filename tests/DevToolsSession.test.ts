@@ -122,4 +122,52 @@ describe("DevToolsSession", () => {
       }),
     ),
   )
+
+  it.effect("navigates recorded snapshots while live execution keeps advancing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* Machine.run(counterDefinition, { count: 0 })
+        const session = yield* DevToolsSession.attach({
+          definition: counterDefinition,
+          handle,
+          projectState: (state) => ({ count: state.count }),
+        })
+
+        yield* handle.send({ _tag: "Increment", amount: 1 })
+        yield* session.changes.pipe(
+          Stream.filter((view) => view.liveHead === 1),
+          Stream.runHead,
+        )
+        yield* session.previous
+        let view = yield* session.view
+        assert.strictEqual(view.cursor, 0)
+        assert.strictEqual(view.liveHead, 1)
+        assert.strictEqual(view.isLive, false)
+        assert.deepStrictEqual(view.selected.state.details, { count: 0 })
+
+        yield* handle.send({ _tag: "Increment", amount: 2 })
+        view = yield* session.changes.pipe(
+          Stream.filter((candidate) => candidate.liveHead === 2),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        )
+        assert.strictEqual(view.cursor, 0)
+        assert.strictEqual(view.liveHead, 2)
+        assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 3 })
+
+        yield* session.next
+        assert.deepStrictEqual((yield* session.view).selected.state.details, { count: 1 })
+        const eventStep = [...(yield* session.view).history.semantic]
+          .reverse()
+          .find((step) => step.eventTag === "Increment")
+        assert.strictEqual(yield* session.selectStep(eventStep?.index ?? -1), true)
+        assert.strictEqual((yield* session.view).cursor, 2)
+        yield* session.previous
+        yield* session.returnToLive
+        assert.strictEqual((yield* session.view).cursor, 2)
+        assert.strictEqual(yield* session.selectPosition(99), false)
+        assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 3 })
+      }),
+    ),
+  )
 })

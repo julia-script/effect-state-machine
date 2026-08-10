@@ -93,6 +93,11 @@ export interface SessionView<Details = never> {
 export interface Session<Details = never> {
   readonly view: Effect.Effect<SessionView<Details>>
   readonly changes: Stream.Stream<SessionView<Details>>
+  readonly previous: Effect.Effect<void>
+  readonly next: Effect.Effect<void>
+  readonly selectPosition: (position: number) => Effect.Effect<boolean>
+  readonly selectStep: (step: number) => Effect.Effect<boolean>
+  readonly returnToLive: Effect.Effect<void>
 }
 
 export interface AttachOptions<State extends Tagged, Event extends Tagged, Details = never> {
@@ -109,6 +114,7 @@ interface InternalPosition<State extends Tagged, Details> {
 interface SessionModel<State extends Tagged, Details> {
   readonly status: SessionStatus
   readonly positions: ReadonlyArray<InternalPosition<State, Details>>
+  readonly cursor: number
   readonly pendingStates: ReadonlyArray<State>
   readonly pendingCommits: ReadonlyArray<Readonly<{ step?: number }>>
   readonly raw: ReadonlyArray<RawInspectionRecord>
@@ -180,6 +186,7 @@ const reconcileCommits = <State extends Tagged, Details>(
     next = {
       ...next,
       positions: [...next.positions, position(graph, state, committedPosition, projectState)],
+      cursor: next.cursor === next.positions.length - 1 ? committedPosition : next.cursor,
       pendingStates: next.pendingStates.slice(1),
       pendingCommits: next.pendingCommits.slice(1),
     }
@@ -429,9 +436,9 @@ const toView = <State extends Tagged, Details>(
     graph,
     status: model.status,
     liveHead,
-    cursor: liveHead,
-    isLive: true,
-    selected: positions[liveHead],
+    cursor: model.cursor,
+    isLive: model.cursor === liveHead,
+    selected: positions[model.cursor],
     positions,
     history: freeze({
       semantic: freeze([...model.semantic]),
@@ -454,6 +461,7 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
     const model = yield* SubscriptionRef.make<SessionModel<State, Details>>({
       status: "running",
       positions: [initialPosition],
+      cursor: 0,
       pendingStates: [],
       pendingCommits: [],
       raw: [],
@@ -513,5 +521,34 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
       changes: SubscriptionRef.changes(model).pipe(
         Stream.map((current) => toView(options.definition, graph, current)),
       ),
+      previous: SubscriptionRef.update(model, (current) => ({
+        ...current,
+        cursor: Math.max(0, current.cursor - 1),
+      })),
+      next: SubscriptionRef.update(model, (current) => ({
+        ...current,
+        cursor: Math.min(current.positions.length - 1, current.cursor + 1),
+      })),
+      selectPosition: (selectedPosition) =>
+        SubscriptionRef.modify(model, (current) => {
+          if (
+            !Number.isInteger(selectedPosition) ||
+            selectedPosition < 0 ||
+            selectedPosition >= current.positions.length
+          ) {
+            return [false, current]
+          }
+          return [true, { ...current, cursor: selectedPosition }]
+        }),
+      selectStep: (selectedStep) =>
+        SubscriptionRef.modify(model, (current) => {
+          const step = current.semantic[selectedStep]
+          if (step === undefined) return [false, current]
+          return [true, { ...current, cursor: step.statePosition }]
+        }),
+      returnToLive: SubscriptionRef.update(model, (current) => ({
+        ...current,
+        cursor: current.positions.length - 1,
+      })),
     }
   })
