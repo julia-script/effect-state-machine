@@ -1,0 +1,43 @@
+{
+  "name": "@effect-state-machine/studio-client",
+  "version": "0.1.0",
+  "description": "Connects running effect-state-machine machines to Studio.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check": "pnpm typecheck && pnpm test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.106",
+    "effect-state-machine": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.0.0-beta.106",
+    "@effect/vitest": "4.0.0-beta.106",
+    "effect": "4.0.0-beta.106",
+    "effect-state-machine": "workspace:*",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

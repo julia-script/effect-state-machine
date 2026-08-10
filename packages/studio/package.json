@@ -1,0 +1,35 @@
+{
+  "name": "@effect-state-machine/studio",
+  "version": "0.1.0",
+  "description": "Studio — the standalone devtool for effect-state-machine.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "effect-state-machine-studio": "./bin/studio.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check": "pnpm typecheck && pnpm test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-state-machine/studio-client": "workspace:*",
+    "@effect/platform-node": "4.0.0-beta.106",
+    "effect": "4.0.0-beta.106",
+    "effect-state-machine": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.106",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

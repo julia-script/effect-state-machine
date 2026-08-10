@@ -8,6 +8,6 @@
     "rootDir": "src",
     "sourceMap": true
   },
-  "include": ["src/index.ts", "src/devtools.ts", "src/devtools-viewer.ts"],
+  "include": ["src/index.ts", "src/devtools.ts"],
   "exclude": ["tests", "examples", "prototypes"]
 }
