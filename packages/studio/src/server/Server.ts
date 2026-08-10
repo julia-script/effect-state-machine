@@ -127,7 +127,7 @@ const uiRoutes = (uiRoot: string | undefined) =>
     : HttpRouter.use((router) =>
         Effect.gen(function* () {
           const staticApp = yield* HttpStaticServer.make({ root: uiRoot, spa: true })
-          yield* router.add("GET", "/*splat", staticApp)
+          yield* router.add("GET", "/*", staticApp)
           yield* router.add("GET", "/", staticApp)
         }),
       )

@@ -16,21 +16,33 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/cli.js --external:effect --external:@effect/platform-node",
+    "build": "rm -rf dist && vite build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/cli.js --external:effect --external:@effect/platform-node",
     "check": "pnpm typecheck && pnpm test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@effect-state-machine/studio-client": "workspace:*",
+    "@effect/atom-react": "4.0.0-beta.106",
     "@effect/platform-node": "4.0.0-beta.106",
     "effect": "4.0.0-beta.106",
-    "effect-state-machine": "workspace:*"
+    "effect-state-machine": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.106",
+    "@fontsource/bricolage-grotesque": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
     "esbuild": "0.28.1",
+    "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
+    "vite": "8.2.1",
     "vitest": "4.1.10"
   }
 }
