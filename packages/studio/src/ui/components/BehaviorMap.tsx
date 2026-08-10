@@ -98,15 +98,14 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     return () => cancelAnimationFrame(frame)
   }, [placed, visibleSignature])
 
-  const highlightedEdgeIds = new Set(
-    selection === undefined
-      ? []
-      : selection.kind === "edge"
-        ? [selection.id]
-        : visible.edges
-            .filter((edge) => edge.source === selection.id || edge.target === selection.id)
-            .map((edge) => edge.id),
-  )
+  // Direction relative to the selected state: edges leaving it vs entering it.
+  const highlightFor = new Map<string, "in" | "out">()
+  if (selection?.kind === "node") {
+    for (const edge of visible.edges) {
+      if (edge.source === selection.id) highlightFor.set(edge.id, "out")
+      else if (edge.target === selection.id) highlightFor.set(edge.id, "in")
+    }
+  }
 
   const stateNodes: Array<Node> = visible.nodes.flatMap((node) => {
     const point = placed?.positions.get(node.id)
@@ -138,7 +137,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         data: {
           label: placement.label,
           traversed: traversedEdge?.id === edge.id,
-          highlighted: highlightedEdgeIds.has(edge.id),
+          highlight: highlightFor.get(edge.id),
           selected: selection?.kind === "edge" && selection.id === edge.id,
         },
         draggable: false,
@@ -171,7 +170,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     const inbound = placed?.segments.get(`${edge.id}:in`)
     const outbound = placed?.segments.get(`${edge.id}:out`)
     const traversed = traversedEdge?.id === edge.id
-    const highlighted = highlightedEdgeIds.has(edge.id)
+    const edgeSelected = selection?.kind === "edge" && selection.id === edge.id
     const segment = (
       suffix: "in" | "out",
       points: ReadonlyArray<{ x: number; y: number }> | undefined,
@@ -185,7 +184,13 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
               source: endpoints.source,
               target: endpoints.target,
               type: "elk",
-              data: { points, traversed, highlighted, arrow: true },
+              data: {
+                points,
+                traversed,
+                // A selected pill shows where it comes from vs where it goes.
+                highlight: edgeSelected ? suffix : highlightFor.get(edge.id),
+                arrow: true,
+              },
             },
           ]
     return [
@@ -204,7 +209,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
             source: START_ID,
             target: initialTag,
             type: "elk",
-            data: { points: startSegment, traversed: false, highlighted: false, arrow: true },
+            data: { points: startSegment, traversed: false, highlight: undefined, arrow: true },
           },
         ]
   const allEdges = [...startEdges, ...edges]
