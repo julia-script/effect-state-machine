@@ -1,7 +1,7 @@
 {
   "name": "@effect-state-machine/studio",
   "version": "0.1.0",
-  "description": "Studio — the standalone devtool for effect-state-machine.",
+  "description": "Studio \u2014 the standalone devtool for effect-state-machine.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -16,7 +16,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/cli.js --external:effect --external:@effect/platform-node",
     "check": "pnpm typecheck && pnpm test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.106",
+    "esbuild": "0.28.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

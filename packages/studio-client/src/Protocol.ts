@@ -10,6 +10,10 @@ import type { Graph } from "effect-state-machine/devtools"
 
 export const VERSION = 1
 
+export const DEFAULT_PORT = 4747
+export const APP_PATH = "/app"
+export const VIEWER_PATH = "/viewer"
+
 /** Arbitrary JSON produced by Schema encoding or JSON.parse. */
 export const Json = Schema.Unknown
 
@@ -361,6 +365,33 @@ export type DispatchFailure = Schema.Schema.Type<typeof DispatchFailureReason>
 export type QuickEventControlMessage = Schema.Schema.Type<typeof QuickEventControl>
 
 export const MessageFromJsonString = Schema.fromJsonString(Message)
+
+/**
+ * Bounds a fact log by folding the oldest fact into a `HistoryTruncated`
+ * marker at the head, so a receiver always learns how much history is missing.
+ */
+export const truncateOldest = (
+  sessionId: string,
+  facts: ReadonlyArray<FactMessage>,
+): ReadonlyArray<FactMessage> => {
+  const head = facts[0]
+  if (head === undefined) return facts
+  if (head.body._tag === "HistoryTruncated") {
+    return [
+      { ...head, body: { _tag: "HistoryTruncated", dropped: head.body.dropped + 1 } },
+      ...facts.slice(2),
+    ]
+  }
+  return [
+    {
+      _tag: "Fact",
+      sessionId,
+      sequence: head.sequence,
+      body: { _tag: "HistoryTruncated", dropped: 1 },
+    },
+    ...facts.slice(1),
+  ]
+}
 
 export const decodeMessage = Schema.decodeUnknownEffect(Message)
 export const encodeMessage = Schema.encodeEffect(Message)

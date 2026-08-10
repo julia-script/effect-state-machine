@@ -10,7 +10,7 @@ import * as Stream from "effect/Stream"
 import { Machine } from "effect-state-machine"
 import type { SourceLocation } from "effect-state-machine/devtools"
 import * as Announcement from "./Announcement.js"
-import type * as Protocol from "./Protocol.js"
+import * as Protocol from "./Protocol.js"
 import { type Connection, StudioTransport, TransportError } from "./Transport.js"
 
 /**
@@ -61,30 +61,6 @@ const detectRuntime = (): "browser" | "node" | "other" => {
 interface BufferState {
   readonly facts: ReadonlyArray<Protocol.FactMessage>
   readonly sequence: number
-}
-
-const truncate = (
-  sessionId: string,
-  facts: ReadonlyArray<Protocol.FactMessage>,
-): ReadonlyArray<Protocol.FactMessage> => {
-  const head = facts[0]
-  if (head === undefined) return facts
-  if (head.body._tag === "HistoryTruncated") {
-    // Absorb the fact after the marker into the marker instead of growing.
-    return [
-      { ...head, body: { _tag: "HistoryTruncated", dropped: head.body.dropped + 1 } },
-      ...facts.slice(2),
-    ]
-  }
-  return [
-    {
-      _tag: "Fact",
-      sessionId,
-      sequence: head.sequence,
-      body: { _tag: "HistoryTruncated", dropped: 1 },
-    },
-    ...facts.slice(1),
-  ]
 }
 
 export const attach = <State extends Tagged, Event extends Tagged>(
@@ -142,7 +118,7 @@ export const attach = <State extends Tagged, Event extends Tagged>(
           { _tag: "Fact" as const, sessionId, sequence: current.sequence, body },
         ]
         return {
-          facts: facts.length > bufferLimit ? truncate(sessionId, facts) : facts,
+          facts: facts.length > bufferLimit ? Protocol.truncateOldest(sessionId, facts) : facts,
           sequence: current.sequence + 1,
         }
       }).pipe(Effect.andThen(Queue.offer(wake, undefined)))

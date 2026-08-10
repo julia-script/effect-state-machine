@@ -14,10 +14,7 @@ import { type Connection, StudioTransport, type Transport, TransportError } from
  * `TransportError` so the attach loop can back off and retry.
  */
 
-export const DEFAULT_PORT = 4747
-export const APP_PATH = "/app"
-export const VIEWER_PATH = "/viewer"
-export const defaultUrl = `ws://127.0.0.1:${DEFAULT_PORT}${APP_PATH}`
+export const defaultUrl = `ws://127.0.0.1:${Protocol.DEFAULT_PORT}${Protocol.APP_PATH}`
 
 export interface Options {
   readonly url?: string
