@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc --noEmit --watch",
     "check": "pnpm typecheck && pnpm test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

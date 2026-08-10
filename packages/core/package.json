@@ -53,6 +53,7 @@
   },
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json && node scripts/build.mjs",
+    "dev": "tsc --noEmit --watch",
     "check": "pnpm typecheck && pnpm test && pnpm check:api-prototype && pnpm check:package",
     "check:api-prototype": "node scripts/check-api-prototype.mjs",
     "check:package": "pnpm build && node scripts/check-package.mjs",

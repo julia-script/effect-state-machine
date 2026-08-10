@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && vite build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/cli.js --external:effect --external:@effect/platform-node",
+    "dev": "vite",
     "check": "pnpm typecheck && pnpm test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
