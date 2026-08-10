@@ -76,15 +76,18 @@ describe("machine completion", () => {
   )
 
   it("marks final nodes in the renderer-independent graph", () => {
-    assert.deepStrictEqual(Graph.fromDefinition(definition).nodes, [
-      { id: "Running", title: "Running", kind: "state" },
-      {
-        id: "Done",
-        title: "Done",
-        description: "The workflow completed successfully.",
-        kind: "final",
-      },
-    ])
+    assert.deepStrictEqual(
+      Graph.fromDefinition(definition).nodes.map(({ location: _, ...node }) => node),
+      [
+        { id: "Running", title: "Running", kind: "state" },
+        {
+          id: "Done",
+          title: "Done",
+          description: "The workflow completed successfully.",
+          kind: "final",
+        },
+      ],
+    )
   })
 })
 

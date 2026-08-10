@@ -64,7 +64,12 @@ const definition = counter.make({
 describe("Graph", () => {
   it("derives renderer-independent topology and descriptions without running the machine", () => {
     assert.strictEqual(initializerCalls, 0)
-    assert.deepStrictEqual(Graph.fromDefinition(definition), {
+    const graph = Graph.fromDefinition(definition)
+    assert.match(graph.nodes[0]?.location?.file ?? "", /tests\/Graph\.test\.ts$/)
+    const withoutLocations = JSON.parse(
+      JSON.stringify(graph, (key, value) => (key === "location" ? undefined : value)),
+    )
+    assert.deepStrictEqual(withoutLocations, {
       id: "counter",
       description: "A graphable counter protocol.",
       nodes: [

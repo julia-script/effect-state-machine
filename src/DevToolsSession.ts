@@ -8,6 +8,7 @@ import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as Graph from "./Graph.js"
 import type * as Machine from "./Machine.js"
+import type * as SourceLocation from "./SourceLocation.js"
 
 interface Tagged {
   readonly _tag: string
@@ -144,6 +145,7 @@ export interface AttachOptions<State extends Tagged, Event extends Tagged, Detai
   readonly handle: Machine.MachineHandle<State, Event, State>
   readonly projectState?: (state: State) => Details
   readonly quickEvents?: ReadonlyArray<QuickEvent<Event>>
+  readonly mapSource?: SourceLocation.Mapper
 }
 
 interface InternalPosition<State extends Tagged, Details> {
@@ -532,7 +534,7 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
   options: AttachOptions<State, Event, Details>,
 ): Effect.Effect<Session<Details>, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const graph = Graph.fromDefinition(options.definition)
+    const graph = Graph.fromDefinition(options.definition, { mapSource: options.mapSource })
     const quickEvents = options.quickEvents ?? []
     const quickEventIds = new Set<string>()
     for (const quickEvent of quickEvents) {

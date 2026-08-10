@@ -1,11 +1,13 @@
 import * as Schema from "effect/Schema"
 import type * as Machine from "./Machine.js"
+import * as SourceLocation from "./SourceLocation.js"
 
 export interface Node {
   readonly id: string
   readonly title: string
   readonly description?: string
   readonly kind: "state" | "invoke" | "child" | "final"
+  readonly location?: SourceLocation.Location
   readonly invocation?: Readonly<{
     name: string
     description?: string
@@ -38,6 +40,7 @@ export interface Edge {
   readonly id: string
   readonly source: string
   readonly target: string
+  readonly location?: SourceLocation.Location
   readonly event?: Readonly<{
     tag: string
     description?: string
@@ -153,14 +156,19 @@ const titleOf = (schema: Schema.Top | undefined, fallback: string): string => {
   return typeof title === "string" ? title : fallback
 }
 
-export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph => {
+export const fromDefinition = (
+  definition: Machine.DefinitionMetadata,
+  options?: Readonly<{ mapSource?: SourceLocation.Mapper }>,
+): Graph => {
   const nodes = definition.nodes.map((node): Node => {
     const schema = definition.schemas.state.cases[node.tag]
     const description = descriptionOf(schema)
+    const location = SourceLocation.resolve(node.source, { map: options?.mapSource })
     return {
       id: node.tag,
       title: titleOf(schema, node.tag),
       kind: node.kind,
+      ...(location === undefined ? {} : { location }),
       ...(description === undefined ? {} : { description }),
       ...(node.kind === "invoke"
         ? {
@@ -185,7 +193,7 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
             child: {
               name: node.name,
               ...(node.description === undefined ? {} : { description: node.description }),
-              definition: fromDefinition(node.definition),
+              definition: fromDefinition(node.definition, options),
               forwards: Object.entries(node.forward).flatMap(([parentEventTag, forwarded]) => {
                 if (forwarded === undefined) return []
                 const parentDescription = descriptionOf(
@@ -348,12 +356,34 @@ export const fromDefinition = (definition: Machine.DefinitionMetadata): Graph =>
     }
   }
 
-  const identifiedEdges = edges.map(
-    (edge, index): Edge => ({
+  const identifiedEdges = edges.map((edge, index): Edge => {
+    const authoredNode = definition.nodes.find((node) => node.tag === edge.source)
+    let location = nodes.find((node) => node.id === edge.source)?.location
+    if (authoredNode !== undefined && edge.branch?.kind === "guard") {
+      const handler =
+        edge.event !== undefined && authoredNode.kind !== "final"
+          ? authoredNode.on[edge.event.tag]
+          : authoredNode.kind === "invoke" && edge.outcome?.kind === "success"
+            ? authoredNode.onSuccess
+            : authoredNode.kind === "invoke" && edge.outcome?.kind === "failure"
+              ? authoredNode.onFailure
+              : authoredNode.kind === "child" && edge.outcome?.kind === "completion"
+                ? authoredNode.onComplete
+                : undefined
+      if (handler !== undefined && "branches" in handler) {
+        const branch = handler.branches[edge.branch.index]
+        if (branch !== undefined && "when" in branch) {
+          location =
+            SourceLocation.resolve(branch.when.source, { map: options?.mapSource }) ?? location
+        }
+      }
+    }
+    return {
       ...edge,
       id: `${edge.source}:${edge.event?.tag ?? edge.outcome?.kind ?? "transition"}:${edge.branch?.index ?? 0}:${edge.target}:${index}`,
-    }),
-  )
+      ...(location === undefined ? {} : { location }),
+    }
+  })
 
   return {
     id: definition.id,

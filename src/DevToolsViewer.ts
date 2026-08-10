@@ -2,11 +2,14 @@ import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import type * as DevToolsSession from "./DevToolsSession.js"
+import * as SourceLocation from "./SourceLocation.js"
 
 export interface MountOptions<Details> {
   readonly session: DevToolsSession.Session<Details>
   readonly container: HTMLElement
   readonly hidden?: boolean
+  readonly editorResolver?: SourceLocation.EditorResolver
+  readonly editorLabel?: string
 }
 
 interface Camera {
@@ -217,6 +220,16 @@ export const mount = <Details>(
           const state = document.createElement("span")
           state.textContent = ` ${view.selected.state.title}`
           state.dataset.stateTag = view.selected.state.tag
+          const selectedNode = view.graph.nodes.find((node) => node.id === view.selected.state.tag)
+          const source = selectedNode?.location
+          const editorResolver = options.editorResolver ?? SourceLocation.cursor
+          const editorUrl = source === undefined ? undefined : editorResolver(source)
+          const sourceLink = document.createElement("a")
+          if (source !== undefined && editorUrl !== undefined) {
+            sourceLink.href = editorUrl
+            sourceLink.textContent = options.editorLabel ?? "Open in Cursor"
+            sourceLink.title = `${source.file}:${source.line}:${source.column}`
+          }
           const navigation = document.createElement("nav")
           navigation.setAttribute("aria-label", "History navigation")
           const previous = document.createElement("button")
@@ -296,7 +309,7 @@ export const mount = <Details>(
             rawList.append(item)
           }
           raw.append(summary, rawList)
-          root.append(machine, state, navigation, graph, quickEvents, history, raw)
+          root.append(machine, state, sourceLink, navigation, graph, quickEvents, history, raw)
         }),
       ),
       Effect.forkScoped,

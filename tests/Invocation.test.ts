@@ -245,7 +245,8 @@ describe("invoked Effects", () => {
   it("projects the named invocation and its declared outcomes without inspecting the Effect", () => {
     const graph = Graph.fromDefinition(definition)
 
-    assert.deepStrictEqual(graph.nodes[0], {
+    const { location: _, ...loadingNode } = graph.nodes[0] ?? {}
+    assert.deepStrictEqual(loadingNode, {
       id: "Loading",
       title: "Loading",
       kind: "invoke",
@@ -255,7 +256,9 @@ describe("invoked Effects", () => {
       },
     })
     assert.deepStrictEqual(
-      graph.edges.filter((edge) => edge.outcome !== undefined),
+      graph.edges
+        .filter((edge) => edge.outcome !== undefined)
+        .map(({ location: _, ...edge }) => edge),
       [
         {
           id: "Loading:success:0:Loaded:1",

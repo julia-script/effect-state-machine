@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
+import * as Source from "./Source.js"
 
 interface Tagged {
   readonly _tag: string
@@ -109,6 +110,7 @@ export type WhenBranch<
           name: string
           description?: string
           guard: (args: TransitionArgs<State, Event, Current, EventTag>) => boolean
+          source?: Source.Reference
         }>
         target: Target
         description?: string
@@ -181,12 +183,14 @@ export interface StateNode<
 > {
   readonly kind: "state"
   readonly tag: Current
+  readonly source: Source.Reference
   readonly on: EventHandlers<State, Event, Current>
 }
 
 export interface FinalNode<Current extends string> {
   readonly kind: "final"
   readonly tag: Current
+  readonly source: Source.Reference
 }
 
 type OutcomeArgs<
@@ -224,6 +228,7 @@ type OutcomeWhenBranch<
           name: string
           description?: string
           guard: (args: OutcomeArgs<State, Current, Value, Key>) => boolean
+          source?: Source.Reference
         }>
         target: Target
         description?: string
@@ -309,6 +314,7 @@ export interface InvokeNode<
   readonly tag: Current
   readonly name: string
   readonly description?: string
+  readonly source: Source.Reference
   readonly effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
   readonly retry?: RetryPolicy<Failure, Schedule.Schedule<unknown, Failure, RetryError, RetryEnv>>
   readonly onSuccess: SuccessTransition<State, Current, Output>
@@ -365,6 +371,7 @@ export interface ChildNode<
   readonly tag: Current
   readonly name: string
   readonly description?: string
+  readonly source: Source.Reference
   readonly definition: Child
   readonly input: (state: ByTag<State, Current>) => MachineInput<Child>
   readonly forward: ChildForwarders<State, Event, Current, MachineEvent<Child>>
@@ -381,12 +388,14 @@ interface InvokeNodeShape<State extends Tagged> {
   readonly kind: "invoke"
   readonly tag: TagOf<State>
   readonly name: string
+  readonly source: Source.Reference
 }
 
 interface ChildNodeShape<State extends Tagged> {
   readonly kind: "child"
   readonly tag: TagOf<State>
   readonly name: string
+  readonly source: Source.Reference
 }
 
 type NodeUnion<State extends Tagged, Event extends Tagged> =
@@ -425,6 +434,7 @@ export interface DefinitionMetadata {
     | Readonly<{
         kind: "state"
         tag: string
+        source: Source.Reference
         on: Readonly<
           Record<
             string,
@@ -435,12 +445,14 @@ export interface DefinitionMetadata {
     | Readonly<{
         kind: "final"
         tag: string
+        source: Source.Reference
       }>
     | Readonly<{
         kind: "invoke"
         tag: string
         name: string
         description?: string
+        source: Source.Reference
         retry?: Readonly<{
           name: string
           description?: string
@@ -459,6 +471,7 @@ export interface DefinitionMetadata {
         tag: string
         name: string
         description?: string
+        source: Source.Reference
         definition: DefinitionMetadata
         forward: Readonly<
           Record<
@@ -678,6 +691,7 @@ interface GuardedTransitionMetadata {
         when: Readonly<{
           name: string
           description?: string
+          source?: Source.Reference
         }>
         target: string
         description?: string
@@ -689,6 +703,22 @@ interface GuardedTransitionMetadata {
       }>
   >
 }
+
+export interface NamedGuard<Args> {
+  readonly name: string
+  readonly description?: string
+  readonly guard: (args: Args) => boolean
+  readonly source: Source.Reference
+}
+
+/** Names opaque synchronous decision logic and captures its declaration callsite for devtools. */
+export const namedGuard = <Args>(
+  config: Readonly<{
+    name: string
+    description?: string
+    guard: (args: Args) => boolean
+  }>,
+): NamedGuard<Args> => ({ ...config, source: Source.capture() })
 
 export const decodeInput = <InputSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"input", InputSchema>,
@@ -752,12 +782,14 @@ export const builder = <
   ): StateNode<State, Event, Current> => ({
     kind: "state",
     tag,
+    source: Source.capture(),
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
   })
 
   const final = <Current extends TagOf<State>>(tag: Current): FinalNode<Current> => ({
     kind: "final",
     tag,
+    source: Source.capture(),
   })
 
   const invoke = <
@@ -783,6 +815,7 @@ export const builder = <
     tag,
     name: config.name,
     description: config.description,
+    source: Source.capture(),
     effect: config.effect,
     retry: config.retry,
     onSuccess: config.onSuccess,
@@ -806,6 +839,7 @@ export const builder = <
     tag,
     name: config.name,
     description: config.description,
+    source: Source.capture(),
     definition: config.definition,
     input: config.input,
     forward: config.forward ?? ({} as ChildForwarders<State, Event, Current, MachineEvent<Child>>),
@@ -962,7 +996,7 @@ export const builder = <
     }
   }
 
-  return { child, final, invoke, make, state }
+  return { child, final, guard: namedGuard, invoke, make, state }
 }
 
 interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
