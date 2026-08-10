@@ -15,6 +15,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./devtools": "./src/devtools.ts",
+    "./Machine": "./src/Machine.ts",
+    "./Graph": "./src/Graph.ts",
+    "./Mermaid": "./src/Mermaid.ts",
+    "./SourceLocation": "./src/SourceLocation.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -27,6 +31,22 @@
       "./devtools": {
         "types": "./dist/devtools.d.ts",
         "import": "./dist/devtools.js"
+      },
+      "./Machine": {
+        "types": "./dist/Machine.d.ts",
+        "import": "./dist/Machine.js"
+      },
+      "./Graph": {
+        "types": "./dist/Graph.d.ts",
+        "import": "./dist/Graph.js"
+      },
+      "./Mermaid": {
+        "types": "./dist/Mermaid.d.ts",
+        "import": "./dist/Mermaid.js"
+      },
+      "./SourceLocation": {
+        "types": "./dist/SourceLocation.d.ts",
+        "import": "./dist/SourceLocation.js"
       },
       "./package.json": "./package.json"
     }

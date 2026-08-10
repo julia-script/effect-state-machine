@@ -30,6 +30,19 @@ try {
   assert.doesNotMatch(contents, /interactive-devtools|local-first-document|reference-workflow/)
   assert.doesNotMatch(contents, /prototype|src\/main|todo-effect-machine/)
 
+  const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
+  assert.equal(manifest.publishConfig.exports["./Source"], undefined, "Source must stay private")
+  const packedFiles = new Set(contents.split("\n"))
+  for (const [subpath, entry] of Object.entries(manifest.publishConfig.exports)) {
+    if (typeof entry === "string") continue
+    for (const file of Object.values(entry)) {
+      assert.ok(
+        packedFiles.has(`package/${file.slice(2)}`),
+        `publishConfig export ${subpath} points at ${file}, which is missing from the packed archive`,
+      )
+    }
+  }
+
   await writeFile(
     join(consumer, "package.json"),
     JSON.stringify(
@@ -71,7 +84,10 @@ try {
   await writeFile(
     join(consumer, "core.ts"),
     `import { Context, Effect, Layer, Schema } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Machine from "effect-state-machine/Machine"
+
+// @ts-expect-error Source is internal and must not resolve through the export map
+import type * as PrivateSource from "effect-state-machine/Source"
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,

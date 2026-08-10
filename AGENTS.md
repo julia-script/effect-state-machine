@@ -11,3 +11,7 @@ The tracker uses the five default triage labels. See `docs/agents/triage-labels.
 ### Domain docs
 
 This is a single-context repository. See `docs/agents/domain.md`.
+
+### Effect conventions
+
+Effect code follows the conventions in `docs/agents/effect-conventions.md`.

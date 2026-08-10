@@ -59,12 +59,15 @@ export const taggedUnion = <const Cases extends Readonly<Record<string, TaggedUn
         })
   })
 
+  // TypeScript cannot relate the value-level Union/toTaggedUnion pipeline to the mapped
+  // TaggedUnionCases type computed from Cases; the runtime shape is the same by construction.
   return Schema.Union(members).pipe(Schema.toTaggedUnion("_tag")) as unknown as TaggedUnion<Cases>
 }
 
 const normalizeTaggedSchema = <Source extends TaggedSchemaSource>(
   schema: Source,
 ): NormalizedTaggedSchema<Source> =>
+  // TypeScript cannot narrow a conditional return type from the "cases" in-check on a generic.
   ("cases" in schema
     ? schema
     : schema.pipe(Schema.toTaggedUnion("_tag"))) as NormalizedTaggedSchema<Source>
@@ -796,6 +799,7 @@ export const builder = <
     kind: "state",
     tag,
     source: Source.capture(),
+    // {} is valid for the all-optional handler map, but TypeScript cannot prove it against a generic key union.
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
   })
 
@@ -833,6 +837,7 @@ export const builder = <
     retry: config.retry,
     onSuccess: config.onSuccess,
     onFailure: config.onFailure,
+    // {} is valid for the all-optional handler map, but TypeScript cannot prove it against a generic key union.
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
   })
 
@@ -855,6 +860,7 @@ export const builder = <
     source: Source.capture(),
     definition: config.definition,
     input: config.input,
+    // {} is valid for these all-optional maps, but TypeScript cannot prove it against a generic key union.
     forward: config.forward ?? ({} as ChildForwarders<State, Event, Current, MachineEvent<Child>>),
     onComplete: config.onComplete,
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
@@ -868,6 +874,7 @@ export const builder = <
       nodes: Nodes
     }>,
   ): MachineDefinition<InputSchema, StateSchema, EventSchema, Nodes> => {
+    // Same erasure boundary as the interpreter: validation only needs the homogeneous node shape.
     const runtimeNodes = config.nodes as ReadonlyArray<RuntimeNode<State, Event>>
     const tags = new Set<string>()
 
@@ -1262,6 +1269,9 @@ const selectOutcome = <State extends Tagged, Value, Key extends "value" | "error
   return undefined
 }
 
+// Stays an annotated arrow over Effect.gen instead of Effect.fnUntraced: run is generic and
+// self-recursive (startChild runs child definitions), so the generator form cannot carry the
+// pinned public signature without circular inference or new casts.
 export const run = <
   InputSchema extends Schema.Top,
   StateSchema extends TaggedSchema,
@@ -1343,8 +1353,8 @@ export const run = <
         ),
       )
 
-    const startInvocation = (state: State): Effect.Effect<void> =>
-      Effect.gen(function* () {
+    const startInvocation: (state: State) => Effect.Effect<void> = Effect.fnUntraced(
+      function* (state: State) {
         const node = nodes.get(state._tag)
         if (node?.kind !== "invoke") return
 
@@ -1425,8 +1435,8 @@ export const run = <
         yield* FiberMap.run(activeFibers, "active")(invocation)
       })
 
-    const startChild = (state: State): Effect.Effect<void> =>
-      Effect.gen(function* () {
+    const startChild: (state: State) => Effect.Effect<void> = Effect.fnUntraced(
+      function* (state: State) {
         const node = nodes.get(state._tag)
         if (node?.kind !== "child") return
 
@@ -1485,8 +1495,8 @@ export const run = <
     const startOwnedBehavior = (state: State): Effect.Effect<void> =>
       Effect.andThen(startInvocation(state), startChild(state))
 
-    const closeActiveChild = (cancelled: boolean): Effect.Effect<void> =>
-      Effect.gen(function* () {
+    const closeActiveChild: (cancelled: boolean) => Effect.Effect<void> = Effect.fnUntraced(
+      function* (cancelled: boolean) {
         const child = activeChild
         if (child === undefined) return
         activeChild = undefined
@@ -1503,8 +1513,8 @@ export const run = <
         yield* Scope.close(child.scope, Exit.void)
       })
 
-    const commit = (previous: State, next: State): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
+    const commit: (previous: State, next: State) => Effect.Effect<boolean> = Effect.fnUntraced(
+      function* (previous: State, next: State) {
         generation += 1
         yield* FiberMap.clear(activeFibers)
         yield* closeActiveChild(true)
@@ -1523,6 +1533,7 @@ export const run = <
             machineId: definition.id,
             finalStateTag: next._tag,
           })
+          // finalTags membership proves the Completion narrowing that Set.has cannot express.
           yield* Deferred.succeed(completion, next as Completion)
         } else {
           yield* startOwnedBehavior(next)
@@ -1530,8 +1541,8 @@ export const run = <
         return !isFinal
       })
 
-    const process = (envelope: Envelope<Event>): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
+    const process: (envelope: Envelope<Event>) => Effect.Effect<boolean> = Effect.fnUntraced(
+      function* (envelope: Envelope<Event>) {
         const current = yield* SubscriptionRef.get(stateRef)
         const currentNode = nodes.get(current._tag)
 
@@ -1632,6 +1643,8 @@ export const run = <
             ...(selectedOutcome.branch === undefined ? {} : { branch: selectedOutcome.branch }),
           })
           const transition = selectedOutcome.transition
+          // isSuccess correlates the envelope kind with the value/error reducer key;
+          // TypeScript cannot track that correlation across the shared selectOutcome call.
           const next = isSuccess
             ? (transition as RuntimeOutcomeTransition<State, unknown, "value">).reduce({
                 state: current,
@@ -1773,6 +1786,7 @@ export const run = <
     const initialIsFinal = finalTags.has(initial._tag)
     if (initialIsFinal) {
       yield* Ref.set(status, "Completed")
+      // finalTags membership proves the Completion narrowing that Set.has cannot express.
       yield* Deferred.succeed(completion, initial as Completion)
       yield* Deferred.succeed(terminated, undefined)
     } else {
@@ -1805,14 +1819,15 @@ export const run = <
       changes: Stream.takeUntil(SubscriptionRef.changes(stateRef), (state) =>
         finalTags.has(state._tag),
       ),
+      // inspection() returns the union of the plain and projected element types; the presence
+      // (or absence) of projectEvent decides which one, which TypeScript cannot track.
       inspection: inspection() as Stream.Stream<InspectionEvent>,
       inspect: (projectEvent) =>
         inspection(projectEvent) as Stream.Stream<
           ProjectedInspectionEvent<ReturnType<typeof projectEvent>>
         >,
       completion: Deferred.await(completion),
-      can: (event) =>
-        Effect.gen(function* () {
+      can: Effect.fnUntraced(function* (event: Event) {
           const current = yield* SubscriptionRef.get(stateRef)
           const node = nodes.get(current._tag)
           if (node?.kind === "child") {
@@ -1830,8 +1845,7 @@ export const run = <
           }
           return selectHandler(node.on[event._tag], current, event) !== undefined
         }),
-      send: (event) =>
-        Effect.gen(function* () {
+      send: Effect.fnUntraced(function* (event: Event) {
           const currentStatus = yield* Ref.get(status)
           if (currentStatus === "Completed") {
             const current = yield* SubscriptionRef.get(stateRef)
