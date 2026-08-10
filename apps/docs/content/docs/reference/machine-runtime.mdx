@@ -1,0 +1,121 @@
+---
+title: Machine runtime API
+description: Technical reference for running, observing, encoding, and terminating machines.
+---
+
+## `Machine.run`
+
+```ts
+Machine.run(definition, input)
+```
+
+Returns a scoped `Effect` that creates a `MachineHandle`.
+
+| Input | Description |
+| --- | --- |
+| `definition` | A `MachineDefinition`. |
+| `input` | The decoded type of `definition.schemas.input`. |
+
+The Effect error channel is `never`. Its requirements are `Scope.Scope` plus the requirements
+inferred from invoked Effects, retry Schedules, and child machines.
+
+`run` calls the definition's pure `initial` function. If the returned state tag has no node, the
+Effect dies with `MachineDefinitionDefect` before returning a handle.
+
+## `MachineHandle`
+
+| Member | Type | Behavior |
+| --- | --- | --- |
+| `snapshot` | `Effect<State>` | Reads the current committed state. |
+| `changes` | `Stream<State>` | Emits the current state on subscription, then each committed state. Ends on completion or defect. |
+| `send(event)` | `Effect<void>` | Enqueues an event and waits for its processing or machine termination. |
+| `can(event)` | `Effect<boolean>` | Evaluates whether the live state accepts the event without changing state. |
+| `completion` | `Effect<Completion>` | Waits for a declared final state. Preserves termination defects in its Cause. |
+| `inspection` | `Stream<InspectionEvent>` | Emits metadata-only lifecycle and decision records. |
+| `inspect(projectEvent)` | `Stream<ProjectedInspectionEvent<D>>` | Adds locally projected details to `EventReceived` records. |
+
+Events passed directly to `send` and `can` are decoded values. Use `decodeEvent` at untrusted
+boundaries.
+
+### Event processing
+
+One unbounded queue serializes external events and asynchronous invocation or child completions.
+`send` waits until the selected transition or ignore has been processed. Concurrent senders are
+ordered by queue arrival.
+
+A globally known event that has no handler in the live state dies with `ProtocolDefect`. A guarded
+handler with no matching branch and no fallback has the same result. After completion or defect,
+pending and subsequent sends terminate with the machine's terminal outcome.
+
+### State-owned work
+
+Entering an invocation state starts its Effect. Entering a child state starts the child machine.
+Leaving either state interrupts the work owned by that state before the new state becomes active.
+An asynchronous result from an older state generation cannot commit a transition.
+
+Typed invocation failures follow `onFailure`. Effect defects terminate the machine and remain in
+the Cause of `completion`. A child defect terminates its parent.
+
+## Encoding and decoding
+
+All helpers return Effects produced by the corresponding Effect Schema codec.
+
+| Function | Input | Result |
+| --- | --- | --- |
+| `decodeInput(definition, unknown)` | Unknown boundary input | Decoded machine input. |
+| `encodeInput(definition, input)` | Decoded machine input | Encoded input representation. |
+| `decodeState(definition, unknown)` | Unknown boundary state | Decoded machine state. |
+| `encodeState(definition, state)` | Decoded machine state | Encoded state representation. |
+| `decodeEvent(definition, unknown)` | Unknown boundary event | Decoded machine event. |
+| `encodeEvent(definition, event)` | Decoded machine event | Encoded event representation. |
+
+Codec failures and requirements are those of the supplied Schema.
+
+```ts
+const decoded = yield* Machine.decodeEvent(definition, requestBody)
+yield* handle.send(decoded)
+```
+
+Encoding state does not imply persistence or resumability. V0 provides no API for restoring a
+machine instance or interrupted Effect from encoded state.
+
+## Inspection events
+
+`inspection` can emit the following tags:
+
+| Tag | Meaning |
+| --- | --- |
+| `MachineStarted` | The initial state was committed. |
+| `EventReceived` | A machine event reached the live state. |
+| `TransitionSelected` | A direct or guarded event transition was selected. |
+| `EventIgnored` | An explicitly ignored event was accepted. |
+| `StateChanged` | A new state was committed. |
+| `InvocationStarted` | State-owned Effect execution began. |
+| `InvocationRetryScheduled` | A retry Schedule accepted a typed failure and produced a delay. |
+| `InvocationSucceeded` | The invoked Effect produced a value and selected an outcome. |
+| `InvocationFailed` | The invoked Effect's typed failure selected an outcome. |
+| `InvocationCancelled` | The machine left the invocation state before completion. |
+| `InvocationDefected` | The invoked Effect died. |
+| `ChildStarted` | A child instance began with a generated instance ID. |
+| `ChildEventForwarded` | A declared parent event was mapped into a child event. |
+| `ChildCompleted` | The child reached a final state and selected a parent outcome. |
+| `ChildCancelled` | The parent left the child state before completion. |
+| `ChildDefected` | The child died. |
+| `MachineCompleted` | A declared final state completed the machine. |
+| `MachineDefected` | Event protocol handling terminated the machine. |
+
+Inspection records contain authored names, tags, branch metadata, generated invocation identity,
+and retry timing. They exclude state values, Effect outputs, typed errors, defects, and event
+payloads by default.
+
+## Defect classes
+
+### `MachineDefinitionDefect`
+
+An `Error` subclass representing a structurally invalid definition. Construction-time checks throw
+it synchronously. Runtime validation of the computed initial tag dies with it.
+
+### `ProtocolDefect`
+
+An `Error` subclass with `machineId`, `stateTag`, and `eventTag` fields. It represents a known event
+that the live state does not accept, including a guarded handler for which no branch matches.

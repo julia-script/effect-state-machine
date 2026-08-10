@@ -3,3 +3,14 @@ node_modules/
 .DS_Store
 dist/
 dist-demo/
+
+# next.js
+.next/
+.source/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# local env / deploy
+.env*.local
+.vercel

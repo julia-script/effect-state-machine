@@ -18,7 +18,8 @@ This repository is a pnpm workspace:
 
 - [`effect-state-machine`](packages/core) — the core library (single dependency: `effect`);
 - [`@effect-state-machine/studio-client`](packages/studio-client) — connects running machines to Studio;
-- [`@effect-state-machine/studio`](packages/studio) — the Studio CLI, server, and interface.
+- [`@effect-state-machine/studio`](packages/studio) — the Studio CLI, server, and interface;
+- [`@effect-state-machine/docs`](apps/docs) — the documentation site (Next.js + Fumadocs).
 
 ## Install
 

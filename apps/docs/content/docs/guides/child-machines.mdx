@@ -1,0 +1,86 @@
+---
+title: Compose behavior with a child machine
+description: Invoke a static child definition, forward events, and route its final value.
+---
+
+This guide shows you how to let one parent state own a child machine with a separate event
+protocol.
+
+## Start the child from a parent state
+
+Given an existing `conflictDefinition`, make the parent's `Resolving` state a child node:
+
+```ts
+const resolving = document.child("Resolving", {
+  name: "resolve-conflict",
+  description: "Own the conflict-resolution protocol.",
+  definition: conflictDefinition,
+  input: (state) => ({ documentId: state.documentId }),
+  forward: {
+    Resolve: {
+      target: "Choose",
+      map: ({ event }) => ({ _tag: "Choose", text: event.text }),
+    },
+  },
+  onComplete: {
+    branches: [
+      {
+        when: {
+          name: "resolution-succeeded",
+          guard: ({ value }) => value._tag === "Chosen",
+        },
+        target: "Resolved",
+        reduce: ({ value }) => ({
+          _tag: "Resolved",
+          text: value._tag === "Chosen" ? value.text : "",
+        }),
+      },
+      {
+        otherwise: true,
+        target: "ResolutionFailed",
+        reduce: ({ value }) => ({
+          _tag: "ResolutionFailed",
+          message: value._tag === "ChildFailed" ? value.message : "unknown",
+        }),
+      },
+    ],
+  },
+  on: {
+    Cancel: {
+      target: "Cancelled",
+      reduce: () => ({ _tag: "Cancelled" }),
+    },
+  },
+})
+```
+
+`input` converts the narrowed parent state into the child's input. Each `forward` entry converts a
+specific parent event into a specific child event. A parent event cannot be both forwarded and used
+for a parent transition in the same child node.
+
+`onComplete` receives the child's inferred union of final-state values. It uses the same direct or
+guarded outcome shape as an invocation.
+
+## Include the node in the parent definition
+
+Place the child node beside every target node referenced by `onComplete` or `on`:
+
+```ts
+const definition = document.make({
+  id: "document-session",
+  initial: ({ documentId }) => ({ _tag: "Resolving", documentId }),
+  nodes: [
+    resolving,
+    document.final("Resolved"),
+    document.final("ResolutionFailed"),
+    document.final("Cancelled"),
+  ],
+})
+```
+
+The child's Effect requirements become requirements of the parent definition. Provide them once
+when the parent runs.
+
+The goal is complete when the parent can map input into the child, forward only the required events,
+and route every relevant child completion. Leaving `Resolving` interrupts the child before a stale
+completion can change the parent.

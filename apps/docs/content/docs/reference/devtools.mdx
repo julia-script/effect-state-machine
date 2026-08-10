@@ -1,0 +1,132 @@
+---
+title: Graph, Mermaid, and source-location API
+description: Technical reference for read-only graph projection and rendering.
+---
+
+`Graph` and `Mermaid` have stable public subpath entry points:
+
+```ts
+import * as Graph from "effect-state-machine/Graph"
+import * as Mermaid from "effect-state-machine/Mermaid"
+```
+
+They are also available together from `effect-state-machine/devtools`.
+
+`SourceLocation` is available from `effect-state-machine` and the
+`effect-state-machine/SourceLocation` subpath.
+
+## `Graph.fromDefinition`
+
+```ts
+Graph.fromDefinition(definition, options?)
+```
+
+Projects synchronously inspectable definition metadata into a renderer-independent `Graph`.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `definition` | `Machine.DefinitionMetadata` | Source machine definition. |
+| `options.mapSource` | `SourceLocation.Mapper | undefined` | Optional generated-to-authored location mapper. |
+
+The result contains:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Machine definition ID. |
+| `description` | `string | undefined` | Definition description. |
+| `nodes` | `ReadonlyArray<Graph.Node>` | State, invocation, child, and final nodes. |
+| `edges` | `ReadonlyArray<Graph.Edge>` | Event, success, failure, and completion transitions. |
+| `ignores` | `ReadonlyArray<Graph.Ignore>` | Explicit ignored-event declarations. |
+
+Node titles and descriptions come from state Schema annotations. Event descriptions come from event
+Schema annotations. Executable guards, invocations, retry policies, and child invocations contribute
+their authored names and descriptions, not executable bodies or Schedule internals.
+
+Child definitions are projected recursively.
+
+## `Graph.focus`
+
+```ts
+Graph.focus(graph, center, depth)
+```
+
+Returns a graph containing the center node and nodes reachable through outgoing edges up to the
+requested depth.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `graph` | `Graph.Graph` | Source graph. |
+| `center` | `string` | Node ID used as the focus origin. |
+| `depth` | `1 | 2 | "full"` | Maximum outgoing traversal depth. |
+
+`"full"` returns the original graph value. An unknown center returns a graph with empty `nodes`,
+`edges`, and `ignores`, while retaining the graph ID and description.
+
+## `Graph.activity`
+
+```ts
+Graph.activity(graph, activeNode, transitions)
+```
+
+Returns an `ActivityOverlay` without modifying graph topology.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `graph` | `Graph.Graph` | Graph whose edge IDs are selected. |
+| `activeNode` | `string | undefined` | Active node ID. Unknown IDs are omitted. |
+| `transitions` | `ReadonlyArray<TransitionActivity>` | Source/target pairs with optional event and branch-index filters. |
+
+The result contains an optional validated `activeNode` and `traversedEdges`, an array of matching
+graph edge IDs.
+
+## Graph data types
+
+### `Graph.Node`
+
+Contains `id`, `title`, `kind`, optional `description`, optional source `location`, and kind-specific
+invocation or child metadata. `kind` is `"state"`, `"invoke"`, `"child"`, or `"final"`.
+
+### `Graph.Edge`
+
+Contains stable `id`, `source`, `target`, optional source `location`, optional `event`, optional
+`outcome`, optional `description`, and optional guard or fallback `branch`. Outcome kinds are
+`"success"`, `"failure"`, and `"completion"`.
+
+### `Graph.Ignore`
+
+Contains the source node, ignored event tag and description, and optional ignore description.
+
+## `Mermaid.render`
+
+```ts
+Mermaid.render(graph)
+```
+
+Returns a Mermaid `stateDiagram-v2` string. It renders nodes, edges, guard order, fallback branches,
+ignored self-loops, invocation and retry names, child links, and final-state terminators.
+
+Mermaid rendering does not include descriptions, source locations, nested child graph bodies, or
+activity overlays.
+
+## `SourceLocation`
+
+### `parseFrame(frame)`
+
+Parses supported Node and browser stack-frame formats. Returns `Location | undefined`. Invalid,
+anonymous, Node-internal, and HTML URL locations are rejected.
+
+### `resolve(reference, options?)`
+
+Finds the first non-library source location in a captured reference. `options.map` can translate a
+generated location through a source map. Returning `undefined` from the mapper omits that frame.
+
+### `vscode(location)` and `cursor(location)`
+
+Return editor URLs using the `vscode://file` and `cursor://file` schemes.
+
+### `Location`
+
+Contains `file`, one-based `line`, one-based `column`, and optional `functionName`.
+
+Source locations are best-effort development metadata. Graph nodes and edges omit `location` when a
+trustworthy authored frame cannot be resolved.

@@ -1,0 +1,11 @@
+{
+  "title": "How-to guides",
+  "pages": [
+    "invoke-effects",
+    "guards-and-ignored-events",
+    "retry-invoked-work",
+    "child-machines",
+    "observe-a-machine",
+    "visualize-a-definition"
+  ]
+}

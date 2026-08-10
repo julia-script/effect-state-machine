@@ -1,0 +1,144 @@
+---
+title: Build your first machine
+description: Create and run a typed counter workflow from an empty TypeScript project.
+---
+
+In this tutorial, we will build a counter workflow that starts in `Ready`, accepts increments in
+`Counting`, and completes in `Done`. Running it will print three observable snapshots:
+
+```text
+initial: { _tag: 'Ready', count: 1 }
+counting: { _tag: 'Counting', count: 4 }
+completed: { _tag: 'Done', count: 4 }
+```
+
+By the end, you will have defined a machine's data and behavior, started a scoped instance, sent
+events to it, and read its completion value.
+
+## Prerequisites
+
+Start in an empty directory with Node.js 26 and pnpm 11 available. This tutorial uses
+`effect-state-machine@0.1.0`, `effect@4.0.0-beta.106`, TypeScript 7.0.2, and `tsx@4.23.11`.
+
+## Create the project
+
+Initialize the project and install the pinned dependencies:
+
+```sh
+pnpm init
+pnpm add effect-state-machine@0.1.0 effect@4.0.0-beta.106
+pnpm add --save-dev typescript@7.0.2 tsx@4.23.11
+```
+
+Create `index.ts` with the following program:
+
+```ts
+import * as Console from "effect/Console"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import * as Machine from "effect-state-machine/Machine"
+
+const Input = Schema.Struct({ initialCount: Schema.Number })
+
+const State = Machine.taggedUnion({
+  Ready: {
+    fields: { count: Schema.Number },
+    description: "Wait for counting to start.",
+  },
+  Counting: {
+    fields: { count: Schema.Number },
+    description: "Accept counter updates.",
+  },
+  Done: {
+    fields: { count: Schema.Number },
+    description: "Finish with the final count.",
+  },
+})
+
+const Event = Machine.taggedUnion({
+  Start: { fields: {} },
+  Increment: { fields: { amount: Schema.Number } },
+  Finish: { fields: {} },
+})
+
+const counter = Machine.builder({ input: Input, state: State, event: Event })
+
+const definition = counter.make({
+  id: "counter",
+  initial: ({ initialCount }) => ({ _tag: "Ready", count: initialCount }),
+  nodes: [
+    counter.state("Ready", {
+      on: {
+        Start: {
+          target: "Counting",
+          reduce: ({ state }) => ({ _tag: "Counting", count: state.count }),
+        },
+      },
+    }),
+    counter.state("Counting", {
+      on: {
+        Increment: {
+          target: "Counting",
+          reduce: ({ state, event }) => ({
+            _tag: "Counting",
+            count: state.count + event.amount,
+          }),
+        },
+        Finish: {
+          target: "Done",
+          reduce: ({ state }) => ({ _tag: "Done", count: state.count }),
+        },
+      },
+    }),
+    counter.final("Done"),
+  ],
+})
+
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    const handle = yield* Machine.run(definition, { initialCount: 1 })
+
+    const initial = yield* handle.snapshot
+    yield* Console.log("initial:", initial)
+
+    yield* handle.send({ _tag: "Start" })
+    yield* handle.send({ _tag: "Increment", amount: 3 })
+
+    const counting = yield* handle.snapshot
+    yield* Console.log("counting:", counting)
+
+    yield* handle.send({ _tag: "Finish" })
+    const completed = yield* handle.completion
+    yield* Console.log("completed:", completed)
+  }),
+)
+
+await Effect.runPromise(program)
+```
+
+Notice that the schemas and the behavior share the same state and event tags. The builder uses
+those tags to narrow `state` and `event` inside each reducer.
+
+## Run the machine
+
+Execute the program:
+
+```sh
+pnpm exec tsx index.ts
+```
+
+The output should look like this:
+
+```text
+initial: { _tag: 'Ready', count: 1 }
+counting: { _tag: 'Counting', count: 4 }
+completed: { _tag: 'Done', count: 4 }
+```
+
+The first snapshot comes from `initial`. Each call to `send` waits until its event has been
+processed. Entering the `Done` final state resolves `completion` with that final state value.
+
+You can now define and run a machine with ordinary transitions. Continue with
+[Run an Effect when a state becomes active](/docs/guides/invoke-effects) when a state must own
+asynchronous work, or consult the [machine definition reference](/docs/reference/machine-definition)
+for the complete builder surface.

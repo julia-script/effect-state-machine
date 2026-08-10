@@ -1,0 +1,78 @@
+---
+title: Choose transitions with guards
+description: Select ordered transition branches and declare intentional no-op events.
+---
+
+This guide shows you how to choose among several transitions for one event and how to accept an
+event without changing state.
+
+## Add ordered guard branches
+
+Replace a direct transition with `branches`. Guard branches are checked from top to bottom; the
+first matching branch wins:
+
+```ts
+const isPositive = classifier.guard<{
+  readonly event: { readonly _tag: "Decide"; readonly value: number }
+}>({
+  name: "is-positive",
+  description: "Positive values take precedence.",
+  guard: ({ event }) => event.value > 0,
+})
+
+const ready = classifier.state("Ready", {
+  on: {
+    Decide: {
+      branches: [
+        {
+          when: isPositive,
+          target: "Positive",
+          reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
+        },
+        {
+          when: {
+            name: "is-even",
+            guard: ({ event }) => event.value % 2 === 0,
+          },
+          target: "Even",
+          reduce: ({ event }) => ({ _tag: "Even", value: event.value }),
+        },
+        {
+          otherwise: true,
+          target: "Other",
+          reduce: ({ event }) => ({ _tag: "Other", value: event.value }),
+        },
+      ],
+    },
+  },
+})
+```
+
+Use `machine.guard` when you want source-location metadata to point to a separately declared guard.
+An inline `when` object remains valid when the decision belongs beside the transition.
+
+Keep the `otherwise` branch last. If no guard matches and no fallback exists, sending the event
+terminates the instance with `ProtocolDefect`.
+
+## Accept an intentionally irrelevant event
+
+Declare an ignored event explicitly:
+
+```ts
+const ready = classifier.state("Ready", {
+  on: {
+    Ping: {
+      ignore: {
+        description: "Heartbeats do not affect classification.",
+      },
+    },
+  },
+})
+```
+
+For an ignored event, `can(event)` returns `true`, `send(event)` succeeds, the snapshot does not
+change, and the inspection stream emits `EventIgnored`.
+
+The goal is complete when every globally known event received by the state is either routed or
+explicitly ignored. See the [definition reference](/docs/reference/machine-definition) for the
+complete transition shapes.
