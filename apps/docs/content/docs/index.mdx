@@ -1,6 +1,62 @@
 ---
-title: Introduction
-description: Documentation for effect-state-machine.
+title: effect-state-machine
+description: Code-first, Effect-native state machines for explicit application behavior.
 ---
 
-Nothing here yet. Add MDX files under `content/docs` to start writing.
+`effect-state-machine` is a code-first state-machine library for TypeScript applications built
+with Effect. A machine definition describes valid inputs, states, events, transitions, invoked
+Effects, and child machines as one immutable value. The same value can be run by the interpreter
+or projected into a read-only graph for development tooling.
+
+The library is intended for Effect users who want orchestration to remain visible in ordinary
+TypeScript. It assumes familiarity with `Effect`, `Schema`, `Layer`, and scoped resources.
+
+## Start here
+
+Follow [Build your first machine](/docs/tutorials/first-machine) to create and run a small machine
+from an empty project. The tutorial covers the core loop: describe machine data with Schema,
+construct nodes, start a scoped machine instance, send events, and observe completion.
+
+When you already know the result you need, use the how-to guides:
+
+- [Run an Effect when a state becomes active](/docs/guides/invoke-effects)
+- [Choose transitions with guards](/docs/guides/guards-and-ignored-events)
+- [Retry invoked work](/docs/guides/retry-invoked-work)
+- [Compose behavior with a child machine](/docs/guides/child-machines)
+- [Observe a running machine](/docs/guides/observe-a-machine)
+- [Visualize a machine definition](/docs/guides/visualize-a-definition)
+
+For exact signatures and runtime constraints, use the reference:
+
+- [Machine definition API](/docs/reference/machine-definition)
+- [Machine runtime API](/docs/reference/machine-runtime)
+- [Graph, Mermaid, and source-location API](/docs/reference/devtools)
+
+For the design model and its trade-offs, read
+[Why the library is Effect-native](/docs/explanation/effect-native-design).
+
+## Installation
+
+The current v0 release targets the Effect beta used to verify its semantics:
+
+```sh
+pnpm add effect-state-machine effect@4.0.0-beta.106
+```
+
+The package is ESM, targets ES2022, and exposes the main API from `effect-state-machine`. Static
+graph tooling is also available from the opt-in `effect-state-machine/devtools` entry point.
+
+## What v0 models
+
+A machine node has one visible behavior kind:
+
+- an ordinary state with pure transitions;
+- an invoked Effect with typed success and failure routes;
+- an invoked child machine with explicit event forwarding;
+- a final state whose value becomes the machine completion value.
+
+Machine instances serialize external events and asynchronous completions through one queue. Work
+owned by an invoked or child state is interrupted when the machine leaves that state.
+
+V0 does not provide parallel regions, dynamic actors, visual editing, durable execution,
+persistence, replay, or application-framework bindings.

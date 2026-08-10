@@ -1,0 +1,46 @@
+---
+title: Visualize a machine definition
+description: Project a definition into renderer-independent graph data and Mermaid text.
+---
+
+This guide shows you how to generate a read-only Mermaid diagram from a machine definition.
+
+Install the Node platform implementation used to write the generated diagram:
+
+```sh
+pnpm add @effect/platform-node@4.0.0-beta.106
+```
+
+Project the definition, then write it through Effect's `FileSystem` service:
+
+```ts
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Graph from "effect-state-machine/Graph"
+import * as Mermaid from "effect-state-machine/Mermaid"
+import { definition } from "./checkout.js"
+
+const program = Effect.gen(function* () {
+  const graph = Graph.fromDefinition(definition)
+  const diagram = Mermaid.render(graph)
+  const fileSystem = yield* FileSystem.FileSystem
+
+  yield* fileSystem.writeFileString("checkout.mmd", diagram)
+  yield* Effect.log("Wrote checkout.mmd")
+}).pipe(Effect.provide(NodeFileSystem.layer))
+
+NodeRuntime.runMain(program.pipe(Effect.orDie))
+```
+
+The resulting file starts with `stateDiagram-v2` and includes nodes, event transitions, outcome
+transitions, guard order, ignored events, invoked operation names, retry names, and child links
+present in the definition.
+
+No machine instance is started and no Effect is executed. If source maps are part of your build
+pipeline, pass a `mapSource` function to `Graph.fromDefinition` to translate generated locations
+before exposing editor links.
+
+The goal is complete when `checkout.mmd` contains a diagram derived from the executable definition.
+See the [devtools reference](/docs/reference/devtools) for focused graphs and activity overlays.

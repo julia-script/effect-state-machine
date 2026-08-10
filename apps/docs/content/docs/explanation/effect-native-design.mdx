@@ -1,0 +1,106 @@
+---
+title: Why the library is Effect-native
+description: How Schema, Layer, Scope, typed failure, and code-first definitions shape the design.
+---
+
+This page is about the design relationship between `effect-state-machine` and Effect. It covers why
+machine data is schema-first, why execution stays scoped and Effect-native, and why visualization is
+read-only. It does not describe every API option or provide a construction recipe.
+
+## The definition is executable code
+
+The machine definition is the canonical source of truth. It is an immutable TypeScript value that
+contains schemas, visible node kinds, transitions, named work, and human descriptions. The runtime
+interprets that value; graph tooling projects it without running it.
+
+A visual editor would create a second authoring model that must round-trip executable TypeScript,
+Effect requirements, typed errors, and pure reducers. That trade-off can make sense for products
+whose primary authors are non-developers. This library instead optimizes for developers reviewing,
+navigating, and explaining the code they ship. Diagrams are mirrors, not another source of truth.
+
+## Schema owns the machine's data vocabulary
+
+Machine input, state, and events are Effect Schemas. Their decoded TypeScript types follow from the
+same values used for runtime boundary validation, encoding, descriptions, and graph metadata.
+
+You can think of the state schema as a catalogue of complete situations. A `Loading` variant carries
+only data valid while loading; a `Loaded` variant carries only loaded data. There is no separate
+mutable context object whose fields are meaningful only in certain states.
+
+An alternative is to declare TypeScript types for authoring and add validation later at selected
+boundaries. That is lighter when data never leaves trusted code. It is a poor fit here because
+events, snapshots, devtools, and service boundaries need a runtime description as well as a static
+one.
+
+## Pure decisions and Effectful work have different homes
+
+Transitions and guards are synchronous and deterministic. Reducers derive a complete next state;
+guards select among already-declared transitions. Neither can fetch a service or run asynchronous
+work.
+
+Effects belong to invocation nodes. Their dependencies remain Effect services, their expected
+failures remain typed, and their cancellation follows Scope. This split keeps topology inspectable
+without pretending that a static graph can reproduce an opaque Effect body.
+
+Some state-machine systems describe entry actions as an open-ended list. That is flexible, but it
+can hide concurrent lifetimes and make cancellation ownership ambiguous. A node in this library has
+one visible behavior kind, and an invocation node owns one named operation.
+
+## Layers stay at the composition root
+
+`Machine.run` infers requirements from every invoked Effect, retry Schedule, and statically declared
+child. The definition records those requirements in its type without selecting an implementation.
+A test, server, or browser program supplies Layers when it runs the machine.
+
+This preserves the same substitution boundary as the rest of an Effect application. Machine
+construction does not create a global runtime, capture singleton services, or expose Promise-based
+methods. Promise conversion remains the responsibility of the outer application boundary.
+
+## Scope defines ownership
+
+A machine instance is scoped. Entering an invocation or child node starts work owned by that state;
+leaving the state interrupts it. The interpreter serializes external events and asynchronous
+completions through one queue, so reducers never race to commit state.
+
+The useful analogy is structured concurrency: the active state is a parent lifetime. Work may exist
+inside that lifetime, but it cannot outlive the state and later mutate a machine that has moved on.
+
+Dynamic actors and a global registry would support a broader topology, but they also introduce
+independent lifetimes, addressing, supervision, and message-routing questions. V0 uses statically
+declared child machines where composition evidence already requires them.
+
+## Typed failure is behavior; defects terminate behavior
+
+An invoked Effect's typed failure is expected application behavior. The definition must route it
+through `onFailure` into another valid state. An unexpected defect instead terminates the instance
+and remains visible in the Effect Cause of `completion`.
+
+The same distinction applies to events. An event outside the event Schema is a boundary decoding
+failure. An event inside the global union but rejected by the live state is a protocol defect. If an
+event is expected but irrelevant in a state, the definition says so explicitly with an ignored
+handler.
+
+Converting every failure into an error state can appear simpler to consumers, but it erases the
+difference between modeled outcomes and broken assumptions. The library keeps that distinction so
+ordinary Effect supervision and diagnostics remain available.
+
+## Retry is either operational or modeled
+
+A named Effect Schedule is appropriate when retry attempts and delays do not change what the
+application means. The machine remains in one invocation state while the Schedule decides whether
+to continue.
+
+When an attempt number, waiting period, or user choice affects visible behavior, retry belongs in
+the machine model as states and events. This is a judgment boundary rather than a mechanical rule:
+operational concerns stay inside the Effect; application behavior stays explicit in the definition.
+
+## What this design deliberately leaves out
+
+V0 does not claim durable execution, persisted machine resumption, parallel regions, dynamic actor
+spawning, or framework bindings. Encodable snapshots are useful boundary data, but they are not a
+record of interrupted Effects or enough information to replay them safely.
+
+These omissions keep the current contract aligned with Effect's existing facilities: Schema for
+data, Layer for dependencies, Scope and fibers for lifetime, Schedule for operational retry, and
+Cause for defects. Features can be added when application evidence requires new semantics rather
+than to imitate the surface area of another state-machine library.

@@ -1,0 +1,67 @@
+---
+title: Observe a running machine
+description: Read snapshots, collect changes, check events, and inspect runtime decisions.
+---
+
+This guide shows you how to observe a machine without moving runtime ownership out of Effect.
+
+## Read the current state and check an event
+
+Use `snapshot` for the current state and `can` for a read-only acceptance check:
+
+```ts
+const state = yield* handle.snapshot
+const canSave = yield* handle.can({ _tag: "Save" })
+```
+
+`can` evaluates the live state's event handler and guards without running a reducer or changing the
+snapshot. It returns `true` for explicitly ignored events.
+
+## Collect committed state changes
+
+`changes` begins with the current snapshot and then emits every committed state:
+
+```ts
+import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
+import * as Stream from "effect/Stream"
+
+const changesFiber = yield* Stream.runCollect(Stream.take(handle.changes, 2)).pipe(
+  Effect.forkChild,
+)
+
+yield* Effect.yieldNow
+yield* handle.send({ _tag: "Save" })
+
+const changes = yield* Fiber.join(changesFiber)
+```
+
+Subscribe before sending the event when the consumer must observe that transition.
+
+## Observe semantic runtime decisions
+
+Use `inspection` when a tool or test needs lifecycle facts rather than application state:
+
+```ts
+const eventsFiber = yield* Stream.runCollect(
+  Stream.take(handle.inspection, 4),
+).pipe(Effect.forkChild)
+
+yield* Effect.yieldNow
+yield* handle.send({ _tag: "Save" })
+
+const events = yield* Fiber.join(eventsFiber)
+```
+
+The default inspection stream contains tags and authored names, but not application event payloads.
+For an explicit local projection, use `inspect`:
+
+```ts
+const detailed = handle.inspect((event) => event)
+```
+
+Only `EventReceived` records gain the projected `details` field.
+
+The goal is complete when consumers use `snapshot` or `changes` for application state and
+`inspection` for interpreter decisions. Refer to the
+[runtime API](/docs/reference/machine-runtime) for every handle member and inspection event.

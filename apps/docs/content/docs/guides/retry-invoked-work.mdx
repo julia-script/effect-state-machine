@@ -1,0 +1,46 @@
+---
+title: Retry invoked work
+description: Attach an Effect Schedule to an invocation and route exhaustion as a typed failure.
+---
+
+This guide shows you how to retry typed failures while an invocation state remains active.
+
+Import Effect's `Schedule` module and attach a named retry policy to an invocation:
+
+```ts
+import * as Effect from "effect/Effect"
+import * as Schedule from "effect/Schedule"
+
+const attempting = machine.invoke("Attempting", {
+  name: "Orders.place",
+  effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.total)),
+  retry: {
+    name: "retry-transient-order-failures",
+    description: "Retry twice before showing the failure.",
+    schedule: Schedule.recurs(2),
+  },
+  onSuccess: {
+    target: "Succeeded",
+    reduce: ({ value }) => ({ _tag: "Succeeded", orderId: value }),
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+  },
+})
+```
+
+`Schedule.recurs(2)` permits two retries after the first attempt. While the schedule continues,
+the machine stays in `Attempting`. If the schedule is exhausted, its last typed error is routed to
+`onFailure`.
+
+If an event moves the machine out of `Attempting` while a retry is pending, the invocation and its
+schedule are interrupted with the state's scope.
+
+Use this form when attempts and delays do not change application behavior. If users must see,
+cancel, or respond to each attempt, model the attempt and waiting phases as ordinary machine states
+instead.
+
+The goal is complete when the invocation has a stable retry name, a Schedule for its typed failure,
+and an `onFailure` route that handles schedule exhaustion. Retry inspection events are described in
+the [runtime reference](/docs/reference/machine-runtime).

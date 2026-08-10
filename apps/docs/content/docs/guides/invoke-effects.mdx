@@ -1,0 +1,98 @@
+---
+title: Run an Effect when a state becomes active
+description: Invoke application services from a machine and route typed outcomes.
+---
+
+This guide shows you how to let a machine state own an Effect, provide its service through a Layer,
+and route success or typed failure into the next state.
+
+## Define the service and failure
+
+Use an ordinary Effect service. Its requirement will be inferred from the machine definition:
+
+```ts
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as Machine from "effect-state-machine/Machine"
+
+class LoadFailed extends Schema.TaggedError<LoadFailed>()("LoadFailed", {
+  message: Schema.String,
+}) {}
+
+class Profiles extends Context.Service<
+  Profiles,
+  Readonly<{ load: (id: string) => Effect.Effect<string, LoadFailed> }>
+>()("app/Profiles") {}
+```
+
+## Make the active state an invocation node
+
+Define states for the active operation and both typed outcomes, then use `invoke` for the active
+state:
+
+```ts
+const Input = Schema.Struct({ id: Schema.String })
+const State = Machine.taggedUnion({
+  Loading: { fields: { id: Schema.String } },
+  Loaded: { fields: { name: Schema.String } },
+  Failed: { fields: { message: Schema.String } },
+})
+const Event = Machine.taggedUnion({
+  Cancel: { fields: {} },
+})
+
+const profile = Machine.builder({ input: Input, state: State, event: Event })
+
+const definition = profile.make({
+  id: "profile",
+  initial: ({ id }) => ({ _tag: "Loading", id }),
+  nodes: [
+    profile.invoke("Loading", {
+      name: "Profiles.load",
+      effect: (state) => Effect.flatMap(Profiles, ({ load }) => load(state.id)),
+      onSuccess: {
+        target: "Loaded",
+        reduce: ({ value }) => ({ _tag: "Loaded", name: value }),
+      },
+      onFailure: {
+        target: "Failed",
+        reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+      },
+    }),
+    profile.final("Loaded"),
+    profile.final("Failed"),
+  ],
+})
+```
+
+The `name` is stable metadata for inspection and graph tooling. The `effect` callback receives the
+narrowed `Loading` state. Its output and typed error determine the values available to
+`onSuccess.reduce` and `onFailure.reduce`.
+
+## Provide the service when the machine runs
+
+Provide the Layer at the application boundary:
+
+```ts
+const ProfilesLive = Layer.succeed(
+  Profiles,
+  Profiles.of({ load: (id) => Effect.succeed(`profile-${id}`) }),
+)
+
+const program = Effect.scoped(
+  Machine.run(definition, { id: "42" }).pipe(
+    Effect.flatMap((handle) => handle.completion),
+    Effect.provide(ProfilesLive),
+  ),
+)
+
+const result = await Effect.runPromise(program)
+// result: { _tag: "Loaded", name: "profile-42" }
+```
+
+The goal is complete when the invocation reaches either declared final state. Leaving `Loading`
+through an event would interrupt the Effect owned by that state. Defects are not sent through
+`onFailure`; refer to the [runtime reference](/docs/reference/machine-runtime) for termination
+semantics.
