@@ -53,6 +53,13 @@ const button = (label: string, run: () => void): HTMLButtonElement => {
 const mode = new URLSearchParams(location.search).get("mode")
 const standalone = mode === "viewer" || mode === "standalone"
 
+const updateFixtureUrl = (fixture: Fixture) => {
+  const url = new URL(location.href)
+  if (fixture === "checkout") url.searchParams.delete("fixture")
+  else url.searchParams.set("fixture", fixture)
+  history.replaceState(null, "", url)
+}
+
 const shell = (fixture: Fixture) => {
   root.replaceChildren()
   root.className = "tool-shell"
@@ -75,7 +82,11 @@ const shell = (fixture: Fixture) => {
     option.selected = fixture === value
     select.append(option)
   }
-  select.addEventListener("change", () => void start(select.value as Fixture))
+  select.addEventListener("change", () => {
+    const fixture = select.value as Fixture
+    updateFixtureUrl(fixture)
+    void start(fixture)
+  })
   label.append(select)
   strip.append(title, label)
   const workspace = document.createElement("div")
