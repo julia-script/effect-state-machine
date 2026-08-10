@@ -73,30 +73,30 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       (traversedStep.branch === undefined || edge.branch?.index === traversedStep.branch.index),
   )
 
-  const graphSignature = `${session.sessionId}:${depth}:${initialTag ?? ""}:${visible.nodes
-    .map((node) => node.id)
-    .join(",")}`
-
-  // ELK layout is async; keep the previous placement while the next computes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: layout keyed by shape signature
+  // The whole machine is laid out once per session; depth only hides nodes,
+  // so positions stay put while the machine moves through states.
+  const layoutSignature = `${session.sessionId}:${initialTag ?? ""}`
+  // biome-ignore lint/correctness/useExhaustiveDependencies: layout keyed per session
   React.useEffect(() => {
     let stale = false
-    void layout(visible, initialTag).then((next) => {
+    void layout(graph, initialTag).then((next) => {
       if (!stale) setPlaced(next)
     })
     return () => {
       stale = true
     }
-  }, [graphSignature])
+  }, [layoutSignature])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refit when the layout changes
+  // When the visible cluster changes, the camera glides to it instead.
+  const visibleSignature = visible.nodes.map((node) => node.id).join(",")
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refit on visibility change
   React.useEffect(() => {
     if (placed === undefined) return
     const frame = requestAnimationFrame(() => {
-      void flow.fitView({ padding: 0.1, maxZoom: 1.15 })
+      void flow.fitView({ padding: 0.1, maxZoom: 1.15, duration: 300 })
     })
     return () => cancelAnimationFrame(frame)
-  }, [placed])
+  }, [placed, visibleSignature])
 
   const highlightedEdgeIds = new Set(
     selection === undefined
@@ -147,7 +147,9 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     ]
   })
 
-  const startPoint = placed?.positions.get(START_ID)
+  const initialVisible =
+    initialTag !== undefined && visible.nodes.some((node) => node.id === initialTag)
+  const startPoint = initialVisible ? placed?.positions.get(START_ID) : undefined
   const startNodes: Array<Node> =
     startPoint === undefined
       ? []
@@ -192,7 +194,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     ]
   })
 
-  const startSegment = placed?.segments.get(START_ID)
+  const startSegment = initialVisible ? placed?.segments.get(START_ID) : undefined
   const startEdges: Array<Edge> =
     startSegment === undefined || initialTag === undefined
       ? []
