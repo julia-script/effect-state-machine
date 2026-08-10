@@ -108,6 +108,14 @@ is the initial compact renderer; it does not attempt to reconstruct opaque Effec
 internals. Run `pnpm build` in this repository to regenerate
 `dist/reference-workflow.mmd`, a read-only diagram of the integrated example.
 
+### Interactive reference workbench
+
+`pnpm build` also creates `dist/local-first-document.html`, a standalone browser page for the same
+local-first document definition used by the tests. It can swap `Documents` and `Synchronizer`
+Layers, exercise typed failures, advance an Effect `TestClock` through the retry Schedule, resolve
+the scoped conflict child, and inspect both focused and complete graph views. The page owns its
+`ManagedRuntime` and Promise bridge; the machine handle remains Effect-native.
+
 ## Runtime contract
 
 `Machine.run(definition, input)` is a scoped Effect. Its requirements are inferred transitively

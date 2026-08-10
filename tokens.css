@@ -1,0 +1,68 @@
+:root {
+  --color-paper: oklch(96% 0.025 92);
+  --color-paper-2: oklch(92% 0.04 95);
+  --color-surface: oklch(99% 0.012 92);
+  --color-surface-strong: oklch(89% 0.17 112);
+  --color-ink: oklch(22% 0.035 284);
+  --color-ink-soft: oklch(34% 0.035 284);
+  --color-muted: oklch(45% 0.035 284);
+  --color-rule: oklch(76% 0.045 92);
+  --color-rule-strong: oklch(54% 0.055 92);
+  --color-accent: oklch(67% 0.2 34);
+  --color-accent-ink: oklch(20% 0.045 284);
+  --color-accent-soft: oklch(91% 0.07 34);
+  --color-pear: oklch(89% 0.17 112);
+  --color-pear-ink: oklch(24% 0.055 112);
+  --color-cyan: oklch(86% 0.12 205);
+  --color-cyan-ink: oklch(24% 0.055 220);
+  --color-danger: oklch(41% 0.17 25);
+  --color-danger-soft: oklch(92% 0.055 25);
+  --color-success: oklch(43% 0.13 154);
+  --color-success-soft: oklch(92% 0.06 154);
+  --color-focus: oklch(38% 0.17 285);
+  --color-shadow: oklch(28% 0.035 284 / 0.14);
+
+  --font-display: "Bricolage Grotesque", "Arial Rounded MT Bold", ui-sans-serif, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  --text-xs: 0.72rem;
+  --text-sm: 0.84rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+  --text-2xl: 2.441rem;
+  --text-display-s: clamp(2.2rem, 6vw, 3.4rem);
+  --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  --rule-hairline: 1px;
+  --rule-strong: 2px;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 0.5rem 1.5rem -0.75rem var(--color-shadow);
+  --control-height: 2.75rem;
+  --page-gutter: clamp(1rem, 4vw, 3rem);
+  --page-max: 92rem;
+}
