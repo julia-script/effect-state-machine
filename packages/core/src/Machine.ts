@@ -17,6 +17,17 @@ interface Tagged {
   readonly _tag: string
 }
 
+/**
+ * Schema for a `_tag`-discriminated union whose cases remain available for machine tooling.
+ *
+ * **Details**
+ *
+ * The `cases` record lets the builder, graph projection, and codecs inspect each state or event
+ * variant without executing machine behavior.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export type TaggedSchema = Schema.Top &
   Readonly<{
     Type: Tagged
@@ -32,6 +43,12 @@ type NormalizedTaggedSchema<Source extends TaggedSchemaSource> = Source extends 
     ? Schema.toTaggedUnion<"_tag", Members>
     : never
 
+/**
+ * Definition of one case accepted by {@link taggedUnion}.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface TaggedUnionCase<Fields extends Schema.Struct.Fields = Schema.Struct.Fields> {
   readonly fields: Fields
   readonly title?: string
@@ -42,10 +59,26 @@ type TaggedUnionCases<Cases extends Readonly<Record<string, TaggedUnionCase>>> =
   readonly [Tag in keyof Cases & string]: Schema.TaggedStruct<Tag, Cases[Tag]["fields"]>
 }
 
+/**
+ * Tagged-union schema inferred from a record of case definitions.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export type TaggedUnion<Cases extends Readonly<Record<string, TaggedUnionCase>>> =
   Schema.TaggedUnion<TaggedUnionCases<Cases>>
 
-/** Builds an Effect tagged union whose individual cases retain graphable metadata. */
+/**
+ * Builds an Effect tagged union whose individual cases retain graphable metadata.
+ *
+ * **When to use**
+ *
+ * Use when state or event titles and descriptions should be available to graph and Studio
+ * tooling. A regular `Schema.Union` of tagged structs is also accepted by {@link builder}.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const taggedUnion = <const Cases extends Readonly<Record<string, TaggedUnionCase>>>(
   cases: Cases,
 ): TaggedUnion<Cases> => {
@@ -85,6 +118,12 @@ type TransitionArgs<
   event: ByTag<Event, EventTag>
 }>
 
+/**
+ * An event transition that derives a target-state value from the current state and event.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Transition<
   State extends Tagged,
   Event extends Tagged,
@@ -100,6 +139,12 @@ export type Transition<
       }>
     : never
 
+/**
+ * A named guard branch in a guarded event transition.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type WhenBranch<
   State extends Tagged,
   Event extends Tagged,
@@ -121,6 +166,12 @@ export type WhenBranch<
       }>
     : never
 
+/**
+ * The final fallback branch in a guarded event transition.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type OtherwiseBranch<
   State extends Tagged,
   Event extends Tagged,
@@ -137,6 +188,17 @@ export type OtherwiseBranch<
       }>
     : never
 
+/**
+ * An ordered, first-match-wins collection of guarded event transitions.
+ *
+ * **Gotchas**
+ *
+ * A fallback, when present, must be the last branch. If no guard matches and no fallback exists,
+ * the running machine terminates with a {@link ProtocolDefect}.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type GuardedTransition<
   State extends Tagged,
   Event extends Tagged,
@@ -155,12 +217,24 @@ export type GuardedTransition<
       ]
 }>
 
+/**
+ * An explicit instruction to accept an event without changing state.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface IgnoredTransition {
   readonly ignore: Readonly<{
     description?: string
   }>
 }
 
+/**
+ * Handling policy for one event in one machine state.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type EventHandler<
   State extends Tagged,
   Event extends Tagged,
@@ -171,6 +245,12 @@ export type EventHandler<
   | GuardedTransition<State, Event, Current, EventTag>
   | IgnoredTransition
 
+/**
+ * State-specific event handlers keyed by event tag.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type EventHandlers<
   State extends Tagged,
   Event extends Tagged,
@@ -179,6 +259,12 @@ export type EventHandlers<
   [EventTag in TagOf<Event>]?: EventHandler<State, Event, Current, EventTag>
 }>
 
+/**
+ * An ordinary machine node that handles events without owning background work.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface StateNode<
   State extends Tagged,
   Event extends Tagged,
@@ -190,6 +276,12 @@ export interface StateNode<
   readonly on: EventHandlers<State, Event, Current>
 }
 
+/**
+ * A terminal machine node whose state value becomes the machine completion value.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface FinalNode<Current extends string> {
   readonly kind: "final"
   readonly tag: Current
@@ -282,18 +374,41 @@ type OutcomeHandler<
   | OutcomeTransition<State, Current, Value, Key>
   | GuardedOutcomeTransition<State, Current, Value, Key>
 
+/**
+ * Transition selected from the successful output of invoked work or a child machine.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type SuccessTransition<
   State extends Tagged,
   Current extends TagOf<State>,
   Value,
 > = OutcomeHandler<State, Current, Value, "value">
 
+/**
+ * Transition selected from an expected failure of invoked work or its retry policy.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type FailureTransition<
   State extends Tagged,
   Current extends TagOf<State>,
   Error,
 > = OutcomeHandler<State, Current, Error, "error">
 
+/**
+ * Named Effect schedule for retrying an invocation while its node remains active.
+ *
+ * **When to use**
+ *
+ * Use for operational retries whose attempts do not need to become machine states. Model retries
+ * explicitly when their progress affects application behavior or accepted events.
+ *
+ * @category configuration
+ * @since 0.1.0
+ */
 export interface RetryPolicy<
   Failure,
   Policy extends Schedule.Schedule<unknown, Failure, unknown, unknown>,
@@ -303,6 +418,17 @@ export interface RetryPolicy<
   readonly schedule: Policy
 }
 
+/**
+ * A machine node that owns one Effect invocation and its outcome transitions.
+ *
+ * **Details**
+ *
+ * The invocation starts when the node becomes active and is interrupted when another transition
+ * leaves the node. Expected failures follow `onFailure`; defects terminate the machine.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface InvokeNode<
   State extends Tagged,
   Event extends Tagged,
@@ -326,6 +452,12 @@ export interface InvokeNode<
   readonly _Requirements?: Requirements | RetryEnv
 }
 
+/**
+ * Minimum public shape required to invoke another machine as a child.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface ChildDefinition {
   readonly id: string
   readonly description?: string
@@ -355,6 +487,12 @@ type ChildForward<
       }>
     : never
 
+/**
+ * Parent-event mappings forwarded to a child while its node is active.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type ChildForwarders<
   State extends Tagged,
   Event extends Tagged,
@@ -364,6 +502,21 @@ export type ChildForwarders<
   [ParentEventTag in TagOf<Event>]?: ChildForward<State, Event, Current, ParentEventTag, ChildEvent>
 }>
 
+/**
+ * A machine node that owns a scoped child-machine instance.
+ *
+ * **Details**
+ *
+ * The parent derives the child's input on entry, may forward selected parent events, and resumes
+ * through `onComplete`. Leaving the node interrupts the child.
+ *
+ * **Gotchas**
+ *
+ * The same parent event cannot both be forwarded and handled as a parent transition in this node.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface ChildNode<
   State extends Tagged,
   Event extends Tagged,
@@ -407,6 +560,17 @@ type NodeUnion<State extends Tagged, Event extends Tagged> =
   | InvokeNodeShape<State>
   | ChildNodeShape<State>
 
+/**
+ * Immutable, synchronously inspectable definition of a machine's schemas and behavior.
+ *
+ * **Details**
+ *
+ * Definitions are the shared input to {@link run}, codec helpers, and graph tooling. Inspecting a
+ * definition never executes its initializer, reducers, guards, or Effects.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface MachineDefinition<
   InputSchema extends Schema.Top,
   StateSchema extends TaggedSchema,
@@ -426,6 +590,17 @@ export interface MachineDefinition<
   readonly nodes: Nodes
 }
 
+/**
+ * Type-erased machine definition metadata consumed by development tooling.
+ *
+ * **When to use**
+ *
+ * Use when inspecting topology without depending on a definition's application-specific types.
+ * Prefer the full {@link MachineDefinition} when executing a machine.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface DefinitionMetadata {
   readonly id: string
   readonly description?: string
@@ -497,6 +672,24 @@ export interface DefinitionMetadata {
   >
 }
 
+/**
+ * Effect-native interface to one scoped running machine instance.
+ *
+ * **Details**
+ *
+ * `snapshot` reads the current state, `changes` includes the initial state and later commits,
+ * `send` waits until the event is processed, and `completion` waits for a final state or defect.
+ * The payload-free `inspection` stream is safe for general tooling; `inspect` opts into projecting
+ * event details.
+ *
+ * **Gotchas**
+ *
+ * The handle is valid only inside the Scope required by {@link run}. Releasing that Scope
+ * interrupts active work and ends the instance.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface MachineHandle<
   State extends Tagged,
   Event extends Tagged,
@@ -513,11 +706,28 @@ export interface MachineHandle<
   readonly can: (event: Event) => Effect.Effect<boolean>
 }
 
+/**
+ * Inspection event union whose received events include caller-projected details.
+ *
+ * @category observability
+ * @since 0.1.0
+ */
 export type ProjectedInspectionEvent<EventDetails> =
   | Exclude<InspectionEvent, Readonly<{ _tag: "EventReceived" }>>
   | (Extract<InspectionEvent, Readonly<{ _tag: "EventReceived" }>> &
       Readonly<{ details: EventDetails }>)
 
+/**
+ * Metadata-only record of a meaningful interpreter decision or lifecycle change.
+ *
+ * **Details**
+ *
+ * Application state, event payloads, invocation values, and failures are intentionally omitted.
+ * Use `MachineHandle.inspect` to opt into event details with an explicit projection.
+ *
+ * @category observability
+ * @since 0.1.0
+ */
 export type InspectionEvent =
   | Readonly<{
       _tag: "MachineStarted"
@@ -627,10 +837,32 @@ interface InternalInspectionRecord<Event extends Tagged> {
   readonly event?: Event
 }
 
+/**
+ * Defect raised when an authored machine definition violates a structural invariant.
+ *
+ * **Gotchas**
+ *
+ * Most instances are thrown synchronously by `builder().make`; an invalid initializer result dies
+ * in {@link run}. This is a programmer error, not a typed Effect failure.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class MachineDefinitionDefect extends Error {
   readonly name = "MachineDefinitionDefect"
 }
 
+/**
+ * Defect raised when a known machine event is not accepted by the live state.
+ *
+ * **Gotchas**
+ *
+ * Sending such an event terminates the machine instance. Call `MachineHandle.can` first when the
+ * sender cannot guarantee that the event is currently accepted.
+ *
+ * @category errors
+ * @since 0.1.0
+ */
 export class ProtocolDefect extends Error {
   readonly name = "ProtocolDefect"
 
@@ -643,6 +875,12 @@ export class ProtocolDefect extends Error {
   }
 }
 
+/**
+ * Decoded input type inferred from a machine definition.
+ *
+ * @category utility types
+ * @since 0.1.0
+ */
 export type MachineInput<Definition> =
   Definition extends Readonly<{
     schemas: Readonly<{ input: infer InputSchema extends Schema.Top }>
@@ -650,6 +888,12 @@ export type MachineInput<Definition> =
     ? Schema.Schema.Type<InputSchema>
     : never
 
+/**
+ * Decoded state union inferred from a machine definition.
+ *
+ * @category utility types
+ * @since 0.1.0
+ */
 export type MachineState<Definition> =
   Definition extends Readonly<{
     schemas: Readonly<{ state: infer StateSchema extends TaggedSchema }>
@@ -657,6 +901,12 @@ export type MachineState<Definition> =
     ? Schema.Schema.Type<StateSchema>
     : never
 
+/**
+ * Decoded event union inferred from a machine definition.
+ *
+ * @category utility types
+ * @since 0.1.0
+ */
 export type MachineEvent<Definition> =
   Definition extends Readonly<{
     schemas: Readonly<{ event: infer EventSchema extends TaggedSchema }>
@@ -669,6 +919,16 @@ type FinalTag<Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }
   { kind: "final" }
 >["tag"]
 
+/**
+ * Union of final-state values inferred from a machine definition.
+ *
+ * **Details**
+ *
+ * Definitions without final nodes produce `never`.
+ *
+ * @category utility types
+ * @since 0.1.0
+ */
 export type MachineCompletion<Definition> =
   Definition extends Readonly<{
     schemas: Readonly<{ state: infer StateSchema extends TaggedSchema }>
@@ -685,6 +945,12 @@ type NodeRequirements<Node> =
 type RequirementsFromNodes<Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }>>> =
   NodeRequirements<Nodes[number]>
 
+/**
+ * Effect requirements collected from a definition's invocations and child machines.
+ *
+ * @category utility types
+ * @since 0.1.0
+ */
 export type MachineRequirements<Definition> =
   Definition extends Readonly<{
     nodes: infer Nodes extends ReadonlyArray<Readonly<{ kind: string; tag: string }>>
@@ -720,6 +986,12 @@ interface GuardedTransitionMetadata {
   >
 }
 
+/**
+ * Named synchronous decision used by guarded transitions and graph tooling.
+ *
+ * @category guards
+ * @since 0.1.0
+ */
 export interface NamedGuard<Args> {
   readonly name: string
   readonly description?: string
@@ -727,7 +999,17 @@ export interface NamedGuard<Args> {
   readonly source: Source.Reference
 }
 
-/** Names opaque synchronous decision logic and captures its declaration callsite for devtools. */
+/**
+ * Names synchronous decision logic and captures its declaration callsite for development tooling.
+ *
+ * **When to use**
+ *
+ * Use for a guarded transition whose decision should remain identifiable in graphs and inspection
+ * output. Guards must be deterministic and may not require Effect services.
+ *
+ * @category guards
+ * @since 0.1.0
+ */
 export const namedGuard = <Args>(
   config: Readonly<{
     name: string
@@ -736,36 +1018,121 @@ export const namedGuard = <Args>(
   }>,
 ): NamedGuard<Args> => ({ ...config, source: Source.capture() })
 
+/**
+ * Decodes unknown input with a machine definition's input Schema.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const decodeInput = <InputSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"input", InputSchema>,
   input: unknown,
 ) => Schema.decodeUnknownEffect(definition.schemas.input)(input)
 
+/**
+ * Encodes a decoded machine input with the definition's input Schema.
+ *
+ * @category encoding
+ * @since 0.1.0
+ */
 export const encodeInput = <InputSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"input", InputSchema>,
   input: Schema.Schema.Type<InputSchema>,
 ) => Schema.encodeEffect(definition.schemas.input)(input)
 
+/**
+ * Decodes unknown state with a machine definition's state Schema.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const decodeState = <StateSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"state", StateSchema>,
   input: unknown,
 ) => Schema.decodeUnknownEffect(definition.schemas.state)(input)
 
+/**
+ * Encodes a decoded machine state with the definition's state Schema.
+ *
+ * @category encoding
+ * @since 0.1.0
+ */
 export const encodeState = <StateSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"state", StateSchema>,
   input: Schema.Schema.Type<StateSchema>,
 ) => Schema.encodeEffect(definition.schemas.state)(input)
 
+/**
+ * Decodes an unknown event with a machine definition's event Schema.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const decodeEvent = <EventSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"event", EventSchema>,
   input: unknown,
 ) => Schema.decodeUnknownEffect(definition.schemas.event)(input)
 
+/**
+ * Encodes a decoded machine event with the definition's event Schema.
+ *
+ * @category encoding
+ * @since 0.1.0
+ */
 export const encodeEvent = <EventSchema extends Schema.Top>(
   definition: DefinitionWithSchema<"event", EventSchema>,
   input: Schema.Schema.Type<EventSchema>,
 ) => Schema.encodeEffect(definition.schemas.event)(input)
 
+/**
+ * Creates a schema-bound API for authoring a typed machine definition.
+ *
+ * **Details**
+ *
+ * The returned `state`, `invoke`, `child`, and `final` constructors share the input, state, and
+ * event vocabulary. Its `make` constructor validates duplicate nodes, missing targets, branch
+ * ordering, stable names, and child forwarding conflicts before returning a definition.
+ *
+ * **Gotchas**
+ *
+ * Invalid topology throws {@link MachineDefinitionDefect} synchronously from `make`.
+ *
+ * **Example** (Defining a counter)
+ *
+ * ```ts
+ * import * as Schema from "effect/Schema"
+ * import * as Machine from "effect-state-machine/Machine"
+ *
+ * const State = Machine.taggedUnion({
+ *   Active: { fields: { count: Schema.Number } },
+ * })
+ * const Event = Machine.taggedUnion({
+ *   Increment: { fields: { amount: Schema.Number } },
+ * })
+ * const counter = Machine.builder({ input: Schema.Number, state: State, event: Event })
+ *
+ * const definition = counter.make({
+ *   id: "counter",
+ *   initial: (count) => ({ _tag: "Active", count }),
+ *   nodes: [
+ *     counter.state("Active", {
+ *       on: {
+ *         Increment: {
+ *           target: "Active",
+ *           reduce: ({ state, event }) => ({
+ *             _tag: "Active",
+ *             count: state.count + event.amount,
+ *           }),
+ *         },
+ *       },
+ *     }),
+ *   ],
+ * })
+ * ```
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const builder = <
   const InputSchema extends Schema.Top,
   const StateSchemaSource extends TaggedSchemaSource,
@@ -1190,6 +1557,12 @@ interface ActiveChild {
   readonly handle: MachineHandle<Tagged, Tagged, Tagged>
 }
 
+/**
+ * Guard or fallback branch selected while processing a transition.
+ *
+ * @category observability
+ * @since 0.1.0
+ */
 export type SelectedBranch =
   | Readonly<{
       kind: "guard"
@@ -1272,6 +1645,25 @@ const selectOutcome = <State extends Tagged, Value, Key extends "value" | "error
 // Stays an annotated arrow over Effect.gen instead of Effect.fnUntraced: run is generic and
 // self-recursive (startChild runs child definitions), so the generator form cannot carry the
 // pinned public signature without circular inference or new casts.
+/**
+ * Starts a scoped machine instance and returns its Effect-native handle.
+ *
+ * **Details**
+ *
+ * The initializer runs once, external events and concurrent completions are serialized through a
+ * single queue, and invocation requirements remain in the returned Effect environment. Entering a
+ * final node resolves `completion`, interrupts owned work, and ends the state-change stream.
+ *
+ * **Gotchas**
+ *
+ * A missing initial node dies with {@link MachineDefinitionDefect}. Sending an event rejected by
+ * the live state dies with {@link ProtocolDefect}; expected invocation failures instead follow the
+ * definition's `onFailure` transition.
+ *
+ * @see {@link MachineHandle} for the running instance API.
+ * @category running
+ * @since 0.1.0
+ */
 export const run = <
   InputSchema extends Schema.Top,
   StateSchema extends TaggedSchema,

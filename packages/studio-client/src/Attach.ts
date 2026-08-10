@@ -13,13 +13,6 @@ import * as Announcement from "./Announcement.js"
 import * as Protocol from "./Protocol.js"
 import { type Connection, StudioTransport, TransportError } from "./Transport.js"
 
-/**
- * Connects a running machine to Studio: announces the session, streams facts,
- * and executes dispatches. Attach is inert without a reachable Studio — it
- * never blocks the machine, never surfaces connection errors to the
- * application, and retries in the background for the attachment's lifetime.
- */
-
 interface Tagged {
   readonly _tag: string
 }
@@ -31,23 +24,49 @@ interface QuickEventBase {
   readonly group?: string
 }
 
+/**
+ * Named Studio control backed by either a fixed event or a factory evaluated per dispatch.
+ *
+ * **When to use**
+ *
+ * Use to expose common machine events in Studio without requiring a custom event form.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type QuickEvent<Event> =
   | (QuickEventBase & Readonly<{ event: Event }>)
   | (QuickEventBase & Readonly<{ make: () => Event }>)
 
+/**
+ * Configuration for attaching one running machine to Studio.
+ *
+ * @category configuration
+ * @since 0.1.0
+ */
 export interface AttachOptions<State extends Tagged, Event extends Tagged> {
   readonly definition: Machine.DefinitionMetadata
   readonly handle: Machine.MachineHandle<State, Event, State>
   readonly quickEvents?: ReadonlyArray<QuickEvent<NoInfer<Event>>>
-  /** Shown in Studio's session picker; defaults to the machine id. */
+  /**
+   * Name shown in Studio's session picker; defaults to the machine identifier.
+   */
   readonly appName?: string
   readonly parentSessionId?: string
   readonly mapSource?: SourceLocation.Mapper
-  /** Unsent facts kept while disconnected; oldest are dropped beyond this. */
+  /**
+   * Number of unsent facts retained while disconnected; defaults to 10,000.
+   */
   readonly bufferLimit?: number
   readonly reconnectInterval?: Duration.Input
 }
 
+/**
+ * Identity of an active Studio attachment.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Attachment {
   readonly sessionId: string
 }
@@ -63,6 +82,24 @@ interface BufferState {
   readonly sequence: number
 }
 
+/**
+ * Connects a running machine to Studio for inspection and controlled event dispatch.
+ *
+ * **Details**
+ *
+ * The attachment announces the definition, streams ordered facts, buffers while disconnected,
+ * reconnects in the background, and executes valid Studio dispatches. It is inert when Studio is
+ * unreachable and does not add transport failures to the application's typed error channel.
+ * Closing the surrounding Scope sends a best-effort session-ended message and stops all work.
+ *
+ * **Gotchas**
+ *
+ * Quick-event identifiers must be unique; duplicates terminate the attachment with a defect.
+ * Fixed quick events are reused, while factories run separately for every dispatch.
+ *
+ * @category running
+ * @since 0.1.0
+ */
 export const attach = <State extends Tagged, Event extends Tagged>(
   options: AttachOptions<State, Event>,
 ): Effect.Effect<Attachment, never, Scope.Scope | StudioTransport> =>

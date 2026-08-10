@@ -8,18 +8,34 @@ import * as Protocol from "./Protocol.js"
 import { type Connection, StudioTransport, type Transport, TransportError } from "./Transport.js"
 
 /**
- * The default transport: dials the local Studio server over WebSocket using
- * the runtime's global WebSocket constructor (browsers and Node 22+).
- * Malformed inbound frames are dropped; a failed open surfaces as
- * `TransportError` so the attach loop can back off and retry.
+ * Default local Studio WebSocket URL.
+ *
+ * @category constants
+ * @since 0.1.0
  */
-
 export const defaultUrl = `ws://127.0.0.1:${Protocol.DEFAULT_PORT}${Protocol.APP_PATH}`
 
+/**
+ * Configuration for the WebSocket Studio transport.
+ *
+ * @category configuration
+ * @since 0.1.0
+ */
 export interface Options {
   readonly url?: string
 }
 
+/**
+ * Creates the default Studio transport backed by the runtime's global WebSocket constructor.
+ *
+ * **Details**
+ *
+ * The transport works in browsers and Node 22+, waits up to three seconds for the socket to open,
+ * and drops malformed inbound messages. Open and write failures become {@link TransportError}.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const make = (options?: Options): Transport => ({
   connect: Effect.gen(function* () {
     const socket = yield* Socket.makeWebSocket(options?.url ?? defaultUrl, {
@@ -59,5 +75,11 @@ export const make = (options?: Options): Transport => ({
   }),
 })
 
+/**
+ * Provides {@link StudioTransport} with the WebSocket implementation.
+ *
+ * @category layers
+ * @since 0.1.0
+ */
 export const layer = (options?: Options): Layer.Layer<StudioTransport> =>
   Layer.succeed(StudioTransport, StudioTransport.of(make(options)))

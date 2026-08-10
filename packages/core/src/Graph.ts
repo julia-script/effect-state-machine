@@ -2,6 +2,12 @@ import * as Schema from "effect/Schema"
 import type * as Machine from "./Machine.js"
 import * as SourceLocation from "./SourceLocation.js"
 
+/**
+ * Renderer-independent description of one machine node.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Node {
   readonly id: string
   readonly title: string
@@ -36,6 +42,12 @@ export interface Node {
   }>
 }
 
+/**
+ * Directed transition between two graph nodes.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Edge {
   readonly id: string
   readonly source: string
@@ -62,6 +74,12 @@ export interface Edge {
       }>
 }
 
+/**
+ * Event that a node explicitly accepts without producing a transition edge.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Ignore {
   readonly source: string
   readonly event: Readonly<{
@@ -71,6 +89,12 @@ export interface Ignore {
   readonly description?: string
 }
 
+/**
+ * Read-only, renderer-independent projection of a machine definition.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Graph {
   readonly id: string
   readonly description?: string
@@ -79,13 +103,31 @@ export interface Graph {
   readonly ignores: ReadonlyArray<Ignore>
 }
 
+/**
+ * Number of outgoing transition levels retained by {@link focus}.
+ *
+ * @category configuration
+ * @since 0.1.0
+ */
 export type FocusDepth = 1 | 2 | "full"
 
+/**
+ * Renderer-neutral activity markers for an active node and traversed edges.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface ActivityOverlay {
   readonly activeNode?: string
   readonly traversedEdges: ReadonlyArray<string>
 }
 
+/**
+ * Runtime transition identity used to match an authored graph edge.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface TransitionActivity {
   readonly source: string
   readonly target: string
@@ -93,7 +135,17 @@ export interface TransitionActivity {
   readonly branchIndex?: number
 }
 
-/** Derives a bounded, renderer-independent view without changing the source graph. */
+/**
+ * Derives an outgoing, depth-bounded view without changing the source graph.
+ *
+ * **Details**
+ *
+ * Node and edge order remain stable. `"full"` returns the original graph by identity, while an
+ * unknown center returns an empty projection with the original graph metadata.
+ *
+ * @category filtering
+ * @since 0.1.0
+ */
 export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph => {
   if (depth === "full") return graph
   if (!graph.nodes.some((node) => node.id === center)) {
@@ -122,7 +174,17 @@ export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph =>
   }
 }
 
-/** Computes cursor activity separately from topology so renderers can choose their own emphasis. */
+/**
+ * Matches runtime transition activity to graph edge identifiers without changing topology.
+ *
+ * **Details**
+ *
+ * Event tags and branch indices narrow a match only when supplied. An unknown active node is
+ * omitted from the returned overlay.
+ *
+ * @category transforming
+ * @since 0.1.0
+ */
 export const activity = (
   graph: Graph,
   activeNode: string | undefined,
@@ -156,6 +218,19 @@ const titleOf = (schema: Schema.Top | undefined, fallback: string): string => {
   return typeof title === "string" ? title : fallback
 }
 
+/**
+ * Projects a machine definition into graphable nodes, edges, ignores, and child graphs.
+ *
+ * **Details**
+ *
+ * Schema titles and descriptions become presentation metadata, and authored source references are
+ * resolved best-effort. The projection is synchronous and never runs the initializer, guards,
+ * reducers, Effects, or child machines.
+ *
+ * @see {@link SourceLocation.Mapper} for mapping generated positions through source maps.
+ * @category converting
+ * @since 0.1.0
+ */
 export const fromDefinition = (
   definition: Machine.DefinitionMetadata,
   options?: Readonly<{ mapSource?: SourceLocation.Mapper }>,

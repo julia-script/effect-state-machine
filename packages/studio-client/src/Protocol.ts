@@ -3,20 +3,51 @@ import type { Machine } from "effect-state-machine"
 import type { Graph } from "effect-state-machine/devtools"
 
 /**
- * The versioned wire vocabulary between an application's attached machine and
- * Studio. Messages carry facts (app → studio) and dispatches (studio → app);
- * per-viewer presentation state never appears here.
+ * Current wire-protocol version announced by attached applications.
+ *
+ * @category constants
+ * @since 0.1.0
  */
-
 export const VERSION = 1
 
+/**
+ * Default TCP port used by the local Studio server.
+ *
+ * @category constants
+ * @since 0.1.0
+ */
 export const DEFAULT_PORT = 4747
+
+/**
+ * WebSocket path used by attached applications.
+ *
+ * @category constants
+ * @since 0.1.0
+ */
 export const APP_PATH = "/app"
+
+/**
+ * WebSocket path used by Studio viewers.
+ *
+ * @category constants
+ * @since 0.1.0
+ */
 export const VIEWER_PATH = "/viewer"
 
-/** Arbitrary JSON produced by Schema encoding or JSON.parse. */
+/**
+ * Schema for arbitrary JSON-compatible protocol payloads.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Json = Schema.Unknown
 
+/**
+ * Schema for best-effort authored source coordinates sent to Studio.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SourceLocation = Schema.Struct({
   file: Schema.String,
   line: Schema.Number,
@@ -126,6 +157,16 @@ const GraphNode: Schema.Codec<GraphNodeEncoded> = Schema.Struct({
   ),
 })
 
+/**
+ * Recursive Schema for the renderer-independent machine graph sent over the wire.
+ *
+ * **Details**
+ *
+ * Its decoded value is structurally compatible with the core `Graph.Graph` model.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SerializedGraph: Schema.Codec<GraphEncoded> = Schema.Struct({
   id: Schema.String,
   description: Schema.optionalKey(Schema.String),
@@ -167,6 +208,12 @@ const childLifecycleFields = {
   generation: Schema.Number,
 } as const
 
+/**
+ * Schema for payload-safe machine lifecycle and decision events.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const InspectionEvent = Schema.Union([
   Schema.TaggedStruct("MachineStarted", {
     machineId: Schema.String,
@@ -176,7 +223,9 @@ export const InspectionEvent = Schema.Union([
     machineId: Schema.String,
     stateTag: Schema.String,
     eventTag: Schema.String,
-    /** The schema-encoded event value; absent when encoding was not possible. */
+    /**
+     * Schema-encoded event value; absent when encoding was not possible.
+     */
     details: Schema.optionalKey(Json),
   }),
   Schema.TaggedStruct("TransitionSelected", {
@@ -237,6 +286,12 @@ export const InspectionEvent = Schema.Union([
   }),
 ])
 
+/**
+ * Decoded wire representation of {@link InspectionEvent}.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type InspectionEventMessage = Schema.Schema.Type<typeof InspectionEvent>
 
 // Compile-time sync with the core inspection vocabulary: both the plain and the
@@ -247,26 +302,52 @@ const _projectedToWire: (
   event: Machine.ProjectedInspectionEvent<unknown>,
 ) => InspectionEventMessage = (event) => event
 
+/**
+ * Schema for the application identity displayed in Studio.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const AppIdentity = Schema.Struct({
   name: Schema.String,
   runtime: Schema.Literals(["browser", "node", "other"]),
 })
 
+/**
+ * Schema for the announced machine identity and description.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const MachineIdentity = Schema.Struct({
   id: Schema.String,
   description: Schema.optionalKey(Schema.String),
 })
 
+/**
+ * Schema for a named event control exposed by an attached application.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const QuickEventControl = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   description: Schema.optionalKey(Schema.String),
   group: Schema.optionalKey(Schema.String),
   kind: Schema.Literals(["event", "factory"]),
-  /** Known for predefined event values; factories only reveal their tag when run. */
+  /**
+   * Known for predefined event values; factories reveal their tag only when run.
+   */
   eventTag: Schema.optionalKey(Schema.String),
 })
 
+/**
+ * Schema for the self-describing message that opens an application session.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Hello = Schema.TaggedStruct("Hello", {
   protocolVersion: Schema.Number,
   sessionId: Schema.String,
@@ -281,6 +362,12 @@ export const Hello = Schema.TaggedStruct("Hello", {
   quickEvents: Schema.Array(QuickEventControl),
 })
 
+/**
+ * Schema for ordered application facts recorded by Studio.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const FactBody = Schema.Union([
   Schema.TaggedStruct("Inspection", { event: InspectionEvent }),
   Schema.TaggedStruct("StateCommitted", { state: Json }),
@@ -289,23 +376,47 @@ export const FactBody = Schema.Union([
   Schema.TaggedStruct("HistoryTruncated", { dropped: Schema.Number }),
 ])
 
+/**
+ * Schema for a sequenced fact in one Studio session.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Fact = Schema.TaggedStruct("Fact", {
   sessionId: Schema.String,
   sequence: Schema.Number,
   body: FactBody,
 })
 
+/**
+ * Schema for either a named quick-event dispatch or a custom encoded event.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const DispatchCommand = Schema.Union([
   Schema.TaggedStruct("Quick", { id: Schema.String }),
   Schema.TaggedStruct("Custom", { event: Json }),
 ])
 
+/**
+ * Schema for a correlated Studio request to send an event to a machine.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Dispatch = Schema.TaggedStruct("Dispatch", {
   sessionId: Schema.String,
   correlationId: Schema.String,
   command: DispatchCommand,
 })
 
+/**
+ * Schema for stable reasons a Studio dispatch can be rejected.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const DispatchFailureReason = Schema.Literals([
   "not-found",
   "factory-threw",
@@ -315,6 +426,12 @@ export const DispatchFailureReason = Schema.Literals([
   "disconnected",
 ])
 
+/**
+ * Schema for the correlated accepted or rejected result of a dispatch.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const DispatchOutcome = Schema.TaggedStruct("DispatchOutcome", {
   sessionId: Schema.String,
   correlationId: Schema.String,
@@ -327,17 +444,32 @@ export const DispatchOutcome = Schema.TaggedStruct("DispatchOutcome", {
   ]),
 })
 
-/** Sent by the application when the attachment scope closes. */
+/**
+ * Schema for the message sent when an application attachment closes normally.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SessionEnded = Schema.TaggedStruct("SessionEnded", {
   sessionId: Schema.String,
 })
 
-/** Sent by the server to viewers when a session's application connection drops. */
+/**
+ * Schema for the message sent to viewers when an application's connection drops.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SessionDisconnected = Schema.TaggedStruct("SessionDisconnected", {
   sessionId: Schema.String,
 })
 
-/** Sent by the receiver when a Hello announces an unsupported protocol version. */
+/**
+ * Schema for rejecting a session that announces an unsupported protocol version.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const SessionRejected = Schema.TaggedStruct("SessionRejected", {
   sessionId: Schema.String,
   supportedVersion: Schema.Number,
@@ -345,6 +477,17 @@ export const SessionRejected = Schema.TaggedStruct("SessionRejected", {
   message: Schema.String,
 })
 
+/**
+ * Schema for every message exchanged by applications, the Studio server, and viewers.
+ *
+ * **Details**
+ *
+ * Facts flow from applications to Studio, dispatches flow toward applications, and session
+ * lifecycle messages coordinate all peers. Viewer-only presentation state is intentionally absent.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const Message = Schema.Union([
   Hello,
   Fact,
@@ -355,20 +498,88 @@ export const Message = Schema.Union([
   SessionRejected,
 ])
 
+/**
+ * Decoded union of every protocol message.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type Message = Schema.Schema.Type<typeof Message>
+
+/**
+ * Decoded session announcement message.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type HelloMessage = Schema.Schema.Type<typeof Hello>
+
+/**
+ * Decoded sequenced fact message.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type FactMessage = Schema.Schema.Type<typeof Fact>
+
+/**
+ * Decoded union of protocol fact bodies.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type FactBodyMessage = Schema.Schema.Type<typeof FactBody>
+
+/**
+ * Decoded Studio dispatch request.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type DispatchMessage = Schema.Schema.Type<typeof Dispatch>
+
+/**
+ * Decoded result of a Studio dispatch request.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type DispatchOutcomeMessage = Schema.Schema.Type<typeof DispatchOutcome>
+
+/**
+ * Decoded stable reason for a rejected dispatch.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type DispatchFailure = Schema.Schema.Type<typeof DispatchFailureReason>
+
+/**
+ * Decoded metadata for a named quick-event control.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type QuickEventControlMessage = Schema.Schema.Type<typeof QuickEventControl>
 
+/**
+ * Schema that converts the full protocol message union to and from a JSON string.
+ *
+ * @category schemas
+ * @since 0.1.0
+ */
 export const MessageFromJsonString = Schema.fromJsonString(Message)
 
 /**
- * Bounds a fact log by folding the oldest fact into a `HistoryTruncated`
- * marker at the head, so a receiver always learns how much history is missing.
+ * Replaces the oldest fact with a cumulative history-truncation marker.
+ *
+ * **Details**
+ *
+ * Repeated truncation increments an existing head marker and removes the next fact, preserving the
+ * sequence position from which retained history begins. An empty log is returned unchanged.
+ *
+ * @category transforming
+ * @since 0.1.0
  */
 export const truncateOldest = (
   sessionId: string,
@@ -393,7 +604,34 @@ export const truncateOldest = (
   ]
 }
 
+/**
+ * Decodes an unknown value as a protocol message.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const decodeMessage = Schema.decodeUnknownEffect(Message)
+
+/**
+ * Encodes a decoded protocol message as plain data.
+ *
+ * @category encoding
+ * @since 0.1.0
+ */
 export const encodeMessage = Schema.encodeEffect(Message)
+
+/**
+ * Decodes a JSON string as a protocol message.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const decodeMessageString = Schema.decodeEffect(MessageFromJsonString)
+
+/**
+ * Encodes a protocol message as a JSON string.
+ *
+ * @category encoding
+ * @since 0.1.0
+ */
 export const encodeMessageString = Schema.encodeEffect(MessageFromJsonString)

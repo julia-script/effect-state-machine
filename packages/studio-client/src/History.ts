@@ -1,13 +1,19 @@
 import type * as Protocol from "./Protocol.js"
 
 /**
- * Folds a session's ordered facts into developer-sized semantic steps and
- * committed state positions. Pure: viewers feed facts in arrival order and
- * derive everything else (cursor, focus, rendering) themselves.
+ * Lifecycle status derived from an attached machine's fact log.
+ *
+ * @category models
+ * @since 0.1.0
  */
-
 export type Status = "running" | "completed" | "defected"
 
+/**
+ * Semantic category assigned to a history step.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type StepKind =
   | "machine"
   | "event"
@@ -17,6 +23,12 @@ export type StepKind =
   | "defect"
   | "activity"
 
+/**
+ * Lifecycle status assigned to an individual history step.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export type StepStatus =
   | "received"
   | "selected"
@@ -29,12 +41,24 @@ export type StepStatus =
   | "completed"
   | "defected"
 
+/**
+ * Guard or fallback branch recorded for a selected transition.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface SelectedBranch {
   readonly kind: "guard" | "otherwise"
   readonly index: number
   readonly name?: string
 }
 
+/**
+ * Developer-sized semantic action derived from one or more raw protocol facts.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Step {
   readonly index: number
   readonly kind: StepKind
@@ -52,17 +76,33 @@ export interface Step {
   readonly attempt?: number
   readonly delayMillis?: number
   readonly branch?: SelectedBranch
-  /** Indices into `facts` for the raw records folded into this step. */
+  /**
+   * Indices into `Model.facts` for the raw records folded into this step.
+   */
   readonly raw: ReadonlyArray<number>
 }
 
+/**
+ * One schema-encoded committed machine state in session history.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Position {
   readonly index: number
   readonly stateTag: string
-  /** The schema-encoded state committed at this position. */
+  /**
+   * Schema-encoded state committed at this position.
+   */
   readonly state: unknown
 }
 
+/**
+ * Pure projection of an ordered fact log into state positions and semantic steps.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Model {
   readonly status: Status
   readonly positions: ReadonlyArray<Position>
@@ -78,6 +118,12 @@ export interface Model {
   readonly children: ReadonlyMap<string, number>
 }
 
+/**
+ * Empty running history model used to begin an incremental fold.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const initial: Model = {
   status: "running",
   positions: [],
@@ -342,7 +388,17 @@ const foldInspection = (
   return withStep
 }
 
-/** Feeds one fact into the model, in arrival order. */
+/**
+ * Folds one fact into an existing history model.
+ *
+ * **Details**
+ *
+ * The operation is pure and expects facts in arrival order. It reconciles state commits with
+ * inspection facts even when the two streams arrive in either order.
+ *
+ * @category folding
+ * @since 0.1.0
+ */
 export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
   const factIndex = model.facts.length
   const next: Model = { ...model, facts: [...model.facts, fact] }
@@ -376,7 +432,17 @@ export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
   }
 }
 
-/** Folds an already-ordered fact log, e.g. a server replay. */
+/**
+ * Folds an already-ordered fact log into a new history model.
+ *
+ * **When to use**
+ *
+ * Use for server replay or other complete logs. Use {@link reduce} to update an existing model as
+ * facts arrive.
+ *
+ * @category folding
+ * @since 0.1.0
+ */
 export const fromFacts = (facts: Iterable<Protocol.FactMessage>): Model => {
   let model = initial
   for (const fact of facts) model = reduce(model, fact)

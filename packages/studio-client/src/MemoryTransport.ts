@@ -6,29 +6,57 @@ import type * as Protocol from "./Protocol.js"
 import { type Connection, type Transport, TransportError } from "./Transport.js"
 
 /**
- * An in-memory transport pair for tests: the client side implements
- * `StudioTransport`, the studio side observes everything the client sends and
- * can answer, refuse connections, or drop the live connection.
+ * Studio-side controls and observations for an in-memory transport pair.
+ *
+ * @category testing
+ * @since 0.1.0
  */
-
 export interface StudioDouble {
-  /** Every message the client has sent, in order. */
+  /**
+   * Every message the client has sent, in order.
+   */
   readonly received: Queue.Dequeue<Protocol.Message>
-  /** Sends a message to the currently connected client. */
+  /**
+   * Sends a message to the currently connected client.
+   */
   readonly send: (message: Protocol.Message) => Effect.Effect<void>
-  /** While offline, `connect` fails; going offline drops the live connection. */
+  /**
+   * Controls reachability; going offline also drops the live connection.
+   */
   readonly setOnline: (online: boolean) => Effect.Effect<void>
-  /** Drops the live connection without going offline. */
+  /**
+   * Drops the live connection without going offline.
+   */
   readonly dropConnection: Effect.Effect<void>
-  /** How many connections have been established so far. */
+  /**
+   * Number of connections established so far.
+   */
   readonly connectionCount: Effect.Effect<number>
 }
 
+/**
+ * Connected client transport and Studio test double created together.
+ *
+ * @category testing
+ * @since 0.1.0
+ */
 export interface Pair {
   readonly transport: Transport
   readonly studio: StudioDouble
 }
 
+/**
+ * Creates a scoped in-memory transport pair for deterministic tests.
+ *
+ * **Details**
+ *
+ * The client side implements {@link Transport}; the Studio side observes outbound messages, sends
+ * inbound messages, toggles availability, and drops connections. Opening a new connection closes
+ * the previous one.
+ *
+ * @category testing
+ * @since 0.1.0
+ */
 export const make: Effect.Effect<Pair> = Effect.gen(function* () {
   const received = yield* Queue.unbounded<Protocol.Message>()
   const online = yield* Ref.make(true)

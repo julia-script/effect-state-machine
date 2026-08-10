@@ -1,5 +1,11 @@
 import type * as Source from "./Source.js"
 
+/**
+ * One-based source position suitable for display or editor navigation.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface Location {
   readonly file: string
   readonly line: number
@@ -7,7 +13,24 @@ export interface Location {
   readonly functionName?: string
 }
 
+/**
+ * Maps a generated position to its authored source position.
+ *
+ * **Details**
+ *
+ * Returning `undefined` marks the generated position as untrustworthy and omits it from tooling.
+ *
+ * @category transforming
+ * @since 0.1.0
+ */
 export type Mapper = (generated: Location) => Location | undefined
+
+/**
+ * Converts a source location to an editor navigation link.
+ *
+ * @category converting
+ * @since 0.1.0
+ */
 export type EditorResolver = (location: Location) => string | undefined
 
 const internalFrame = (file: string): boolean =>
@@ -51,6 +74,17 @@ const location = (
   }
 }
 
+/**
+ * Parses a Node- or browser-style stack frame into a validated source location.
+ *
+ * **Details**
+ *
+ * Node internals, anonymous frames, HTML document frames, and non-positive positions are rejected.
+ * File URLs are decoded to filesystem paths.
+ *
+ * @category decoding
+ * @since 0.1.0
+ */
 export const parseFrame = (frame: string): Location | undefined => {
   const trimmed = frame.trim()
   const nodeWithFunction = /^at\s+(.+?)\s+\((.+):(\d+):(\d+)\)$/.exec(trimmed)
@@ -69,6 +103,17 @@ export const parseFrame = (frame: string): Location | undefined => {
   return undefined
 }
 
+/**
+ * Resolves the first trustworthy authored location from a captured source reference.
+ *
+ * **Details**
+ *
+ * Internal library frames are skipped before and after optional mapping. Resolution is best-effort
+ * and returns `undefined` when no usable frame remains.
+ *
+ * @category converting
+ * @since 0.1.0
+ */
 export const resolve = (
   reference: Source.Reference | undefined,
   options?: Readonly<{ map?: Mapper }>,
@@ -90,5 +135,18 @@ const editorLink = (scheme: "vscode" | "cursor", source: Location): string => {
   return `${scheme}://file${encodeURI(path)}:${source.line}:${source.column}`
 }
 
+/**
+ * Resolves a source location to a VS Code `vscode://file` link.
+ *
+ * @category converting
+ * @since 0.1.0
+ */
 export const vscode: EditorResolver = (source) => editorLink("vscode", source)
+
+/**
+ * Resolves a source location to a Cursor `cursor://file` link.
+ *
+ * @category converting
+ * @since 0.1.0
+ */
 export const cursor: EditorResolver = (source) => editorLink("cursor", source)

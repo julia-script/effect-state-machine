@@ -4,12 +4,11 @@ import { Graph, type SourceLocation } from "effect-state-machine/devtools"
 import * as Protocol from "./Protocol.js"
 
 /**
- * Builds the self-describing session announcement from a machine definition.
- * Everything Studio needs to render the machine — graph, descriptions, source
- * locations, JSON Schemas — is derived here, application-side, so the wire
- * carries only plain data.
+ * Inputs used to build a self-describing Studio session announcement.
+ *
+ * @category configuration
+ * @since 0.1.0
  */
-
 export interface MakeOptions {
   readonly definition: Machine.DefinitionMetadata
   readonly sessionId: string
@@ -37,6 +36,18 @@ const jsonSchemas = (
   return documents
 }
 
+/**
+ * Builds the initial Studio protocol announcement from a machine definition.
+ *
+ * **Details**
+ *
+ * Graph metadata, source locations, and per-case JSON Schemas are derived application-side so the
+ * wire message contains only plain data. JSON Schema derivation is best-effort: cases that cannot
+ * be represented are omitted rather than failing the announcement.
+ *
+ * @category constructors
+ * @since 0.1.0
+ */
 export const make = (options: MakeOptions): Protocol.HelloMessage => ({
   _tag: "Hello",
   protocolVersion: Protocol.VERSION,
