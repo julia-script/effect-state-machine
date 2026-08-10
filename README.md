@@ -41,12 +41,22 @@ class Greeter extends Context.Service<
 >()("app/Greeter") {}
 
 const Input = Schema.Struct({ name: Schema.String })
-const Loading = Schema.TaggedStruct("Loading", { name: Schema.String })
-const Done = Schema.TaggedStruct("Done", { message: Schema.String })
-const Failed = Schema.TaggedStruct("Failed", { message: Schema.String })
-const State = Schema.Union([Loading, Done, Failed]).pipe(Schema.toTaggedUnion("_tag"))
+const State = Machine.taggedUnion({
+  Loading: {
+    fields: { name: Schema.String },
+    description: "Load a greeting through the injected service.",
+  },
+  Done: {
+    fields: { message: Schema.String },
+    description: "Complete with the generated greeting.",
+  },
+  Failed: {
+    fields: { message: Schema.String },
+    description: "Complete with an expected greeting failure.",
+  },
+})
 const Cancel = Schema.TaggedStruct("Cancel", {})
-const Event = Schema.Union([Cancel]).pipe(Schema.toTaggedUnion("_tag"))
+const Event = Schema.Union([Cancel])
 
 const greeting = Machine.builder({ input: Input, state: State, event: Event })
 
@@ -89,6 +99,11 @@ const result = await Effect.runPromise(program)
 
 `Machine.run` infers `Greeter` from the definition. A test, server, browser application, or Effect
 Atom integration can provide a different Layer without changing the machine.
+
+`Machine.builder` accepts Effect's native `Schema.TaggedUnion`, an ordinary `Schema.Union` of
+tagged structs, or `Machine.taggedUnion`. The helper is optional; it keeps each case's fields,
+title, and description together and produces an ordinary Effect Schema. The builder adds tagged
+union utilities internally when an ordinary union is supplied.
 
 ## Read-only graph
 

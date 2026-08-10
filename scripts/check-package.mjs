@@ -79,12 +79,22 @@ class Greeter extends Context.Service<Greeter, Readonly<{
 }>>()("consumer/Greeter") {}
 
 const Input = Schema.Struct({ name: Schema.String })
-const Loading = Schema.TaggedStruct("Loading", { name: Schema.String })
-const Done = Schema.TaggedStruct("Done", { message: Schema.String })
-const Failed = Schema.TaggedStruct("Failed", { message: Schema.String })
-const State = Schema.Union([Loading, Done, Failed]).pipe(Schema.toTaggedUnion("_tag"))
+const State = Machine.taggedUnion({
+  Loading: {
+    fields: { name: Schema.String },
+    description: "Load a greeting through the injected service.",
+  },
+  Done: {
+    fields: { message: Schema.String },
+    description: "Complete with the generated greeting.",
+  },
+  Failed: {
+    fields: { message: Schema.String },
+    description: "Complete with an expected greeting failure.",
+  },
+})
 const Cancel = Schema.TaggedStruct("Cancel", {})
-const Event = Schema.Union([Cancel]).pipe(Schema.toTaggedUnion("_tag"))
+const Event = Schema.Union([Cancel])
 const greeting = Machine.builder({ input: Input, state: State, event: Event })
 
 export const definition = greeting.make({

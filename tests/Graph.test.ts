@@ -8,17 +8,18 @@ const Input = Schema.Struct({ count: Schema.Number }).annotate({
   description: "The initial counter value.",
 })
 
-const Active = Schema.TaggedStruct("Active", { count: Schema.Number }).annotate({
-  title: "Active counter",
-  description: "Accepts counter updates.",
+const State = Machine.taggedUnion({
+  Active: {
+    fields: { count: Schema.Number },
+    title: "Active counter",
+    description: "Accepts counter updates.",
+  },
+  Paused: {
+    fields: { count: Schema.Number },
+    title: "Paused counter",
+    description: "Waits until work resumes.",
+  },
 })
-
-const Paused = Schema.TaggedStruct("Paused", { count: Schema.Number }).annotate({
-  title: "Paused counter",
-  description: "Waits until work resumes.",
-})
-
-const State = Schema.Union([Active, Paused]).pipe(Schema.toTaggedUnion("_tag"))
 
 const Pause = Schema.TaggedStruct("Pause", {}).annotate({
   description: "Pause counter updates.",
@@ -28,7 +29,7 @@ const Resume = Schema.TaggedStruct("Resume", {}).annotate({
   description: "Resume counter updates.",
 })
 
-const Event = Schema.Union([Pause, Resume]).pipe(Schema.toTaggedUnion("_tag"))
+const Event = Schema.Union([Pause, Resume])
 const counter = Machine.builder({ input: Input, state: State, event: Event })
 let initializerCalls = 0
 

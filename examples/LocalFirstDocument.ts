@@ -49,30 +49,33 @@ const ConflictInput = Schema.Struct({
   localText: Schema.String,
   remoteText: Schema.String,
 })
-const ChoosingResolution = Schema.TaggedStruct("ChoosingResolution", {
-  localText: Schema.String,
-  remoteText: Schema.String,
-}).annotate({
-  description: "Wait for the application to choose a merged document.",
+const ConflictState = Machine.taggedUnion({
+  ChoosingResolution: {
+    fields: {
+      localText: Schema.String,
+      remoteText: Schema.String,
+    },
+    description: "Wait for the application to choose a merged document.",
+  },
+  ConflictResolved: {
+    fields: { text: Schema.String },
+    description: "Return the chosen merged text to the document session.",
+  },
+  ConflictAborted: {
+    fields: {},
+    description: "Return without replacing the local document.",
+  },
 })
-const ConflictResolved = Schema.TaggedStruct("ConflictResolved", {
-  text: Schema.String,
-}).annotate({ description: "Return the chosen merged text to the document session." })
-const ConflictAborted = Schema.TaggedStruct("ConflictAborted", {}).annotate({
-  description: "Return without replacing the local document.",
+const ConflictEvent = Machine.taggedUnion({
+  ChooseResolution: {
+    fields: { text: Schema.String },
+    description: "Accept a merged version of the document.",
+  },
+  AbortResolution: {
+    fields: {},
+    description: "Keep the local version and leave conflict resolution.",
+  },
 })
-const ConflictState = Schema.Union([ChoosingResolution, ConflictResolved, ConflictAborted]).pipe(
-  Schema.toTaggedUnion("_tag"),
-)
-const ChooseResolution = Schema.TaggedStruct("ChooseResolution", {
-  text: Schema.String,
-}).annotate({ description: "Accept a merged version of the document." })
-const AbortResolution = Schema.TaggedStruct("AbortResolution", {}).annotate({
-  description: "Keep the local version and leave conflict resolution.",
-})
-const ConflictEvent = Schema.Union([ChooseResolution, AbortResolution]).pipe(
-  Schema.toTaggedUnion("_tag"),
-)
 
 const conflict = Machine.builder({
   input: ConflictInput,
@@ -109,97 +112,110 @@ export const ConflictResolution = conflict.make({
 const Input = Schema.Struct({ documentId: Schema.String }).annotate({
   description: "Select the one document owned by this session.",
 })
-const Opening = Schema.TaggedStruct("Opening", { documentId: Schema.String }).annotate({
-  description: "Load the local document through the injected Documents service.",
-})
-const Editing = Schema.TaggedStruct("Editing", {
-  documentId: Schema.String,
-  text: Schema.String,
-  revision: Schema.Number,
-  dirty: Schema.Boolean,
-}).annotate({ description: "Accept local edits and choose when to save or go offline." })
-const Saving = Schema.TaggedStruct("Saving", {
-  documentId: Schema.String,
-  text: Schema.String,
-  revision: Schema.Number,
-  online: Schema.Boolean,
-}).annotate({ description: "Persist the current text to local storage." })
-const Syncing = Schema.TaggedStruct("Syncing", {
-  documentId: Schema.String,
-  text: Schema.String,
-  revision: Schema.Number,
-}).annotate({ description: "Synchronize a locally saved revision with the remote service." })
-const Offline = Schema.TaggedStruct("Offline", {
-  documentId: Schema.String,
-  text: Schema.String,
-  revision: Schema.Number,
-  dirty: Schema.Boolean,
-  pendingSync: Schema.Boolean,
-}).annotate({ description: "Continue local work while remote synchronization is unavailable." })
-const ResolvingConflict = Schema.TaggedStruct("ResolvingConflict", {
-  documentId: Schema.String,
-  localText: Schema.String,
-  remoteText: Schema.String,
-  revision: Schema.Number,
-}).annotate({ description: "Own one scoped conflict-resolution child machine." })
-const OpeningFailed = Schema.TaggedStruct("OpeningFailed", {
-  documentId: Schema.String,
-  message: Schema.String,
-}).annotate({ description: "Finish after an expected local open failure." })
-const SavingFailed = Schema.TaggedStruct("SavingFailed", {
-  documentId: Schema.String,
-  message: Schema.String,
-}).annotate({ description: "Finish after an expected local save failure." })
-const Closed = Schema.TaggedStruct("Closed", { documentId: Schema.String }).annotate({
-  description: "Finish the document session and release all owned work.",
+const State = Machine.taggedUnion({
+  Opening: {
+    fields: { documentId: Schema.String },
+    description: "Load the local document through the injected Documents service.",
+  },
+  Editing: {
+    fields: {
+      documentId: Schema.String,
+      text: Schema.String,
+      revision: Schema.Number,
+      dirty: Schema.Boolean,
+    },
+    description: "Accept local edits and choose when to save or go offline.",
+  },
+  Saving: {
+    fields: {
+      documentId: Schema.String,
+      text: Schema.String,
+      revision: Schema.Number,
+      online: Schema.Boolean,
+    },
+    description: "Persist the current text to local storage.",
+  },
+  Syncing: {
+    fields: {
+      documentId: Schema.String,
+      text: Schema.String,
+      revision: Schema.Number,
+    },
+    description: "Synchronize a locally saved revision with the remote service.",
+  },
+  Offline: {
+    fields: {
+      documentId: Schema.String,
+      text: Schema.String,
+      revision: Schema.Number,
+      dirty: Schema.Boolean,
+      pendingSync: Schema.Boolean,
+    },
+    description: "Continue local work while remote synchronization is unavailable.",
+  },
+  ResolvingConflict: {
+    fields: {
+      documentId: Schema.String,
+      localText: Schema.String,
+      remoteText: Schema.String,
+      revision: Schema.Number,
+    },
+    description: "Own one scoped conflict-resolution child machine.",
+  },
+  OpeningFailed: {
+    fields: {
+      documentId: Schema.String,
+      message: Schema.String,
+    },
+    description: "Finish after an expected local open failure.",
+  },
+  SavingFailed: {
+    fields: {
+      documentId: Schema.String,
+      message: Schema.String,
+    },
+    description: "Finish after an expected local save failure.",
+  },
+  Closed: {
+    fields: { documentId: Schema.String },
+    description: "Finish the document session and release all owned work.",
+  },
 })
 
-const State = Schema.Union([
-  Opening,
-  Editing,
-  Saving,
-  Syncing,
-  Offline,
-  ResolvingConflict,
-  OpeningFailed,
-  SavingFailed,
-  Closed,
-]).pipe(Schema.toTaggedUnion("_tag"))
-
-const Edit = Schema.TaggedStruct("Edit", { text: Schema.String }).annotate({
-  description: "Replace the current local text.",
+const Event = Machine.taggedUnion({
+  Edit: {
+    fields: { text: Schema.String },
+    description: "Replace the current local text.",
+  },
+  Save: {
+    fields: {},
+    description: "Persist local edits and synchronize when online.",
+  },
+  GoOffline: {
+    fields: {},
+    description: "Stop remote work and continue locally.",
+  },
+  GoOnline: {
+    fields: {},
+    description: "Resume remote synchronization when needed.",
+  },
+  Cancel: {
+    fields: {},
+    description: "Cancel work owned by the current state.",
+  },
+  ResolveConflict: {
+    fields: { text: Schema.String },
+    description: "Forward a merged document to the conflict child.",
+  },
+  AbortConflict: {
+    fields: {},
+    description: "Forward an abort decision to the conflict child.",
+  },
+  Close: {
+    fields: {},
+    description: "Finish the document session.",
+  },
 })
-const Save = Schema.TaggedStruct("Save", {}).annotate({
-  description: "Persist local edits and synchronize when online.",
-})
-const GoOffline = Schema.TaggedStruct("GoOffline", {}).annotate({
-  description: "Stop remote work and continue locally.",
-})
-const GoOnline = Schema.TaggedStruct("GoOnline", {}).annotate({
-  description: "Resume remote synchronization when needed.",
-})
-const Cancel = Schema.TaggedStruct("Cancel", {}).annotate({
-  description: "Cancel work owned by the current state.",
-})
-const ResolveConflict = Schema.TaggedStruct("ResolveConflict", { text: Schema.String }).annotate({
-  description: "Forward a merged document to the conflict child.",
-})
-const AbortConflict = Schema.TaggedStruct("AbortConflict", {}).annotate({
-  description: "Forward an abort decision to the conflict child.",
-})
-const Close = Schema.TaggedStruct("Close", {}).annotate({
-  description: "Finish the document session.",
-})
-const Event = Schema.Union([
-  Edit,
-  Save,
-  GoOffline,
-  GoOnline,
-  Cancel,
-  ResolveConflict,
-  AbortConflict,
-  Close,
-]).pipe(Schema.toTaggedUnion("_tag"))
 
 const syncRetry = Schedule.recurs(2).pipe(
   Schedule.addDelay(() => Effect.succeed("1 minute")),

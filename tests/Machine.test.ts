@@ -23,7 +23,7 @@ const Paused = Schema.TaggedStruct("Paused", {
   description: "Keeps the counter stable until resumed.",
 })
 
-const CounterState = Schema.Union([Active, Paused]).pipe(Schema.toTaggedUnion("_tag"))
+const CounterState = Schema.Union([Active, Paused])
 
 const Increment = Schema.TaggedStruct("Increment", {
   amount: Schema.Number,
@@ -37,7 +37,7 @@ const Resume = Schema.TaggedStruct("Resume", {}).annotate({
   description: "Accept updates again.",
 })
 
-const CounterEvent = Schema.Union([Increment, Pause, Resume]).pipe(Schema.toTaggedUnion("_tag"))
+const CounterEvent = Schema.Union([Increment, Pause, Resume])
 
 const counter = Machine.builder({
   input: CounterInput,

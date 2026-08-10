@@ -21,6 +21,53 @@ export type TaggedSchema = Schema.Top &
     Type: Tagged
     cases: Readonly<Record<string, Schema.Top>>
   }>
+
+type TaggedUnionMember = Schema.Top & Readonly<{ Type: Tagged }>
+type TaggedSchemaSource = TaggedSchema | Schema.Union<ReadonlyArray<TaggedUnionMember>>
+
+type NormalizedTaggedSchema<Source extends TaggedSchemaSource> = Source extends TaggedSchema
+  ? Source
+  : Source extends Schema.Union<infer Members extends ReadonlyArray<TaggedUnionMember>>
+    ? Schema.toTaggedUnion<"_tag", Members>
+    : never
+
+export interface TaggedUnionCase<Fields extends Schema.Struct.Fields = Schema.Struct.Fields> {
+  readonly fields: Fields
+  readonly title?: string
+  readonly description?: string
+}
+
+type TaggedUnionCases<Cases extends Readonly<Record<string, TaggedUnionCase>>> = {
+  readonly [Tag in keyof Cases & string]: Schema.TaggedStruct<Tag, Cases[Tag]["fields"]>
+}
+
+export type TaggedUnion<Cases extends Readonly<Record<string, TaggedUnionCase>>> =
+  Schema.TaggedUnion<TaggedUnionCases<Cases>>
+
+/** Builds an Effect tagged union whose individual cases retain graphable metadata. */
+export const taggedUnion = <const Cases extends Readonly<Record<string, TaggedUnionCase>>>(
+  cases: Cases,
+): TaggedUnion<Cases> => {
+  const members = Object.entries(cases).map(([tag, definition]) => {
+    const member = Schema.TaggedStruct(tag, definition.fields)
+    return definition.title === undefined && definition.description === undefined
+      ? member
+      : member.annotate({
+          ...(definition.title === undefined ? {} : { title: definition.title }),
+          ...(definition.description === undefined ? {} : { description: definition.description }),
+        })
+  })
+
+  return Schema.Union(members).pipe(Schema.toTaggedUnion("_tag")) as unknown as TaggedUnion<Cases>
+}
+
+const normalizeTaggedSchema = <Source extends TaggedSchemaSource>(
+  schema: Source,
+): NormalizedTaggedSchema<Source> =>
+  ("cases" in schema
+    ? schema
+    : schema.pipe(Schema.toTaggedUnion("_tag"))) as NormalizedTaggedSchema<Source>
+
 type TagOf<Value extends Tagged> = Value["_tag"]
 type ByTag<Value extends Tagged, Tag extends string> = Extract<Value, { _tag: Tag }>
 
@@ -675,17 +722,29 @@ export const encodeEvent = <EventSchema extends Schema.Top>(
 
 export const builder = <
   const InputSchema extends Schema.Top,
-  const StateSchema extends TaggedSchema,
-  const EventSchema extends TaggedSchema,
+  const StateSchemaSource extends TaggedSchemaSource,
+  const EventSchemaSource extends TaggedSchemaSource,
 >(
-  schemas: Readonly<{
+  schemaSources: Readonly<{
+    input: InputSchema
+    state: StateSchemaSource
+    event: EventSchemaSource
+  }>,
+) => {
+  type StateSchema = NormalizedTaggedSchema<StateSchemaSource>
+  type EventSchema = NormalizedTaggedSchema<EventSchemaSource>
+  type State = Schema.Schema.Type<StateSchema>
+  type Event = Schema.Schema.Type<EventSchema>
+
+  const schemas: Readonly<{
     input: InputSchema
     state: StateSchema
     event: EventSchema
-  }>,
-) => {
-  type State = Schema.Schema.Type<StateSchema>
-  type Event = Schema.Schema.Type<EventSchema>
+  }> = {
+    input: schemaSources.input,
+    state: normalizeTaggedSchema(schemaSources.state),
+    event: normalizeTaggedSchema(schemaSources.event),
+  }
 
   const state = <Current extends TagOf<State>>(
     tag: Current,
