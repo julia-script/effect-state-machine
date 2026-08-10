@@ -13,10 +13,8 @@ definition provides a trustworthy read-only graph and semantic runtime inspectio
 not an XState clone, visual programming environment, framework integration layer, or second
 workflow engine.
 
-**Current objective:** prove that the graph and inspection model can orient a developer in an
-unfamiliar, application-scale machine — measured by visualizing a second machine without
-machine-specific UI code and interactively inspecting live and historical behavior through focused
-graph views, quick events, and semantic history.
+**Current objective:** use the completed core and devtools milestone in one external Effect
+application and learn where the public API creates real friction.
 
 ## Column rules
 
@@ -24,7 +22,7 @@ graph views, quick events, and semantic history.
 - **Next** — problem chosen and understood; solution still in discovery. Planned, not promised.
 - **Later** — problem worth solving, no solution chosen. Options, not a queue.
 
-## Now
+## Completed
 
 ### Milestone 2 — Interactive developer exploration
 
@@ -46,16 +44,16 @@ graph views, quick events, and semantic history.
   cross-context browser or Node transport remains later adapter work. A second substantial machine
   and a large synthetic fixture prove the experience without rendering the entire graph at once.
   Core imports remain free of session, UI, layout, and renderer code.
-- **Status:** shaped — the current workbench, graph model, and inspection stream provide the tracer
-  bullet; the generic session, history, quick-event, source-capture, and projection boundaries are
-  agreed and ready for specification.
+- **Status:** complete — the generic session, semantic/raw history, quick events, cursor navigation,
+  focused graph, automatic source navigation, optional viewer, checkout proof, and 100-state fixture
+  ship behind isolated package entry points.
 - **Appetite:** worth ~1–2 focused weeks. New runtime semantics enter only if the proof machine
   cannot express honest behavior without them.
 - **Links:** [`src/Graph.ts`](../src/Graph.ts) · [`src/Machine.ts`](../src/Machine.ts) ·
   [`examples/local-first-document-page.ts`](../examples/local-first-document-page.ts) ·
   [`docs/capability-matrix.md`](../docs/capability-matrix.md)
 
-## Next
+## Now
 
 ### First use outside the reference repository
 
@@ -66,6 +64,8 @@ graph views, quick events, and semantic history.
 - **Confidence:** high
 - **Assumes:** an appropriate Effect application or bounded workflow is available — unvalidated.
 - **Open questions:** package name, prerelease channel, and what feedback constitutes API stability.
+
+## Next
 
 ### Semantic gaps revealed by real applications
 
@@ -144,6 +144,11 @@ Reserve roughly 20% of each milestone for compatibility and interpreter legibili
 - What permanent package and project name should replace the working name?
 
 ## Changelog
+
+- 2026-08-10: Completed Milestone 2 with an Effect-native one-root devtools session, generic compact
+  viewer, semantic/raw history, observational cursor, quick-event factories, focused graphs,
+  declaration-level source links, checkout proof, 100-state stress fixture, and isolated package
+  surfaces. Moved first external use into Now.
 
 - 2026-08-09: Created after completing Milestone 1. The first milestone shipped the Schema-first
   interpreter, Effect invocation and retry, static children, inspection, renderer-independent graph,

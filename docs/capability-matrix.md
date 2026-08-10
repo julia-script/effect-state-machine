@@ -21,6 +21,13 @@ fixture. “Reference” means [`LocalFirstDocument.test.ts`](../tests/LocalFirs
 | Compact Mermaid rendering from the graph model | Reference; `Graph.test.ts` |
 | Effect-native handle with no Promise, runtime, or framework binding | All runtime fixtures; API prototype check |
 | Synchronously inspectable definitions that do not execute Effects | `Graph.test.ts`; API prototype check |
+| Scoped one-root devtools session with metadata privacy and optional state projection | `DevToolsSession.test.ts` |
+| Semantic/raw history, live-head and non-mutating cursor navigation | `DevToolsSession.test.ts` |
+| Fixed and factory quick events with typed control failures | `DevToolsSession.test.ts` |
+| Depth-one, depth-two, and full graph projections with stable activity overlays | `Graph.test.ts`; `LargeMachine.test.ts` |
+| Automatic source capture, mapping, and Cursor/VS Code/custom links | `SourceLocation.test.ts` |
+| Generic viewer across document, checkout, and large machines | `Checkout.test.ts`; `LargeMachine.test.ts`; browser smoke pass |
+| Core, renderer-independent devtools, and optional DOM viewer package isolation | packed consumer check |
 
-Hierarchy, parallel regions, dynamic spawning, durable persistence, replay, and framework bindings
-have no v0 capability promise and no speculative implementation.
+Hierarchy, parallel regions, dynamic spawning, durable persistence, replay, simulations, transports,
+telemetry correlation, and framework bindings have no v0 capability promise.

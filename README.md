@@ -123,6 +123,59 @@ is the initial compact renderer; it does not attempt to reconstruct opaque Effec
 internals. Run `pnpm build` in this repository to regenerate
 `dist/reference-workflow.mmd`, a read-only diagram of the integrated example.
 
+## Interactive devtools
+
+Devtools attach to one externally owned machine handle. Attaching is scoped, begins observing before
+it returns, and does not create a runtime or take ownership of the machine:
+
+```ts
+import { Effect } from "effect"
+import { Machine } from "effect-state-machine"
+import { Session } from "effect-state-machine/devtools"
+import { Viewer } from "effect-state-machine/devtools/viewer"
+
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    const handle = yield* Machine.run(definition, input)
+    const session = yield* Session.attach({
+      definition,
+      handle,
+      projectState: (state) => ({ title: "title" in state ? state.title : undefined }),
+      quickEvents: [
+        { id: "save", label: "Save", event: { _tag: "Save" } },
+        {
+          id: "random-edit",
+          label: "Random edit",
+          make: () => ({ _tag: "Edit", text: crypto.randomUUID() }),
+        },
+      ],
+    })
+
+    yield* Viewer.mount({ session, container: document.querySelector("#devtools")! })
+  }),
+)
+```
+
+The renderer-independent `Session` API exposes Effects for reads and controls plus a Stream of
+immutable views. A view contains metadata-only semantic history, expandable raw inspection records,
+quick-event metadata, committed positions, a live head, a movable history cursor, and depth-one,
+depth-two, or full graph projections. Moving the cursor only changes the snapshot being inspected;
+it is not replay, undo, or a repetition of external Effects. New live commits continue to append
+while the cursor is historical, and `returnToLive` selects the newest recorded position.
+
+Quick-event factories are synchronous and run exactly once per dispatch. The materialized event is
+checked with `can` immediately before the real handle's `send`. Source locations are captured
+automatically and best-effort; the viewer supports Cursor by default, VS Code, or a custom editor
+resolver, and omits a link when it cannot identify a trustworthy authored location.
+
+Full state and event payloads are excluded by default. `projectState` is the explicit local opt-in
+for details safe to retain and display. Importing `effect-state-machine` loads no devtools code;
+importing `effect-state-machine/devtools` loads no DOM viewer. The optional viewer is isolated at
+`effect-state-machine/devtools/viewer`.
+
+Milestone 2 deliberately excludes named paths, event replay, failure/latency simulation, child or
+actor topology, cross-context transports, persistence, and telemetry correlation.
+
 ### Interactive reference workbench
 
 `pnpm build` also creates `dist/local-first-document.html`, a standalone browser page for the same
@@ -130,6 +183,11 @@ local-first document definition used by the tests. It can swap `Documents` and `
 Layers, exercise typed failures, advance an Effect `TestClock` through the retry Schedule, resolve
 the scoped conflict child, and inspect both focused and complete graph views. The page owns its
 `ManagedRuntime` and Promise bridge; the machine handle remains Effect-native.
+
+It also creates `dist/interactive-devtools.html`, the generic direct-session explorer. Use
+`?fixture=checkout`, `?fixture=document`, or `?fixture=large`; add `&mode=standalone` to hide the host
+application panel. The large fixture is a real 100-state, 400-edge machine whose bounded default
+projection avoids mounting the full topology until requested.
 
 ## Runtime contract
 

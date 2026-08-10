@@ -9,33 +9,44 @@ live execution continues; 04 — Dispatch quick events from devtools setup; 05 �
 projections interactively; 06 — Jump automatically from behavior to source code; 07 — Prove one
 generic viewer across machines and hosts; 08 — Keep large and full-screen sessions navigable
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Public package entry points preserve distinct core, renderer-independent devtools, and optional
+- [x] Public package entry points preserve distinct core, renderer-independent devtools, and optional
       viewer dependency boundaries.
-- [ ] Core imports do not evaluate or bundle session, Mermaid, source-map, editor, layout,
+- [x] Core imports do not evaluate or bundle session, Mermaid, source-map, editor, layout,
       graph-canvas, UI-framework, or viewer modules.
-- [ ] Renderer-independent devtools imports do not evaluate or bundle the optional viewer, layout,
+- [x] Renderer-independent devtools imports do not evaluate or bundle the optional viewer, layout,
       graph-canvas, or UI-framework modules.
-- [ ] Generated declarations expose the documented Effect-native session, history, quick-event,
+- [x] Generated declarations expose the documented Effect-native session, history, quick-event,
       graph-projection, source-location, and editor-resolver contracts.
-- [ ] The package remains ESM and side-effect-free, and source maps and declarations are generated
+- [x] The package remains ESM and side-effect-free, and source maps and declarations are generated
       for every published library entry point.
-- [ ] The throwaway scenario-viewer prototype remains evidence and is excluded from published
+- [x] The throwaway scenario-viewer prototype remains evidence and is excluded from published
       library artifacts.
-- [ ] User documentation explains installation, session setup, embedded viewing, quick events,
+- [x] User documentation explains installation, session setup, embedded viewing, quick events,
       history cursor versus live head, state projection, focus depth, source navigation, and
       metadata/privacy defaults.
-- [ ] Documentation explicitly distinguishes historical inspection from replay or undo and lists
+- [x] Documentation explicitly distinguishes historical inspection from replay or undo and lists
       named paths, simulations, child topology, transports, persistence, and telemetry as excluded.
-- [ ] A clean temporary pnpm consumer installs the packed artifact, runs a real machine, attaches a
+- [x] A clean temporary pnpm consumer installs the packed artifact, runs a real machine, attaches a
       session, dispatches a quick event, observes history, projects a focused graph, and type-checks
       without repository source access.
-- [ ] Bundle-metafile inspection proves core and renderer-independent dependency isolation from the
+- [x] Bundle-metafile inspection proves core and renderer-independent dependency isolation from the
       clean consumer's perspective.
-- [ ] Compatibility with the pinned Effect beta and supported TypeScript/toolchain versions is
+- [x] Compatibility with the pinned Effect beta and supported TypeScript/toolchain versions is
       explicit and verified.
-- [ ] Formatting, type checking, declaration generation, package verification, semantic tests,
+- [x] Formatting, type checking, declaration generation, package verification, semantic tests,
       proof-machine tests, large-fixture checks, and browser acceptance all pass from a clean install.
-- [ ] Capability documentation and the project roadmap reflect the shipped behavior and retain
+- [x] Capability documentation and the project roadmap reflect the shipped behavior and retain
       deferred work in later milestones rather than silently expanding Milestone 2.
+
+## Answer
+
+Published three side-effect-free ESM boundaries: core, renderer-independent devtools, and the
+optional DOM viewer. Declaration maps and source maps are emitted for each. The packed-consumer check
+now installs the tarball, runs a real machine, attaches a session, dispatches a quick event, observes
+semantic history, projects a focused graph, type-checks the viewer entry point, and inspects bundle
+metafiles to prove core and devtools do not pull in higher layers. README, capability evidence, and
+the roadmap now document the shipped contracts, privacy defaults, observational cursor, browser
+proof fixtures, compatibility pins, and deliberately deferred replay, simulation, topology,
+transport, persistence, and telemetry work.

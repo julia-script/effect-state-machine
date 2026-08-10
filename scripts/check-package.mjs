@@ -26,6 +26,9 @@ try {
   const contents = execute("tar", ["-tf", archive])
   assert.match(contents, /package\/dist\/index\.d\.ts/)
   assert.match(contents, /package\/dist\/devtools\.js/)
+  assert.match(contents, /package\/dist\/devtools-viewer\.js/)
+  assert.match(contents, /package\/dist\/devtools-viewer\.d\.ts/)
+  assert.match(contents, /package\/dist\/devtools-viewer\.js\.map/)
   assert.doesNotMatch(contents, /prototype|src\/main|todo-effect-machine/)
 
   await writeFile(
@@ -137,12 +140,49 @@ await Effect.runPromise(program)
   )
   await writeFile(
     join(consumer, "tooling.ts"),
-    `import { Graph, Mermaid } from "effect-state-machine/devtools"
+    `import { Effect, Schema, Stream } from "effect"
+import { Machine } from "effect-state-machine"
+import { Graph, Mermaid, Session } from "effect-state-machine/devtools"
 import { definition } from "./core.js"
 
 const graph = Graph.fromDefinition(definition)
 const source = Mermaid.render(graph)
 if (!source.includes("stateDiagram-v2")) throw new Error("missing Mermaid graph")
+
+const Input = Schema.Struct({})
+const State = Machine.taggedUnion({ Active: { fields: { count: Schema.Number } } })
+const Event = Machine.taggedUnion({ Increment: { fields: { amount: Schema.Number } } })
+const counter = Machine.builder({ input: Input, state: State, event: Event })
+const counterDefinition = counter.make({
+  id: "packed-counter",
+  initial: () => ({ _tag: "Active", count: 0 }),
+  nodes: [counter.state("Active", { on: { Increment: {
+    target: "Active",
+    reduce: ({ state, event }) => ({ ...state, count: state.count + event.amount }),
+  } } })],
+})
+await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+  const handle = yield* Machine.run(counterDefinition, {})
+  const session = yield* Session.attach({
+    definition: counterDefinition,
+    handle,
+    quickEvents: [{ id: "increment", label: "Increment", event: { _tag: "Increment", amount: 2 } }],
+  })
+  yield* session.dispatchQuickEvent("increment")
+  const observed = yield* Stream.runHead(session.changes.pipe(Stream.filter((view) => view.liveHead === 1)))
+  if (observed._tag !== "Some" || observed.value.history.semantic.length !== 2) {
+    throw new Error("missing session history")
+  }
+  if (Graph.focus(observed.value.graph, "Active", 1).nodes.length !== 1) {
+    throw new Error("missing focused graph")
+  }
+})))
+`,
+  )
+  await writeFile(
+    join(consumer, "viewer.ts"),
+    `import { Viewer } from "effect-state-machine/devtools/viewer"
+void Viewer.mount
 `,
   )
 
@@ -184,8 +224,16 @@ if (!source.includes("stateDiagram-v2")) throw new Error("missing Mermaid graph"
       "--platform=node",
       "--format=esm",
       "--outfile=tooling.mjs",
+      "--metafile=tooling-meta.json",
     ],
     consumer,
+  )
+  const toolingMetadata = JSON.parse(await readFile(join(consumer, "tooling-meta.json"), "utf8"))
+  assert.deepEqual(
+    Object.keys(toolingMetadata.inputs).filter((input) =>
+      /effect-state-machine\/dist\/(DevToolsViewer|devtools-viewer)\.js$/.test(input),
+    ),
+    [],
   )
   execute("node", ["tooling.mjs"], consumer)
 
