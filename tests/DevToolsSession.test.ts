@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
@@ -167,6 +168,99 @@ describe("DevToolsSession", () => {
         assert.strictEqual((yield* session.view).cursor, 2)
         assert.strictEqual(yield* session.selectPosition(99), false)
         assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 3 })
+      }),
+    ),
+  )
+
+  it.effect(
+    "dispatches fixed and fresh quick events without evaluating factories during reads",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let factoryCalls = 0
+          const handle = yield* Machine.run(counterDefinition, { count: 0 })
+          const session = yield* DevToolsSession.attach({
+            definition: counterDefinition,
+            handle,
+            quickEvents: [
+              {
+                id: "increment-one",
+                label: "+1",
+                group: "Counter",
+                event: { _tag: "Increment", amount: 1 },
+              },
+              {
+                id: "increment-fresh",
+                label: "Fresh increment",
+                description: "Uses a new amount on every dispatch.",
+                make: () => ({ _tag: "Increment" as const, amount: ++factoryCalls }),
+              },
+              {
+                id: "throws",
+                label: "Broken factory",
+                make: () => {
+                  factoryCalls += 1
+                  throw new Error("factory boom")
+                },
+              },
+            ],
+          })
+
+          assert.strictEqual(factoryCalls, 0)
+          assert.deepStrictEqual(
+            (yield* session.view).quickEvents.map(({ id, kind }) => [id, kind]),
+            [
+              ["increment-one", "event"],
+              ["increment-fresh", "factory"],
+              ["throws", "factory"],
+            ],
+          )
+          assert.strictEqual(factoryCalls, 0)
+
+          yield* session.dispatchQuickEvent("increment-one")
+          yield* session.dispatchQuickEvent("increment-fresh")
+          yield* session.dispatchQuickEvent("increment-fresh")
+          assert.strictEqual(factoryCalls, 2)
+          assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 4 })
+
+          const thrown = yield* Effect.flip(session.dispatchQuickEvent("throws"))
+          assert.strictEqual(thrown.reason, "factory-threw")
+          assert.strictEqual(factoryCalls, 3)
+          assert.strictEqual((yield* session.view).controlFailure?.reason, "factory-threw")
+
+          yield* handle.send({ _tag: "Pause" })
+          const unavailable = yield* Effect.flip(session.dispatchQuickEvent("increment-one"))
+          assert.strictEqual(unavailable.reason, "unavailable")
+          assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Paused", count: 4 })
+        }),
+      ),
+  )
+
+  it.effect("keeps a genuine can/send race as a machine defect", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* Machine.run(counterDefinition, { count: 0 })
+        const racingHandle: typeof handle = {
+          ...handle,
+          can: () => Effect.andThen(handle.send({ _tag: "Pause" }), Effect.succeed(true)),
+        }
+        const session = yield* DevToolsSession.attach({
+          definition: counterDefinition,
+          handle: racingHandle,
+          quickEvents: [
+            {
+              id: "race",
+              label: "Race",
+              event: { _tag: "Increment", amount: 1 },
+            },
+          ],
+        })
+
+        const exit = yield* Effect.exit(session.dispatchQuickEvent("race"))
+        assert.strictEqual(Exit.isFailure(exit), true)
+        if (Exit.isFailure(exit)) {
+          assert.strictEqual(Cause.squash(exit.cause) instanceof Machine.ProtocolDefect, true)
+        }
       }),
     ),
   )

@@ -62,6 +62,37 @@ export const mount = <Details>(
             Effect.runFork(options.session.returnToLive)
           })
           navigation.append(previous, next, live)
+          const quickEvents = document.createElement("section")
+          quickEvents.setAttribute("aria-label", "Quick events")
+          const groups = new Map<string, typeof view.quickEvents>()
+          for (const quickEvent of view.quickEvents) {
+            const group = quickEvent.group ?? "Events"
+            groups.set(group, [...(groups.get(group) ?? []), quickEvent])
+          }
+          for (const [group, controls] of groups) {
+            const fieldset = document.createElement("fieldset")
+            const legend = document.createElement("legend")
+            legend.textContent = group
+            fieldset.append(legend)
+            for (const control of controls) {
+              const button = document.createElement("button")
+              button.type = "button"
+              button.textContent = control.label
+              button.title = control.description ?? ""
+              button.disabled = control.available === false
+              button.addEventListener("click", () => {
+                Effect.runFork(options.session.dispatchQuickEvent(control.id).pipe(Effect.ignore))
+              })
+              fieldset.append(button)
+            }
+            quickEvents.append(fieldset)
+          }
+          if (view.controlFailure !== undefined) {
+            const failure = document.createElement("p")
+            failure.setAttribute("role", "alert")
+            failure.textContent = `${view.controlFailure.quickEventId}: ${view.controlFailure.reason}`
+            quickEvents.append(failure)
+          }
           const history = document.createElement("ol")
           history.setAttribute("aria-label", "Semantic history")
           for (const step of view.history.semantic.slice(-6)) {
@@ -86,7 +117,7 @@ export const mount = <Details>(
             rawList.append(item)
           }
           raw.append(summary, rawList)
-          root.append(machine, state, navigation, history, raw)
+          root.append(machine, state, navigation, quickEvents, history, raw)
         }),
       ),
       Effect.forkScoped,

@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause"
+import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -75,6 +76,35 @@ export interface SessionHistory {
   readonly raw: ReadonlyArray<RawInspectionRecord>
 }
 
+interface QuickEventBase {
+  readonly id: string
+  readonly label: string
+  readonly description?: string
+  readonly group?: string
+}
+
+export type QuickEvent<Event> =
+  | (QuickEventBase & Readonly<{ event: Event }>)
+  | (QuickEventBase & Readonly<{ make: () => Event }>)
+
+export interface QuickEventControl extends QuickEventBase {
+  readonly kind: "event" | "factory"
+  readonly available?: boolean
+}
+
+export type QuickEventFailureReason = "not-found" | "unavailable" | "factory-threw"
+
+export class QuickEventFailure extends Data.TaggedError("QuickEventFailure")<{
+  readonly quickEventId: string
+  readonly reason: QuickEventFailureReason
+  readonly cause?: unknown
+}> {}
+
+export interface ControlFailure {
+  readonly quickEventId: string
+  readonly reason: QuickEventFailureReason
+}
+
 export interface SessionView<Details = never> {
   readonly machine: Readonly<{
     id: string
@@ -88,6 +118,8 @@ export interface SessionView<Details = never> {
   readonly selected: SessionPosition<Details>
   readonly positions: ReadonlyArray<SessionPosition<Details>>
   readonly history: SessionHistory
+  readonly quickEvents: ReadonlyArray<QuickEventControl>
+  readonly controlFailure?: ControlFailure
 }
 
 export interface Session<Details = never> {
@@ -98,12 +130,14 @@ export interface Session<Details = never> {
   readonly selectPosition: (position: number) => Effect.Effect<boolean>
   readonly selectStep: (step: number) => Effect.Effect<boolean>
   readonly returnToLive: Effect.Effect<void>
+  readonly dispatchQuickEvent: (id: string) => Effect.Effect<void, QuickEventFailure>
 }
 
 export interface AttachOptions<State extends Tagged, Event extends Tagged, Details = never> {
   readonly definition: Machine.DefinitionMetadata
   readonly handle: Machine.MachineHandle<State, Event, State>
   readonly projectState?: (state: State) => Details
+  readonly quickEvents?: ReadonlyArray<QuickEvent<Event>>
 }
 
 interface InternalPosition<State extends Tagged, Details> {
@@ -123,6 +157,7 @@ interface SessionModel<State extends Tagged, Details> {
   readonly pendingOutcomeStep?: number
   readonly invocations: Readonly<Record<string, number>>
   readonly children: Readonly<Record<string, number>>
+  readonly controlFailure?: ControlFailure
 }
 
 const freeze = <Value extends object>(value: Value): Readonly<Value> => Object.freeze(value)
@@ -425,6 +460,7 @@ const toView = <State extends Tagged, Details>(
   definition: Machine.DefinitionMetadata,
   graph: Graph.Graph,
   model: SessionModel<State, Details>,
+  quickEvents: ReadonlyArray<QuickEventControl>,
 ): SessionView<Details> => {
   const positions = freeze(model.positions.map((entry) => entry.view))
   const liveHead = positions.length - 1
@@ -444,6 +480,17 @@ const toView = <State extends Tagged, Details>(
       semantic: freeze([...model.semantic]),
       raw: freeze([...model.raw]),
     }),
+    quickEvents: freeze(
+      quickEvents.map((quickEvent) =>
+        freeze({
+          ...quickEvent,
+          ...(model.status === "running" ? {} : { available: false }),
+        }),
+      ),
+    ),
+    ...(model.controlFailure === undefined
+      ? {}
+      : { controlFailure: freeze({ ...model.controlFailure }) }),
   })
 }
 
@@ -456,6 +503,26 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
 ): Effect.Effect<Session<Details>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const graph = Graph.fromDefinition(options.definition)
+    const quickEvents = options.quickEvents ?? []
+    const quickEventIds = new Set<string>()
+    for (const quickEvent of quickEvents) {
+      if (quickEventIds.has(quickEvent.id)) {
+        return yield* Effect.die(
+          new Error(`Duplicate devtools quick event identifier: ${quickEvent.id}`),
+        )
+      }
+      quickEventIds.add(quickEvent.id)
+    }
+    const quickEventControls = quickEvents.map(
+      (quickEvent): QuickEventControl =>
+        freeze({
+          id: quickEvent.id,
+          label: quickEvent.label,
+          ...(quickEvent.description === undefined ? {} : { description: quickEvent.description }),
+          ...(quickEvent.group === undefined ? {} : { group: quickEvent.group }),
+          kind: "make" in quickEvent ? "factory" : "event",
+        }),
+    )
     const initial = yield* options.handle.snapshot
     const initialPosition = position(graph, initial, 0, options.projectState)
     const model = yield* SubscriptionRef.make<SessionModel<State, Details>>({
@@ -516,10 +583,10 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
 
     return {
       view: SubscriptionRef.get(model).pipe(
-        Effect.map((current) => toView(options.definition, graph, current)),
+        Effect.map((current) => toView(options.definition, graph, current, quickEventControls)),
       ),
       changes: SubscriptionRef.changes(model).pipe(
-        Stream.map((current) => toView(options.definition, graph, current)),
+        Stream.map((current) => toView(options.definition, graph, current, quickEventControls)),
       ),
       previous: SubscriptionRef.update(model, (current) => ({
         ...current,
@@ -550,5 +617,64 @@ export const attach = <State extends Tagged, Event extends Tagged, Details = nev
         ...current,
         cursor: current.positions.length - 1,
       })),
+      dispatchQuickEvent: (id) =>
+        Effect.gen(function* () {
+          const quickEvent = quickEvents.find((candidate) => candidate.id === id)
+          const current = yield* SubscriptionRef.get(model)
+          if (quickEvent === undefined || current.status !== "running") {
+            const failure = new QuickEventFailure({
+              quickEventId: id,
+              reason: quickEvent === undefined ? "not-found" : "unavailable",
+            })
+            yield* SubscriptionRef.update(model, (state) => ({
+              ...state,
+              controlFailure: { quickEventId: id, reason: failure.reason },
+            }))
+            return yield* Effect.fail(failure)
+          }
+
+          const event = yield* "make" in quickEvent
+            ? Effect.try({
+                try: quickEvent.make,
+                catch: (cause) =>
+                  new QuickEventFailure({
+                    quickEventId: id,
+                    reason: "factory-threw",
+                    cause,
+                  }),
+              }).pipe(
+                Effect.catchTag("QuickEventFailure", (failure) =>
+                  Effect.andThen(
+                    SubscriptionRef.update(model, (state) => ({
+                      ...state,
+                      controlFailure: {
+                        quickEventId: id,
+                        reason: failure.reason,
+                      },
+                    })),
+                    Effect.fail(failure),
+                  ),
+                ),
+              )
+            : Effect.succeed(quickEvent.event)
+          const available = yield* options.handle.can(event)
+          if (!available) {
+            const failure = new QuickEventFailure({
+              quickEventId: id,
+              reason: "unavailable",
+            })
+            yield* SubscriptionRef.update(model, (state) => ({
+              ...state,
+              controlFailure: { quickEventId: id, reason: failure.reason },
+            }))
+            return yield* Effect.fail(failure)
+          }
+
+          yield* SubscriptionRef.update(model, (state) => ({
+            ...state,
+            controlFailure: undefined,
+          }))
+          yield* options.handle.send(event)
+        }),
     }
   })
