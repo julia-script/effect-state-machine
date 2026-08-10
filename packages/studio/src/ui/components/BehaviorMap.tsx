@@ -15,17 +15,19 @@ import {
   edgeIdOfTransition,
   isTransitionNodeId,
   layout,
+  START_ID,
 } from "../lib/elkLayout.js"
 import { focus, NODE_HEIGHT, toJson } from "../lib/layout.js"
 import { depthAtom, displayedPositionAtom, graphJsonAtom } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { DetailCard, type Selection } from "./DetailCard.js"
 import { ElkEdge } from "./flow/ElkEdge.js"
+import { StartNode } from "./flow/StartNode.js"
 import { StateNode } from "./flow/StateNode.js"
 import { TransitionNode } from "./flow/TransitionNode.js"
 import "@xyflow/react/dist/style.css"
 
-const nodeTypes = { state: StateNode, transition: TransitionNode }
+const nodeTypes = { state: StateNode, transition: TransitionNode, start: StartNode }
 const edgeTypes = { elk: ElkEdge }
 
 export function BehaviorMap({ session }: { readonly session: ViewerClient.SessionView }) {
@@ -67,7 +69,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       (traversedStep.branch === undefined || edge.branch?.index === traversedStep.branch.index),
   )
 
-  const graphSignature = `${session.sessionId}:${depth}:${visible.nodes
+  const graphSignature = `${session.sessionId}:${depth}:${initialTag ?? ""}:${visible.nodes
     .map((node) => node.id)
     .join(",")}`
 
@@ -75,7 +77,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   // biome-ignore lint/correctness/useExhaustiveDependencies: layout keyed by shape signature
   React.useEffect(() => {
     let stale = false
-    void layout(visible).then((next) => {
+    void layout(visible, initialTag).then((next) => {
       if (!stale) setPlaced(next)
     })
     return () => {
@@ -92,6 +94,16 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
     return () => cancelAnimationFrame(frame)
   }, [placed])
 
+  const highlightedEdgeIds = new Set(
+    selection === undefined
+      ? []
+      : selection.kind === "edge"
+        ? [selection.id]
+        : visible.edges
+            .filter((edge) => edge.source === selection.id || edge.target === selection.id)
+            .map((edge) => edge.id),
+  )
+
   const stateNodes: Array<Node> = visible.nodes.flatMap((node) => {
     const point = placed?.positions.get(node.id)
     if (point === undefined) return []
@@ -100,7 +112,11 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         id: node.id,
         type: "state",
         position: point,
-        data: { node, active: node.id === activeTag, initial: node.id === initialTag },
+        data: {
+          node,
+          active: node.id === activeTag,
+          selected: selection?.kind === "node" && selection.id === node.id,
+        },
         draggable: false,
         connectable: false,
       },
@@ -115,19 +131,41 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         id: `t:${edge.id}`,
         type: "transition",
         position: placement.point,
-        data: { label: placement.label, traversed: traversedEdge?.id === edge.id },
+        data: {
+          label: placement.label,
+          traversed: traversedEdge?.id === edge.id,
+          highlighted: highlightedEdgeIds.has(edge.id),
+          selected: selection?.kind === "edge" && selection.id === edge.id,
+        },
         draggable: false,
         connectable: false,
       },
     ]
   })
 
-  const nodes = [...stateNodes, ...transitionNodes]
+  const startPoint = placed?.positions.get(START_ID)
+  const startNodes: Array<Node> =
+    startPoint === undefined
+      ? []
+      : [
+          {
+            id: START_ID,
+            type: "start",
+            position: startPoint,
+            data: {},
+            draggable: false,
+            connectable: false,
+            selectable: false,
+          },
+        ]
+
+  const nodes = [...startNodes, ...stateNodes, ...transitionNodes]
 
   const edges: Array<Edge> = visible.edges.flatMap((edge) => {
     const inbound = placed?.segments.get(`${edge.id}:in`)
     const outbound = placed?.segments.get(`${edge.id}:out`)
     const traversed = traversedEdge?.id === edge.id
+    const highlighted = highlightedEdgeIds.has(edge.id)
     const segment = (
       suffix: "in" | "out",
       points: ReadonlyArray<{ x: number; y: number }> | undefined,
@@ -141,8 +179,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
               source: endpoints.source,
               target: endpoints.target,
               type: "elk",
-              ...(suffix === "out" ? { markerEnd: "url(#studio-arrow)" } : {}),
-              data: { points, traversed },
+              data: { points, traversed, highlighted, arrow: true },
             },
           ]
     return [
@@ -150,6 +187,21 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       ...segment("out", outbound, { source: `t:${edge.id}`, target: edge.target }),
     ]
   })
+
+  const startSegment = placed?.segments.get(START_ID)
+  const startEdges: Array<Edge> =
+    startSegment === undefined || initialTag === undefined
+      ? []
+      : [
+          {
+            id: START_ID,
+            source: START_ID,
+            target: initialTag,
+            type: "elk",
+            data: { points: startSegment, traversed: false, highlighted: false, arrow: true },
+          },
+        ]
+  const allEdges = [...startEdges, ...edges]
 
   const anchor =
     selection === undefined
@@ -166,25 +218,9 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         </pre>
       ) : (
         <div className="dot-grid h-full bg-surface">
-          {/* Shared arrowhead that inherits each edge's stroke via context-stroke. */}
-          <svg width="0" height="0" aria-hidden="true">
-            <defs>
-              <marker
-                id="studio-arrow"
-                viewBox="0 0 8 8"
-                refX="7"
-                refY="4"
-                markerWidth="7"
-                markerHeight="7"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
-              </marker>
-            </defs>
-          </svg>
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={allEdges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             minZoom={0.2}

@@ -2,8 +2,8 @@ import type { Graph } from "effect-state-machine/devtools"
 
 /** Renderer-side graph helpers: node metrics, hop-limited focus, JSON view. */
 
-export const NODE_WIDTH = 148
-export const NODE_HEIGHT = 46
+export const NODE_WIDTH = 170
+export const NODE_HEIGHT = 56
 export interface Point {
   readonly x: number
   readonly y: number

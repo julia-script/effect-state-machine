@@ -3,19 +3,21 @@ import { Handle, type NodeProps, Position } from "@xyflow/react"
 export interface TransitionNodeData {
   readonly label: string
   readonly traversed: boolean
+  readonly highlighted: boolean
+  readonly selected: boolean
   readonly [key: string]: unknown
 }
 
 /** An event/outcome pill placed as a first-class node between two states. */
 export function TransitionNode(props: NodeProps) {
-  const { label, traversed } = props.data as TransitionNodeData
+  const { label, traversed, highlighted, selected } = props.data as TransitionNodeData
   return (
     <div
-      className={`flex h-[22px] items-center rounded-full border px-2 font-mono text-[10px] font-bold ${
-        traversed
+      className={`flex h-[24px] items-center rounded-full border px-2.5 font-mono text-[10px] font-bold ${
+        traversed || highlighted
           ? "border-accent-ink bg-focus text-surface"
           : "border-accent-ink bg-accent text-accent-ink"
-      }`}
+      } ${selected ? "ring-2 ring-focus ring-offset-1" : ""}`}
     >
       {label}
       <Handle type="target" position={Position.Top} className="!invisible" />

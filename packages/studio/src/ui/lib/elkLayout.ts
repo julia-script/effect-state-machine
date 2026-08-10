@@ -10,10 +10,12 @@ import { NODE_HEIGHT, NODE_WIDTH, type Point } from "./layout.js"
  * routes around the pills instead of hanging labels off the lines.
  */
 
-export const TRANSITION_HEIGHT = 22
+export const TRANSITION_HEIGHT = 24
+export const START_SIZE = 18
+export const START_ID = "__start"
 
 export const transitionSize = (label: string): { width: number; height: number } => ({
-  width: label.length * 6.4 + 18,
+  width: label.length * 6.4 + 22,
   height: TRANSITION_HEIGHT,
 })
 
@@ -50,7 +52,8 @@ export const edgeIdOfTransition = (id: string): string => id.slice(2)
 
 const elk = new ELK()
 
-export const layout = async (graph: Graph.Graph): Promise<ElkPlacement> => {
+export const layout = async (graph: Graph.Graph, initialTag?: string): Promise<ElkPlacement> => {
+  const hasStart = initialTag !== undefined && graph.nodes.some((node) => node.id === initialTag)
   const labels = new Map(graph.edges.map((edge) => [edge.id, edgeLabelText(edge)]))
   const input: ElkNode = {
     id: "root",
@@ -66,6 +69,7 @@ export const layout = async (graph: Graph.Graph): Promise<ElkPlacement> => {
       "elk.padding": "[top=24,left=24,bottom=24,right=24]",
     },
     children: [
+      ...(hasStart ? [{ id: START_ID, width: START_SIZE, height: START_SIZE }] : []),
       ...graph.nodes.map((node) => ({
         id: node.id,
         width: NODE_WIDTH,
@@ -76,10 +80,15 @@ export const layout = async (graph: Graph.Graph): Promise<ElkPlacement> => {
         ...transitionSize(labels.get(edge.id) ?? ""),
       })),
     ],
-    edges: graph.edges.flatMap((edge) => [
-      { id: `${edge.id}:in`, sources: [edge.source], targets: [transitionId(edge.id)] },
-      { id: `${edge.id}:out`, sources: [transitionId(edge.id)], targets: [edge.target] },
-    ]),
+    edges: [
+      ...(hasStart && initialTag !== undefined
+        ? [{ id: START_ID, sources: [START_ID], targets: [initialTag] }]
+        : []),
+      ...graph.edges.flatMap((edge) => [
+        { id: `${edge.id}:in`, sources: [edge.source], targets: [transitionId(edge.id)] },
+        { id: `${edge.id}:out`, sources: [transitionId(edge.id)], targets: [edge.target] },
+      ]),
+    ],
   }
   const result = await elk.layout(input)
 
