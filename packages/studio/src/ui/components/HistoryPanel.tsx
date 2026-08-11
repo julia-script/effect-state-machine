@@ -5,6 +5,7 @@ import { edgeForStep } from "../lib/layout.js"
 import {
   cursorAtom,
   displayedPositionAtom,
+  selectedActorIdAtom,
   selectedStepAtom,
   selectionAtom,
 } from "../state/atoms.js"
@@ -14,6 +15,7 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
   const [cursor, setCursor] = useAtom(cursorAtom(session.sessionId))
   const [selectedStep, setSelectedStep] = useAtom(selectedStepAtom(session.sessionId))
   const setSelection = useAtomSet(selectionAtom(session.sessionId))
+  const setSelectedActor = useAtomSet(selectedActorIdAtom(session.sessionId))
   const displayed = useAtomValue(displayedPositionAtom)
   const listRef = React.useRef<HTMLOListElement | null>(null)
 
@@ -34,16 +36,20 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
     const step = history.steps[index]
     if (step === undefined) return
     setSelectedStep(index)
+    setSelectedActor(step.actorId)
     setCursor(step.committedPosition ?? Math.min(step.statePosition, Math.max(0, head)))
     // Mirror the step on the map: its traversed transition, or its state.
-    const graph = session.hello.graph as Graph.Graph
+    const graph = session.composed.definitions.get(step.definitionPath)?.graph as
+      | Graph.Graph
+      | undefined
+    if (graph === undefined) return
     const edge = edgeForStep(graph, step)
     const stateTag = step.targetStateTag ?? step.sourceStateTag
     setSelection(
       edge !== undefined
-        ? { kind: "edge", id: edge.id }
+        ? { kind: "edge", id: edge.id, definitionPath: step.definitionPath, actorId: step.actorId }
         : stateTag !== undefined
-          ? { kind: "node", id: stateTag }
+          ? { kind: "node", id: stateTag, definitionPath: step.definitionPath, actorId: step.actorId }
           : undefined,
     )
   }
@@ -124,8 +130,9 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
                     <span className="block truncate font-mono text-[9.5px] text-muted">{meta}</span>
                   )}
                 </span>
-                <span className="font-mono text-[9.5px] text-cyan-ink">
-                  {step.targetStateTag ?? step.sourceStateTag ?? ""}
+                <span className="text-right font-mono text-[8.5px] text-cyan-ink">
+                  <span className="block">{step.actorId}</span>
+                  <span className="block text-muted">d{step.depth} · {step.definitionPath}</span>
                 </span>
               </button>
             </li>

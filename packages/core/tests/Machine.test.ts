@@ -102,6 +102,43 @@ describe("Machine", () => {
     }),
   )
 
+  it.effect("replays one ordered actor-tree journal for a root-only machine", () =>
+    Effect.gen(function* () {
+      const handle = yield* Machine.run(counterDefinition, { count: 1 })
+
+      yield* handle.send({ _tag: "Increment", amount: 2 })
+      const records = yield* Stream.runCollect(Stream.take(handle.tree.records, 7))
+
+      assert.strictEqual(handle.actorId, handle.tree.rootActorId)
+      assert.strictEqual(handle.definitionPath, "root")
+      assert.deepStrictEqual(
+        records.map(({ sequence }) => sequence),
+        [0, 1, 2, 3, 4, 5, 6],
+      )
+      assert.deepStrictEqual(
+        records.map(({ actorId }) => actorId),
+        Array.from({ length: 7 }, () => handle.actorId),
+      )
+      assert.deepStrictEqual(
+        records.map(({ body }) => body._tag),
+        [
+          "ActorStarted",
+          "Inspection",
+          "StateSnapshot",
+          "Inspection",
+          "Inspection",
+          "Inspection",
+          "StateSnapshot",
+        ],
+      )
+      const finalRecord = records[6]
+      assert.strictEqual(finalRecord?.body._tag, "StateSnapshot")
+      if (finalRecord?.body._tag === "StateSnapshot") {
+        assert.deepStrictEqual(finalRecord.body.state, { _tag: "Active", count: 3 })
+      }
+    }),
+  )
+
   it.effect("terminates on a known event rejected by the live state", () =>
     Effect.gen(function* () {
       const handle = yield* Machine.run(counterDefinition, { count: 1 })

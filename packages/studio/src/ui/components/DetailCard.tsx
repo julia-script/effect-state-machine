@@ -1,4 +1,3 @@
-import type { Graph } from "effect-state-machine/devtools"
 import type { MapSelection } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { SourceLink } from "./SourceLink.js"
@@ -12,16 +11,17 @@ const badge = (text: string) => (
 )
 
 export function DetailCard({
-  graph,
   session,
   selection,
   onClose,
 }: {
-  readonly graph: Graph.Graph
   readonly session: ViewerClient.SessionView
   readonly selection: Selection
   readonly onClose: () => void
 }) {
+  const definition = session.composed.definitions.get(selection.definitionPath)
+  const graph = definition?.graph
+  if (graph === undefined) return null
   const node =
     selection.kind === "node" ? graph.nodes.find((n) => n.id === selection.id) : undefined
   const edge =
@@ -59,7 +59,7 @@ export function DetailCard({
             text: `${candidate.source} → ${candidate.target}`,
           }))
 
-  const schemas = session.hello.jsonSchemas
+  const schemas = definition.jsonSchemas
   const schema =
     node !== undefined
       ? schemas.states[node.id]

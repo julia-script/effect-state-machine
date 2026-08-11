@@ -1,9 +1,11 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { History } from "@effect-state-machine/studio-client"
 import {
   currentSessionAtom,
-  displayedPositionAtom,
+  displayedSequenceAtom,
   railCollapsedAtom,
   selectedSessionIdAtom,
+  selectedActorIdAtom,
   sourceActionAtom,
   themeAtom,
   worldViewAtom,
@@ -18,16 +20,24 @@ const statusColor: Record<string, string> = {
 export function TopBar() {
   const world = useAtomValue(worldViewAtom)
   const session = useAtomValue(currentSessionAtom)
-  const displayed = useAtomValue(displayedPositionAtom)
+  const sequence = useAtomValue(displayedSequenceAtom)
   const selectSession = useAtomSet(selectedSessionIdAtom)
   const [theme, setTheme] = useAtom(themeAtom)
   const [sourceAction, setSourceAction] = useAtom(sourceActionAtom)
   const [railCollapsed, setRailCollapsed] = useAtom(railCollapsedAtom)
+  const selectedActorId = useAtomValue(selectedActorIdAtom(session?.sessionId ?? "no-session"))
 
   const stateTag =
-    session !== undefined && displayed !== undefined
-      ? session.history.positions[displayed]?.stateTag
+    session !== undefined && sequence !== undefined
+      ? History.positionAt(
+          session.history,
+          session.history.rootActorId ?? session.hello.rootActorId,
+          sequence,
+        )?.stateTag
       : undefined
+  const liveActors =
+    session === undefined || sequence === undefined ? [] : History.actorsAt(session.history, sequence)
+  const descendants = liveActors.filter((actor) => actor.actorId !== session?.history.rootActorId)
 
   return (
     <header className="flex h-10 shrink-0 items-center gap-2.5 border-b-2 border-ink bg-pear px-2.5 text-pear-ink">
@@ -60,6 +70,14 @@ export function TopBar() {
         <span className="rounded-full bg-surface px-2 py-0.5 font-mono text-[10px] font-semibold text-ink">
           {stateTag}
         </span>
+      )}
+      {session === undefined ? null : (
+        <span className="rounded-full bg-cyan px-2 py-0.5 font-mono text-[9px] font-semibold text-cyan-ink">
+          {descendants.length} live descendant{descendants.length === 1 ? "" : "s"} · {session.history.actors.size} actors
+        </span>
+      )}
+      {selectedActorId === undefined ? null : (
+        <span className="font-mono text-[9px] text-muted">selected {selectedActorId}</span>
       )}
       <span className="flex-1" />
       <button

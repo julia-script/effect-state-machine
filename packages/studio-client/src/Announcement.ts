@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema"
-import type { Machine } from "effect-state-machine"
+import { Machine } from "effect-state-machine"
 import { Graph, type SourceLocation } from "effect-state-machine/devtools"
 import * as Protocol from "./Protocol.js"
 
@@ -12,9 +12,13 @@ import * as Protocol from "./Protocol.js"
 export interface MakeOptions {
   readonly definition: Machine.DefinitionMetadata
   readonly sessionId: string
+  readonly rootActorId: Machine.ActorId
   readonly parentSessionId?: string
   readonly app: Schema.Schema.Type<typeof Protocol.AppIdentity>
   readonly quickEvents?: ReadonlyArray<Protocol.QuickEventControlMessage>
+  readonly quickEventsByDefinition?: Readonly<
+    Record<string, ReadonlyArray<Protocol.QuickEventControlMessage>>
+  >
   readonly mapSource?: SourceLocation.Mapper
 }
 
@@ -36,6 +40,51 @@ const jsonSchemas = (
   return documents
 }
 
+const definitionRegistry = (
+  definition: Machine.DefinitionMetadata,
+  options: MakeOptions,
+): ReadonlyArray<Protocol.DefinitionDescriptorMessage> => {
+  const entries: Array<Protocol.DefinitionDescriptorMessage> = []
+
+  const visit = (current: Machine.DefinitionMetadata, path: Machine.DefinitionPath): void => {
+    const children = current.nodes.flatMap((node) => {
+      if (node.kind !== "child") return []
+      return [
+        {
+          ownerStateTag: node.tag,
+          invocation: node.name,
+          definitionPath: Machine.DefinitionPath.child(path, node.tag, node.name),
+          definition: node.definition,
+        },
+      ]
+    })
+    const quickEvents =
+      path === Machine.DefinitionPath.root
+        ? (options.quickEvents ?? [])
+        : (options.quickEventsByDefinition?.[path] ?? [])
+    entries.push({
+      definitionPath: path,
+      machine: {
+        id: current.id,
+        ...(current.description === undefined ? {} : { description: current.description }),
+      },
+      graph: Graph.fromDefinition(current, { mapSource: options.mapSource }),
+      jsonSchemas: {
+        states: jsonSchemas(current.schemas.state.cases),
+        events: jsonSchemas(current.schemas.event.cases),
+      },
+      quickEvents,
+      children: children.map(({ definition: _, ...child }) => child),
+    })
+    for (const child of children) {
+      visit(child.definition, child.definitionPath)
+    }
+  }
+
+  visit(definition, Machine.DefinitionPath.root)
+  return entries
+}
+
 /**
  * Builds the initial Studio protocol announcement from a machine definition.
  *
@@ -53,6 +102,7 @@ export const make = (options: MakeOptions): Protocol.HelloMessage => ({
   protocolVersion: Protocol.VERSION,
   sessionId: options.sessionId,
   ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
+  rootActorId: options.rootActorId,
   app: options.app,
   machine: {
     id: options.definition.id,
@@ -66,4 +116,5 @@ export const make = (options: MakeOptions): Protocol.HelloMessage => ({
     events: jsonSchemas(options.definition.schemas.event.cases),
   },
   quickEvents: options.quickEvents ?? [],
+  definitions: definitionRegistry(options.definition, options),
 })

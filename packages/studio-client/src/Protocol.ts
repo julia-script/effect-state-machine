@@ -8,7 +8,7 @@ import type { Graph } from "effect-state-machine/devtools"
  * @category constants
  * @since 0.1.0
  */
-export const VERSION = 1
+export const VERSION = 2
 
 /**
  * Default TCP port used by the local Studio server.
@@ -343,7 +343,37 @@ export const QuickEventControl = Schema.Struct({
 })
 
 /**
- * Schema for the self-describing message that opens an application session.
+ * Schema for a child definition's structural placement under its parent definition.
+ *
+ * @category schemas
+ * @since 0.2.0
+ */
+export const ChildDefinitionReference = Schema.Struct({
+  ownerStateTag: Schema.String,
+  invocation: Schema.String,
+  definitionPath: Schema.String,
+})
+
+/**
+ * Schema for one self-describing machine definition in an announced execution tree.
+ *
+ * @category schemas
+ * @since 0.2.0
+ */
+export const DefinitionDescriptor = Schema.Struct({
+  definitionPath: Schema.String,
+  machine: MachineIdentity,
+  graph: SerializedGraph,
+  jsonSchemas: Schema.Struct({
+    states: Schema.Record(Schema.String, Json),
+    events: Schema.Record(Schema.String, Json),
+  }),
+  quickEvents: Schema.Array(QuickEventControl),
+  children: Schema.Array(ChildDefinitionReference),
+})
+
+/**
+ * Schema for the self-describing message that opens one root-machine session and its definition tree.
  *
  * @category schemas
  * @since 0.1.0
@@ -352,6 +382,7 @@ export const Hello = Schema.TaggedStruct("Hello", {
   protocolVersion: Schema.Number,
   sessionId: Schema.String,
   parentSessionId: Schema.optionalKey(Schema.String),
+  rootActorId: Schema.String,
   app: AppIdentity,
   machine: MachineIdentity,
   graph: SerializedGraph,
@@ -360,6 +391,7 @@ export const Hello = Schema.TaggedStruct("Hello", {
     events: Schema.Record(Schema.String, Json),
   }),
   quickEvents: Schema.Array(QuickEventControl),
+  definitions: Schema.Array(DefinitionDescriptor),
 })
 
 /**
@@ -369,11 +401,25 @@ export const Hello = Schema.TaggedStruct("Hello", {
  * @since 0.1.0
  */
 export const FactBody = Schema.Union([
+  Schema.TaggedStruct("ActorStarted", {
+    machineId: Schema.String,
+    parentActorId: Schema.optionalKey(Schema.String),
+    ownerStateTag: Schema.optionalKey(Schema.String),
+    invocation: Schema.optionalKey(Schema.String),
+    instanceId: Schema.optionalKey(Schema.String),
+  }),
   Schema.TaggedStruct("Inspection", { event: InspectionEvent }),
   Schema.TaggedStruct("StateCommitted", { state: Json }),
+  Schema.TaggedStruct("ActorTerminated", {
+    status: Schema.Literals(["completed", "cancelled", "defected"]),
+  }),
   Schema.TaggedStruct("StateEncodingFailed", { stateTag: Schema.String, message: Schema.String }),
   Schema.TaggedStruct("StatusChanged", { status: Schema.Literals(["completed", "defected"]) }),
-  Schema.TaggedStruct("HistoryTruncated", { dropped: Schema.Number }),
+  Schema.TaggedStruct("HistoryTruncated", {
+    dropped: Schema.Number,
+    fromSequence: Schema.Number,
+    toSequence: Schema.Number,
+  }),
 ])
 
 /**
@@ -385,6 +431,8 @@ export const FactBody = Schema.Union([
 export const Fact = Schema.TaggedStruct("Fact", {
   sessionId: Schema.String,
   sequence: Schema.Number,
+  actorId: Schema.String,
+  definitionPath: Schema.String,
   body: FactBody,
 })
 
@@ -400,13 +448,14 @@ export const DispatchCommand = Schema.Union([
 ])
 
 /**
- * Schema for a correlated Studio request to send an event to a machine.
+ * Schema for a correlated Studio request to send an event to one actor in a root session.
  *
  * @category schemas
  * @since 0.1.0
  */
 export const Dispatch = Schema.TaggedStruct("Dispatch", {
   sessionId: Schema.String,
+  actorId: Schema.String,
   correlationId: Schema.String,
   command: DispatchCommand,
 })
@@ -423,6 +472,8 @@ export const DispatchFailureReason = Schema.Literals([
   "invalid",
   "unavailable",
   "not-running",
+  "unknown-actor",
+  "actor-ended",
   "disconnected",
 ])
 
@@ -434,6 +485,7 @@ export const DispatchFailureReason = Schema.Literals([
  */
 export const DispatchOutcome = Schema.TaggedStruct("DispatchOutcome", {
   sessionId: Schema.String,
+  actorId: Schema.String,
   correlationId: Schema.String,
   result: Schema.Union([
     Schema.TaggedStruct("Accepted", {}),
@@ -563,6 +615,14 @@ export type DispatchFailure = Schema.Schema.Type<typeof DispatchFailureReason>
 export type QuickEventControlMessage = Schema.Schema.Type<typeof QuickEventControl>
 
 /**
+ * Decoded self-describing definition registry entry.
+ *
+ * @category models
+ * @since 0.2.0
+ */
+export type DefinitionDescriptorMessage = Schema.Schema.Type<typeof DefinitionDescriptor>
+
+/**
  * Schema that converts the full protocol message union to and from a JSON string.
  *
  * @category schemas
@@ -588,8 +648,17 @@ export const truncateOldest = (
   const head = facts[0]
   if (head === undefined) return facts
   if (head.body._tag === "HistoryTruncated") {
+    const dropped = facts[1]
     return [
-      { ...head, body: { _tag: "HistoryTruncated", dropped: head.body.dropped + 1 } },
+      {
+        ...head,
+        body: {
+          _tag: "HistoryTruncated",
+          dropped: head.body.dropped + 1,
+          fromSequence: head.body.fromSequence,
+          toSequence: dropped?.sequence ?? head.body.toSequence,
+        },
+      },
       ...facts.slice(2),
     ]
   }
@@ -598,7 +667,14 @@ export const truncateOldest = (
       _tag: "Fact",
       sessionId,
       sequence: head.sequence,
-      body: { _tag: "HistoryTruncated", dropped: 1 },
+      actorId: head.actorId,
+      definitionPath: head.definitionPath,
+      body: {
+        _tag: "HistoryTruncated",
+        dropped: 1,
+        fromSequence: head.sequence,
+        toSequence: head.sequence,
+      },
     },
     ...facts.slice(1),
   ]

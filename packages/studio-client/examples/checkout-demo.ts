@@ -57,8 +57,17 @@ const definition = checkout.make({
           reduce: ({ state, event }) => ({ ...state, items: state.items + event.amount }),
         },
         BeginCheckout: {
-          target: "Checkout",
-          reduce: ({ state }) => ({ _tag: "Checkout", items: state.items }),
+          branches: [
+            {
+              when: Machine.namedGuard({
+                name: "Cart has items",
+                description: "Checkout requires at least one item.",
+                guard: ({ state }) => state.items > 0,
+              }),
+              target: "Checkout",
+              reduce: ({ state }) => ({ _tag: "Checkout", items: state.items }),
+            },
+          ],
         },
       },
     }),

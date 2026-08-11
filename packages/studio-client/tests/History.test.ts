@@ -7,6 +7,8 @@ const fact = (body: Protocol.FactBodyMessage): Protocol.FactMessage => ({
   _tag: "Fact",
   sessionId: "session",
   sequence: sequence++,
+  actorId: "actor:0",
+  definitionPath: "root",
   body,
 })
 
@@ -23,9 +25,13 @@ const started = (): Protocol.FactMessage =>
 describe("History", () => {
   it("builds the initial position and machine step", () => {
     const model = History.fromFacts([committed({ _tag: "Idle" }), started()])
-    assert.deepStrictEqual(model.positions, [
-      { index: 0, stateTag: "Idle", state: { _tag: "Idle" } },
-    ])
+    assert.strictEqual(model.positions.length, 1)
+    const position = model.positions[0]
+    assert.strictEqual(position?.index, 0)
+    assert.strictEqual(position?.actorId, "actor:0")
+    assert.strictEqual(position?.definitionPath, "root")
+    assert.strictEqual(position?.stateTag, "Idle")
+    assert.deepStrictEqual(position?.state, { _tag: "Idle" })
     assert.strictEqual(model.steps.length, 1)
     assert.strictEqual(model.steps[0]?.kind, "machine")
     assert.strictEqual(model.steps[0]?.title, `Started ${machineId}`)
@@ -165,13 +171,95 @@ describe("History", () => {
 
   it("tracks truncation, encoding failures, and status facts", () => {
     const model = History.fromFacts([
-      fact({ _tag: "HistoryTruncated", dropped: 12 }),
+      fact({ _tag: "HistoryTruncated", dropped: 12, fromSequence: 1, toSequence: 12 }),
       fact({ _tag: "StateEncodingFailed", stateTag: "Weird", message: "no codec" }),
       fact({ _tag: "StatusChanged", status: "defected" }),
     ])
     assert.strictEqual(model.truncatedFacts, 12)
-    assert.deepStrictEqual(model.encodingFailures, [{ stateTag: "Weird", message: "no codec" }])
+    assert.deepStrictEqual(model.truncatedRange, { fromSequence: 1, toSequence: 12 })
+    assert.deepStrictEqual(model.encodingFailures, [
+      {
+        actorId: "actor:0",
+        definitionPath: "root",
+        stateTag: "Weird",
+        message: "no codec",
+      },
+    ])
     assert.strictEqual(model.status, "defected")
+  })
+
+  it("reconstructs interleaved actor state at a global cursor", () => {
+    const rootStarted = fact({ _tag: "ActorStarted", machineId: "root-machine" })
+    const rootState = committed({ _tag: "RootIdle" })
+    const childStarted: Protocol.FactMessage = {
+      _tag: "Fact",
+      sessionId: "session",
+      sequence: sequence++,
+      actorId: "actor:1",
+      definitionPath: "root/Running:child",
+      body: {
+        _tag: "ActorStarted",
+        machineId: "child-machine",
+        parentActorId: "actor:0",
+        ownerStateTag: "Running",
+        invocation: "child",
+        instanceId: "child:1",
+      },
+    }
+    const childInitial: Protocol.FactMessage = {
+      _tag: "Fact",
+      sessionId: "session",
+      sequence: sequence++,
+      actorId: "actor:1",
+      definitionPath: "root/Running:child",
+      body: { _tag: "StateCommitted", state: { _tag: "ChildIdle", count: 0 } },
+    }
+    const rootRunning = committed({ _tag: "RootRunning" })
+    const childRunning: Protocol.FactMessage = {
+      _tag: "Fact",
+      sessionId: "session",
+      sequence: sequence++,
+      actorId: "actor:1",
+      definitionPath: "root/Running:child",
+      body: { _tag: "StateCommitted", state: { _tag: "ChildRunning", count: 1 } },
+    }
+    const childEnded: Protocol.FactMessage = {
+      _tag: "Fact",
+      sessionId: "session",
+      sequence: sequence++,
+      actorId: "actor:1",
+      definitionPath: "root/Running:child",
+      body: { _tag: "ActorTerminated", status: "completed" },
+    }
+    const model = History.fromFacts([
+      rootStarted,
+      rootState,
+      childStarted,
+      childInitial,
+      rootRunning,
+      childRunning,
+      childEnded,
+    ])
+
+    assert.strictEqual(model.actors.get("actor:1")?.depth, 1)
+    assert.deepStrictEqual(
+      History.actorsAt(model, childRunning.sequence).map(({ actorId }) => actorId),
+      ["actor:0", "actor:1"],
+    )
+    assert.deepStrictEqual(
+      History.actorsAt(model, childEnded.sequence).map(({ actorId }) => actorId),
+      ["actor:0"],
+    )
+    const childPosition = History.positionAt(model, "actor:1", childRunning.sequence)
+    assert.deepStrictEqual(childPosition?.state, { _tag: "ChildRunning", count: 1 })
+    assert.deepStrictEqual(
+      childPosition === undefined ? undefined : History.previousPosition(model, childPosition)?.state,
+      { _tag: "ChildIdle", count: 0 },
+    )
+    assert.deepStrictEqual(
+      History.positionAt(model, "actor:0", childRunning.sequence)?.state,
+      { _tag: "RootRunning" },
+    )
   })
 
   it("reduces incrementally to the same model as a bulk fold", () => {

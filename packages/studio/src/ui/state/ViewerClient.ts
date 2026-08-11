@@ -16,6 +16,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpBody from "effect/unstable/http/HttpBody"
 import * as HttpClient from "effect/unstable/http/HttpClient"
+import { type ComposedGraph, composeDefinitions } from "../lib/composedGraph.js"
 
 /**
  * The browser side of the wire: keeps one auto-reconnecting viewer connection,
@@ -28,6 +29,7 @@ export type SessionConnection = "connected" | "disconnected" | "ended"
 export interface SessionView {
   readonly sessionId: string
   readonly hello: Protocol.HelloMessage
+  readonly composed: ComposedGraph
   readonly history: History.Model
   readonly connection: SessionConnection
 }
@@ -49,6 +51,7 @@ export class EditorOpenFailed extends Data.TaggedError("EditorOpenFailed")<{
 
 export interface DispatchInput {
   readonly sessionId: string
+  readonly actorId: string
   readonly command: Protocol.DispatchMessage["command"]
 }
 
@@ -73,6 +76,7 @@ const upsertSession = (world: World, message: Protocol.HelloMessage): World => {
   const next: SessionView = {
     sessionId: message.sessionId,
     hello: message,
+    composed: composeDefinitions(message.definitions),
     history: existing?.history ?? History.initial,
     connection: "connected",
   }
@@ -191,6 +195,7 @@ export const make = (options?: { readonly viewerUrl?: string }) =>
           .send({
             _tag: "Dispatch",
             sessionId: input.sessionId,
+            actorId: input.actorId,
             correlationId,
             command: input.command,
           })

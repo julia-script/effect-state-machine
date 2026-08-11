@@ -148,6 +148,60 @@ const successStore = Layer.succeed(
 )
 
 describe("scoped child machines", () => {
+  it.effect("addresses a child through the root tree and retains causal actor history", () =>
+    Effect.gen(function* () {
+      const handle = yield* Machine.run(definition, { documentId: "tree" }).pipe(
+        Effect.provide(successStore),
+      )
+      const starts = yield* Stream.runCollect(
+        handle.tree.records.pipe(
+          Stream.filter((record) => record.body._tag === "ActorStarted"),
+          Stream.take(2),
+        ),
+      )
+      const child = starts.find((record) => record.actorId !== handle.actorId)
+      assert.notStrictEqual(child, undefined)
+      if (child === undefined) return
+
+      assert.strictEqual(child.definitionPath, "root/Resolving:resolve-conflict")
+      assert.strictEqual(child.body._tag, "ActorStarted")
+      if (child.body._tag === "ActorStarted") {
+        assert.strictEqual(child.body.parentActorId, handle.actorId)
+        assert.strictEqual(child.body.invocation, "resolve-conflict")
+      }
+
+      yield* handle.tree.dispatch(child.actorId, { _tag: "Choose", text: "direct" })
+      assert.deepStrictEqual(yield* handle.completion, { _tag: "Resolved", text: "direct" })
+
+      const records = yield* Stream.runCollect(
+        handle.tree.records.pipe(
+          Stream.takeUntil(
+            (record) =>
+              record.actorId === handle.actorId &&
+              record.body._tag === "ActorTerminated" &&
+              record.body.status === "completed",
+          ),
+        ),
+      )
+      const childTerminal = records.findIndex(
+        (record) => record.actorId === child.actorId && record.body._tag === "ActorTerminated",
+      )
+      const parentCompletion = records.findIndex(
+        (record) =>
+          record.actorId === handle.actorId &&
+          record.body._tag === "Inspection" &&
+          record.body.metadata._tag === "ChildCompleted",
+      )
+      assert.strictEqual(childTerminal >= 0, true)
+      assert.strictEqual(parentCompletion > childTerminal, true)
+
+      const ended = yield* Effect.flip(
+        handle.tree.dispatch(child.actorId, { _tag: "Choose", text: "late" }),
+      )
+      assert.strictEqual(ended.reason, "ended")
+    }),
+  )
+
   it.effect("forwards declared events and routes the child's inferred final state", () =>
     Effect.gen(function* () {
       const handle = yield* Machine.run(definition, { documentId: "one" }).pipe(
@@ -233,6 +287,16 @@ describe("scoped child machines", () => {
         childEvents.map(({ _tag }) => _tag),
         ["ChildStarted", "ChildEventForwarded", "ChildCancelled"],
       )
+      const terminalRecords = yield* Stream.runCollect(
+        handle.tree.records.pipe(
+          Stream.filter((record) => record.body._tag === "ActorTerminated"),
+          Stream.take(2),
+        ),
+      )
+      assert.deepStrictEqual(
+        terminalRecords.map(({ body }) => (body._tag === "ActorTerminated" ? body.status : "")),
+        ["cancelled", "completed"],
+      )
     }),
   )
 
@@ -264,6 +328,16 @@ describe("scoped child machines", () => {
       if (started?._tag === "ChildStarted" && defected?._tag === "ChildDefected") {
         assert.strictEqual(started.instanceId, defected.instanceId)
       }
+      const terminalRecords = yield* Stream.runCollect(
+        handle.tree.records.pipe(
+          Stream.filter((record) => record.body._tag === "ActorTerminated"),
+          Stream.take(2),
+        ),
+      )
+      assert.deepStrictEqual(
+        terminalRecords.map(({ body }) => (body._tag === "ActorTerminated" ? body.status : "")),
+        ["defected", "defected"],
+      )
     }),
   )
 
@@ -330,6 +404,17 @@ describe("scoped child machines", () => {
       )
       assert.strictEqual(starts.length, 2)
       assert.notStrictEqual(starts[0]?.instanceId, starts[1]?.instanceId)
+      const actors = yield* Stream.runCollect(
+        handle.tree.records.pipe(
+          Stream.filter(
+            (record) =>
+              record.actorId !== handle.actorId && record.body._tag === "ActorStarted",
+          ),
+          Stream.take(2),
+        ),
+      )
+      assert.strictEqual(actors.length, 2)
+      assert.notStrictEqual(actors[0]?.actorId, actors[1]?.actorId)
     }),
   )
 })

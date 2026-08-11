@@ -3,8 +3,14 @@ import type { Graph } from "effect-state-machine/devtools"
 
 /** Renderer-side graph helpers: node metrics, hop-limited focus, JSON view. */
 
-export const NODE_WIDTH = 170
-export const NODE_HEIGHT = 56
+export const NODE_WIDTH = 260
+
+/** State cards grow vertically so their descriptions remain part of the map. */
+export const nodeSize = (node: Graph.Node): { width: number; height: number } => {
+  const descriptionLines =
+    node.description === undefined ? 1 : Math.max(1, Math.ceil(node.description.length / 42))
+  return { width: NODE_WIDTH, height: 58 + descriptionLines * 14 }
+}
 export interface Point {
   readonly x: number
   readonly y: number
@@ -67,28 +73,6 @@ export const focus = (
     ignores: graph.ignores.filter((ignore) => visible.has(ignore.source)),
   }
 }
-
-/** The serializable structure shown by the graph JSON view. */
-export const toJson = (graph: Graph.Graph): unknown => ({
-  id: graph.id,
-  ...(graph.description === undefined ? {} : { description: graph.description }),
-  states: graph.nodes.map((node) => ({
-    id: node.id,
-    kind: node.kind,
-    ...(node.description === undefined ? {} : { description: node.description }),
-    ...(node.invocation === undefined ? {} : { invoke: node.invocation.name }),
-  })),
-  transitions: graph.edges.map((edge) => ({
-    from: edge.source,
-    to: edge.target,
-    ...(edge.event === undefined ? {} : { event: edge.event.tag }),
-    ...(edge.outcome === undefined ? {} : { outcome: edge.outcome.kind }),
-    ...(edge.branch === undefined
-      ? {}
-      : { branch: edge.branch.kind === "guard" ? edge.branch.name : "otherwise" }),
-  })),
-  ignored: graph.ignores.map((ignore) => ({ in: ignore.source, event: ignore.event.tag })),
-})
 
 /** The graph edge a semantic step traversed, when it traversed one. */
 export const edgeForStep = (

@@ -140,6 +140,7 @@ describe("Server", () => {
         yield* viewer.send({
           _tag: "Dispatch",
           sessionId: attachedA.sessionId,
+          actorId: handleA.actorId,
           correlationId: "v-1",
           command: { _tag: "Custom", event: { _tag: "Stop" } },
         })
@@ -148,6 +149,9 @@ describe("Server", () => {
           (message) => message._tag === "DispatchOutcome" && message.correlationId === "v-1",
         )
         assert.ok(outcome._tag === "DispatchOutcome" && outcome.result._tag === "Accepted")
+        if (outcome._tag === "DispatchOutcome") {
+          assert.strictEqual(outcome.actorId, handleA.actorId)
+        }
         assert.deepStrictEqual(yield* handleA.completion, { _tag: "Done" })
       }),
     ),
@@ -165,11 +169,22 @@ describe("Server", () => {
           _tag: "Hello",
           protocolVersion: Protocol.VERSION,
           sessionId: "crashing-session",
+          rootActorId: "actor:0",
           app: { name: "crasher", runtime: "node" },
           machine: { id: "crash-machine" },
           graph: { id: "crash-machine", nodes: [], edges: [], ignores: [] },
           jsonSchemas: { states: {}, events: {} },
           quickEvents: [],
+          definitions: [
+            {
+              definitionPath: "root",
+              machine: { id: "crash-machine" },
+              graph: { id: "crash-machine", nodes: [], edges: [], ignores: [] },
+              jsonSchemas: { states: {}, events: {} },
+              quickEvents: [],
+              children: [],
+            },
+          ],
         }
         yield* Effect.scoped(
           Effect.gen(function* () {
@@ -188,6 +203,7 @@ describe("Server", () => {
         yield* viewer.send({
           _tag: "Dispatch",
           sessionId: "crashing-session",
+          actorId: "actor:0",
           correlationId: "v-dead",
           command: { _tag: "Quick", id: "anything" },
         })
@@ -212,11 +228,22 @@ describe("Server", () => {
           _tag: "Hello",
           protocolVersion: 999,
           sessionId: "future-session",
+          rootActorId: "actor:0",
           app: { name: "future", runtime: "node" },
           machine: { id: "future-machine" },
           graph: { id: "future-machine", nodes: [], edges: [], ignores: [] },
           jsonSchemas: { states: {}, events: {} },
           quickEvents: [],
+          definitions: [
+            {
+              definitionPath: "root",
+              machine: { id: "future-machine" },
+              graph: { id: "future-machine", nodes: [], edges: [], ignores: [] },
+              jsonSchemas: { states: {}, events: {} },
+              quickEvents: [],
+              children: [],
+            },
+          ],
         })
         const rejection = yield* takeUntil(
           connection.messages,

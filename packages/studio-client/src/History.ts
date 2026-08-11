@@ -1,19 +1,12 @@
 import type * as Protocol from "./Protocol.js"
 
-/**
- * Lifecycle status derived from an attached machine's fact log.
- *
- * @category models
- * @since 0.1.0
- */
+/** @category models @since 0.1.0 */
 export type Status = "running" | "completed" | "defected"
 
-/**
- * Semantic category assigned to a history step.
- *
- * @category models
- * @since 0.1.0
- */
+/** @category models @since 0.2.0 */
+export type ActorStatus = "running" | "completed" | "cancelled" | "defected"
+
+/** @category models @since 0.1.0 */
 export type StepKind =
   | "machine"
   | "event"
@@ -23,12 +16,7 @@ export type StepKind =
   | "defect"
   | "activity"
 
-/**
- * Lifecycle status assigned to an individual history step.
- *
- * @category models
- * @since 0.1.0
- */
+/** @category models @since 0.1.0 */
 export type StepStatus =
   | "received"
   | "selected"
@@ -41,26 +29,20 @@ export type StepStatus =
   | "completed"
   | "defected"
 
-/**
- * Guard or fallback branch recorded for a selected transition.
- *
- * @category models
- * @since 0.1.0
- */
+/** @category models @since 0.1.0 */
 export interface SelectedBranch {
   readonly kind: "guard" | "otherwise"
   readonly index: number
   readonly name?: string
 }
 
-/**
- * Developer-sized semantic action derived from one or more raw protocol facts.
- *
- * @category models
- * @since 0.1.0
- */
+/** Developer-sized semantic action derived from one or more actor-qualified facts. */
 export interface Step {
   readonly index: number
+  readonly sequence: number
+  readonly actorId: string
+  readonly definitionPath: string
+  readonly depth: number
   readonly kind: StepKind
   readonly title: string
   readonly statePosition: number
@@ -76,81 +58,158 @@ export interface Step {
   readonly attempt?: number
   readonly delayMillis?: number
   readonly branch?: SelectedBranch
-  /**
-   * Indices into `Model.facts` for the raw records folded into this step.
-   */
   readonly raw: ReadonlyArray<number>
 }
 
-/**
- * One schema-encoded committed machine state in session history.
- *
- * @category models
- * @since 0.1.0
- */
+/** One schema-encoded state committed by one actor in session history. */
 export interface Position {
   readonly index: number
+  readonly sequence: number
+  readonly actorId: string
+  readonly definitionPath: string
   readonly stateTag: string
-  /**
-   * Schema-encoded state committed at this position.
-   */
   readonly state: unknown
+  readonly previousActorPosition?: number
 }
 
-/**
- * Pure projection of an ordered fact log into state positions and semantic steps.
- *
- * @category models
- * @since 0.1.0
- */
-export interface Model {
-  readonly status: Status
-  readonly positions: ReadonlyArray<Position>
-  readonly steps: ReadonlyArray<Step>
-  readonly facts: ReadonlyArray<Protocol.FactMessage>
-  readonly truncatedFacts: number
-  readonly encodingFailures: ReadonlyArray<Readonly<{ stateTag: string; message: string }>>
-  readonly pendingStates: ReadonlyArray<Readonly<{ stateTag: string; state: unknown }>>
-  readonly pendingCommits: ReadonlyArray<Readonly<{ step?: number }>>
+/** Runtime actor lifecycle and its actor-local position index. */
+export interface Actor {
+  readonly actorId: string
+  readonly definitionPath: string
+  readonly machineId: string
+  readonly parentActorId?: string
+  readonly ownerStateTag?: string
+  readonly invocation?: string
+  readonly instanceId?: string
+  readonly depth: number
+  readonly startedAt: number
+  readonly endedAt?: number
+  readonly status: ActorStatus
+  readonly positions: ReadonlyArray<number>
+}
+
+interface ActorFold {
   readonly activeEventStep?: number
   readonly pendingOutcomeStep?: number
+  readonly pendingCommitStep?: number
   readonly invocations: ReadonlyMap<string, number>
   readonly children: ReadonlyMap<string, number>
 }
 
-/**
- * Empty running history model used to begin an incremental fold.
- *
- * @category constructors
- * @since 0.1.0
- */
+const emptyActorFold = (): ActorFold => ({ invocations: new Map(), children: new Map() })
+
+/** Pure projection of one root session's ordered fact log. */
+export interface Model {
+  readonly status: Status
+  readonly rootActorId?: string
+  readonly actors: ReadonlyMap<string, Actor>
+  readonly positions: ReadonlyArray<Position>
+  readonly steps: ReadonlyArray<Step>
+  readonly facts: ReadonlyArray<Protocol.FactMessage>
+  readonly truncatedFacts: number
+  readonly truncatedRange?: Readonly<{ fromSequence: number; toSequence: number }>
+  readonly encodingFailures: ReadonlyArray<
+    Readonly<{
+      actorId: string
+      definitionPath: string
+      stateTag: string
+      message: string
+    }>
+  >
+  readonly actorFolds: ReadonlyMap<string, ActorFold>
+}
+
+/** Empty running history model used to begin an incremental fold. */
 export const initial: Model = {
   status: "running",
+  actors: new Map(),
   positions: [],
   steps: [],
   facts: [],
   truncatedFacts: 0,
   encodingFailures: [],
-  pendingStates: [],
-  pendingCommits: [],
-  invocations: new Map(),
-  children: new Map(),
+  actorFolds: new Map(),
 }
 
 const stateTagOf = (state: unknown): string => {
   if (typeof state === "object" && state !== null && "_tag" in state) {
-    const tag = (state as Readonly<{ _tag: unknown }>)._tag
+    const tag = state._tag
     if (typeof tag === "string") return tag
   }
   return "unknown"
 }
 
+const ensureActor = (model: Model, fact: Protocol.FactMessage): Model => {
+  if (model.actors.has(fact.actorId)) return model
+  const actor: Actor = {
+    actorId: fact.actorId,
+    definitionPath: fact.definitionPath,
+    machineId: "unknown",
+    depth: 0,
+    startedAt: fact.sequence,
+    status: "running",
+    positions: [],
+  }
+  return {
+    ...model,
+    rootActorId: model.rootActorId ?? fact.actorId,
+    actors: new Map(model.actors).set(fact.actorId, actor),
+    actorFolds: new Map(model.actorFolds).set(fact.actorId, emptyActorFold()),
+  }
+}
+
+const updateActor = (model: Model, actorId: string, update: (actor: Actor) => Actor): Model => {
+  const actor = model.actors.get(actorId)
+  if (actor === undefined) return model
+  return { ...model, actors: new Map(model.actors).set(actorId, update(actor)) }
+}
+
+const actorFold = (model: Model, actorId: string): ActorFold =>
+  model.actorFolds.get(actorId) ?? emptyActorFold()
+
+const updateActorFold = (
+  model: Model,
+  actorId: string,
+  update: (fold: ActorFold) => ActorFold,
+): Model => ({
+  ...model,
+  actorFolds: new Map(model.actorFolds).set(actorId, update(actorFold(model, actorId))),
+})
+
+const latestActorPosition = (model: Model, actorId: string): number => {
+  const indices = model.actors.get(actorId)?.positions ?? []
+  return indices[indices.length - 1] ?? 0
+}
+
 const invocationKey = (event: Readonly<{ invocation: string; generation: number }>): string =>
   `${event.invocation}:${event.generation}`
 
-const appendStep = (model: Model, step: Omit<Step, "index">): readonly [Model, number] => {
+type StepInput = Omit<Step, "index" | "sequence" | "actorId" | "definitionPath" | "depth">
+
+const appendStep = (
+  model: Model,
+  fact: Protocol.FactMessage,
+  step: StepInput,
+): readonly [Model, number] => {
   const index = model.steps.length
-  return [{ ...model, steps: [...model.steps, { ...step, index }] }, index]
+  const actor = model.actors.get(fact.actorId)
+  return [
+    {
+      ...model,
+      steps: [
+        ...model.steps,
+        {
+          ...step,
+          index,
+          sequence: fact.sequence,
+          actorId: fact.actorId,
+          definitionPath: fact.definitionPath,
+          depth: actor?.depth ?? 0,
+        },
+      ],
+    },
+    index,
+  ]
 }
 
 const updateStep = (model: Model, index: number, update: (step: Step) => Step): Model => ({
@@ -170,57 +229,40 @@ const attachRaw = (
     raw: [...step.raw, factIndex],
   }))
 
-const statePositionHint = (model: Model): number =>
-  Math.max(0, model.positions.length - 1) + model.pendingCommits.length
-
-const reconcileCommits = (model: Model): Model => {
-  let next = model
-  while (next.pendingStates.length > 0 && next.pendingCommits.length > 0) {
-    const pending = next.pendingStates[0]
-    const commit = next.pendingCommits[0]
-    const committedPosition = next.positions.length
-    next = {
-      ...next,
-      positions: [
-        ...next.positions,
-        { index: committedPosition, stateTag: pending.stateTag, state: pending.state },
-      ],
-      pendingStates: next.pendingStates.slice(1),
-      pendingCommits: next.pendingCommits.slice(1),
-    }
-    if (commit.step !== undefined) {
-      next = updateStep(next, commit.step, (step) => ({
-        ...step,
-        statePosition: committedPosition,
-        committedPosition,
-      }))
-    }
-  }
-  return next
-}
-
 const foldInspection = (
   model: Model,
+  fact: Protocol.FactMessage,
   event: Protocol.InspectionEventMessage,
   factIndex: number,
 ): Model => {
-  const at = statePositionHint(model)
+  const at = latestActorPosition(model, fact.actorId)
+  const fold = actorFold(model, fact.actorId)
 
   switch (event._tag) {
     case "MachineStarted": {
-      if (model.steps.some((step) => step.kind === "machine")) return model
-      const [withStep] = appendStep(model, {
+      const existing = model.steps.some(
+        (step) => step.actorId === fact.actorId && step.kind === "machine",
+      )
+      if (existing) return model
+      const [withStep, step] = appendStep(model, fact, {
         kind: "machine",
         title: `Started ${event.machineId}`,
-        statePosition: 0,
+        statePosition: at,
         targetStateTag: event.initialStateTag,
         status: "started",
         raw: [factIndex],
       })
-      return withStep
+      const withMachine = updateActor(withStep, fact.actorId, (actor) => ({
+        ...actor,
+        machineId: event.machineId,
+      }))
+      return updateActorFold(withMachine, fact.actorId, (current) => ({
+        ...current,
+        pendingCommitStep: step,
+      }))
     }
     case "EventReceived": {
-      const [withStep, step] = appendStep(model, {
+      const [withStep, step] = appendStep(model, fact, {
         kind: "event",
         title: event.eventTag,
         statePosition: at,
@@ -230,44 +272,45 @@ const foldInspection = (
         status: "received",
         raw: [factIndex],
       })
-      return { ...withStep, activeEventStep: step }
+      return updateActorFold(withStep, fact.actorId, (current) => ({
+        ...current,
+        activeEventStep: step,
+      }))
     }
     case "TransitionSelected": {
-      if (model.activeEventStep === undefined) break
-      return attachRaw(model, model.activeEventStep, factIndex, {
+      if (fold.activeEventStep === undefined) break
+      return attachRaw(model, fold.activeEventStep, factIndex, {
         targetStateTag: event.targetStateTag,
         status: "selected",
         ...(event.branch === undefined ? {} : { branch: event.branch }),
       })
     }
     case "EventIgnored": {
-      if (model.activeEventStep === undefined) break
-      return {
-        ...attachRaw(model, model.activeEventStep, factIndex, { status: "ignored" }),
+      if (fold.activeEventStep === undefined) break
+      const updated = attachRaw(model, fold.activeEventStep, factIndex, { status: "ignored" })
+      return updateActorFold(updated, fact.actorId, (current) => ({
+        ...current,
         activeEventStep: undefined,
-      }
+      }))
     }
     case "StateChanged": {
-      let next = model
-      const owner = next.activeEventStep ?? next.pendingOutcomeStep
-      if (owner !== undefined) {
-        next = attachRaw(next, owner, factIndex, {
-          sourceStateTag: event.previousStateTag,
-          targetStateTag: event.nextStateTag,
-        })
-      }
-      return {
-        ...next,
-        pendingCommits: [
-          ...next.pendingCommits,
-          { ...(owner === undefined ? {} : { step: owner }) },
-        ],
+      const owner = fold.activeEventStep ?? fold.pendingOutcomeStep
+      const updated =
+        owner === undefined
+          ? model
+          : attachRaw(model, owner, factIndex, {
+              sourceStateTag: event.previousStateTag,
+              targetStateTag: event.nextStateTag,
+            })
+      return updateActorFold(updated, fact.actorId, (current) => ({
+        ...current,
+        pendingCommitStep: owner,
         activeEventStep: undefined,
         pendingOutcomeStep: undefined,
-      }
+      }))
     }
     case "InvocationStarted": {
-      const [withStep, step] = appendStep(model, {
+      const [withStep, step] = appendStep(model, fact, {
         kind: "invocation",
         title: event.invocation,
         statePosition: at,
@@ -277,13 +320,13 @@ const foldInspection = (
         status: "started",
         raw: [factIndex],
       })
-      return {
-        ...withStep,
-        invocations: new Map(withStep.invocations).set(invocationKey(event), step),
-      }
+      return updateActorFold(withStep, fact.actorId, (current) => ({
+        ...current,
+        invocations: new Map(current.invocations).set(invocationKey(event), step),
+      }))
     }
     case "InvocationRetryScheduled": {
-      const step = model.invocations.get(invocationKey(event))
+      const step = fold.invocations.get(invocationKey(event))
       if (step === undefined) break
       return attachRaw(model, step, factIndex, {
         status: "retrying",
@@ -293,26 +336,27 @@ const foldInspection = (
     }
     case "InvocationSucceeded":
     case "InvocationFailed": {
-      const step = model.invocations.get(invocationKey(event))
+      const step = fold.invocations.get(invocationKey(event))
       if (step === undefined) break
-      return {
-        ...attachRaw(model, step, factIndex, {
-          status: event._tag === "InvocationSucceeded" ? "succeeded" : "failed",
-          ...(event.branch === undefined ? {} : { branch: event.branch }),
-        }),
+      const updated = attachRaw(model, step, factIndex, {
+        status: event._tag === "InvocationSucceeded" ? "succeeded" : "failed",
+        ...(event.branch === undefined ? {} : { branch: event.branch }),
+      })
+      return updateActorFold(updated, fact.actorId, (current) => ({
+        ...current,
         pendingOutcomeStep: step,
-      }
+      }))
     }
     case "InvocationCancelled":
     case "InvocationDefected": {
-      const step = model.invocations.get(invocationKey(event))
+      const step = fold.invocations.get(invocationKey(event))
       if (step === undefined) break
       return attachRaw(model, step, factIndex, {
         status: event._tag === "InvocationCancelled" ? "cancelled" : "defected",
       })
     }
     case "ChildStarted": {
-      const [withStep, step] = appendStep(model, {
+      const [withStep, step] = appendStep(model, fact, {
         kind: "child",
         title: event.invocation,
         statePosition: at,
@@ -323,13 +367,16 @@ const foldInspection = (
         status: "started",
         raw: [factIndex],
       })
-      return { ...withStep, children: new Map(withStep.children).set(event.instanceId, step) }
+      return updateActorFold(withStep, fact.actorId, (current) => ({
+        ...current,
+        children: new Map(current.children).set(event.instanceId, step),
+      }))
     }
     case "ChildEventForwarded":
     case "ChildCompleted":
     case "ChildCancelled":
     case "ChildDefected": {
-      const step = model.children.get(event.instanceId)
+      const step = fold.children.get(event.instanceId)
       if (step === undefined) break
       const status =
         event._tag === "ChildCompleted"
@@ -345,10 +392,15 @@ const foldInspection = (
           ? { branch: event.branch }
           : {}),
       })
-      return event._tag === "ChildCompleted" ? { ...updated, pendingOutcomeStep: step } : updated
+      return event._tag === "ChildCompleted"
+        ? updateActorFold(updated, fact.actorId, (current) => ({
+            ...current,
+            pendingOutcomeStep: step,
+          }))
+        : updated
     }
     case "MachineCompleted": {
-      const [withStep] = appendStep(model, {
+      const [withStep] = appendStep(model, fact, {
         kind: "completion",
         title: `Completed in ${event.finalStateTag}`,
         statePosition: at,
@@ -356,17 +408,17 @@ const foldInspection = (
         status: "completed",
         raw: [factIndex],
       })
-      return { ...withStep, status: "completed" }
+      return withStep
     }
     case "MachineDefected": {
-      if (model.activeEventStep !== undefined) {
-        return {
-          ...attachRaw(model, model.activeEventStep, factIndex, { status: "defected" }),
+      if (fold.activeEventStep !== undefined) {
+        const updated = attachRaw(model, fold.activeEventStep, factIndex, { status: "defected" })
+        return updateActorFold(updated, fact.actorId, (current) => ({
+          ...current,
           activeEventStep: undefined,
-          status: "defected",
-        }
+        }))
       }
-      const [withStep] = appendStep(model, {
+      const [withStep] = appendStep(model, fact, {
         kind: "defect",
         title: `Defected on ${event.eventTag}`,
         statePosition: at,
@@ -375,11 +427,11 @@ const foldInspection = (
         status: "defected",
         raw: [factIndex],
       })
-      return { ...withStep, status: "defected" }
+      return withStep
     }
   }
 
-  const [withStep] = appendStep(model, {
+  const [withStep] = appendStep(model, fact, {
     kind: "activity",
     title: event._tag,
     statePosition: at,
@@ -388,63 +440,179 @@ const foldInspection = (
   return withStep
 }
 
-/**
- * Folds one fact into an existing history model.
- *
- * **Details**
- *
- * The operation is pure and expects facts in arrival order. It reconciles state commits with
- * inspection facts even when the two streams arrive in either order.
- *
- * @category folding
- * @since 0.1.0
- */
+const foldActorStarted = (
+  model: Model,
+  fact: Protocol.FactMessage,
+  body: Extract<Protocol.FactBodyMessage, { _tag: "ActorStarted" }>,
+): Model => {
+  const parent = body.parentActorId === undefined ? undefined : model.actors.get(body.parentActorId)
+  const actor: Actor = {
+    actorId: fact.actorId,
+    definitionPath: fact.definitionPath,
+    machineId: body.machineId,
+    ...(body.parentActorId === undefined ? {} : { parentActorId: body.parentActorId }),
+    ...(body.ownerStateTag === undefined ? {} : { ownerStateTag: body.ownerStateTag }),
+    ...(body.invocation === undefined ? {} : { invocation: body.invocation }),
+    ...(body.instanceId === undefined ? {} : { instanceId: body.instanceId }),
+    depth: parent === undefined ? 0 : parent.depth + 1,
+    startedAt: fact.sequence,
+    status: "running",
+    positions: [],
+  }
+  return {
+    ...model,
+    rootActorId: body.parentActorId === undefined ? fact.actorId : model.rootActorId,
+    actors: new Map(model.actors).set(fact.actorId, actor),
+    actorFolds: new Map(model.actorFolds).set(fact.actorId, emptyActorFold()),
+  }
+}
+
+const foldState = (
+  model: Model,
+  fact: Protocol.FactMessage,
+  state: unknown,
+): Model => {
+  const actor = model.actors.get(fact.actorId)
+  if (actor === undefined) return model
+  const index = model.positions.length
+  const previousActorPosition = actor.positions[actor.positions.length - 1]
+  const position: Position = {
+    index,
+    sequence: fact.sequence,
+    actorId: fact.actorId,
+    definitionPath: fact.definitionPath,
+    stateTag: stateTagOf(state),
+    state,
+    ...(previousActorPosition === undefined ? {} : { previousActorPosition }),
+  }
+  let next: Model = {
+    ...model,
+    positions: [...model.positions, position],
+    actors: new Map(model.actors).set(fact.actorId, {
+      ...actor,
+      positions: [...actor.positions, index],
+    }),
+  }
+  const fold = actorFold(next, fact.actorId)
+  if (fold.pendingCommitStep !== undefined) {
+    next = updateStep(next, fold.pendingCommitStep, (step) => ({
+      ...step,
+      statePosition: index,
+      committedPosition: index,
+    }))
+  }
+  return updateActorFold(next, fact.actorId, (current) => ({
+    ...current,
+    pendingCommitStep: undefined,
+  }))
+}
+
+const foldActorTerminated = (
+  model: Model,
+  fact: Protocol.FactMessage,
+  status: Exclude<ActorStatus, "running">,
+  factIndex: number,
+): Model => {
+  let next = updateActor(model, fact.actorId, (actor) => ({
+    ...actor,
+    status,
+    endedAt: fact.sequence,
+  }))
+  if (fact.actorId === next.rootActorId) {
+    next = { ...next, status: status === "completed" ? "completed" : "defected" }
+  }
+  let terminalStep: Step | undefined
+  for (let index = next.steps.length - 1; index >= 0; index -= 1) {
+    const candidate = next.steps[index]
+    if (candidate?.actorId === fact.actorId && candidate.status === status) {
+      terminalStep = candidate
+      break
+    }
+  }
+  if (terminalStep !== undefined) return attachRaw(next, terminalStep.index, factIndex)
+  const [withStep] = appendStep(next, fact, {
+    kind: status === "defected" ? "defect" : status === "completed" ? "completion" : "activity",
+    title: `${status === "cancelled" ? "Cancelled" : status === "defected" ? "Defected" : "Completed"} ${next.actors.get(fact.actorId)?.machineId ?? "machine"}`,
+    statePosition: latestActorPosition(next, fact.actorId),
+    status,
+    raw: [factIndex],
+  })
+  return withStep
+}
+
+/** Folds one actor-qualified fact into an existing history model. */
 export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
   const factIndex = model.facts.length
-  const next: Model = { ...model, facts: [...model.facts, fact] }
+  let next = ensureActor({ ...model, facts: [...model.facts, fact] }, fact)
   const body = fact.body
 
   switch (body._tag) {
+    case "ActorStarted":
+      return foldActorStarted(next, fact, body)
     case "Inspection":
-      return reconcileCommits(foldInspection(next, body.event, factIndex))
-    case "StateCommitted": {
-      const pending = { stateTag: stateTagOf(body.state), state: body.state }
-      if (next.positions.length === 0 && next.pendingCommits.length === 0) {
-        return {
-          ...next,
-          positions: [{ index: 0, stateTag: pending.stateTag, state: pending.state }],
-        }
-      }
-      return reconcileCommits({ ...next, pendingStates: [...next.pendingStates, pending] })
-    }
+      return foldInspection(next, fact, body.event, factIndex)
+    case "StateCommitted":
+      return foldState(next, fact, body.state)
+    case "ActorTerminated":
+      return foldActorTerminated(next, fact, body.status, factIndex)
     case "StateEncodingFailed":
       return {
         ...next,
         encodingFailures: [
           ...next.encodingFailures,
-          { stateTag: body.stateTag, message: body.message },
+          {
+            actorId: fact.actorId,
+            definitionPath: fact.definitionPath,
+            stateTag: body.stateTag,
+            message: body.message,
+          },
         ],
       }
     case "StatusChanged":
       return { ...next, status: body.status }
     case "HistoryTruncated":
-      return { ...next, truncatedFacts: next.truncatedFacts + body.dropped }
+      return {
+        ...next,
+        truncatedFacts: next.truncatedFacts + body.dropped,
+        truncatedRange: {
+          fromSequence: next.truncatedRange?.fromSequence ?? body.fromSequence,
+          toSequence: body.toSequence,
+        },
+      }
   }
 }
 
-/**
- * Folds an already-ordered fact log into a new history model.
- *
- * **When to use**
- *
- * Use for server replay or other complete logs. Use {@link reduce} to update an existing model as
- * facts arrive.
- *
- * @category folding
- * @since 0.1.0
- */
+/** Folds an already ordered root-session fact log into a new history model. */
 export const fromFacts = (facts: Iterable<Protocol.FactMessage>): Model => {
   let model = initial
   for (const fact of facts) model = reduce(model, fact)
   return model
 }
+
+/** Returns actors that exist at a global session sequence. */
+export const actorsAt = (model: Model, sequence: number): ReadonlyArray<Actor> =>
+  Array.from(model.actors.values()).filter(
+    (actor) => actor.startedAt <= sequence && (actor.endedAt === undefined || sequence < actor.endedAt),
+  )
+
+/** Returns an actor's latest state at or before a global session sequence. */
+export const positionAt = (
+  model: Model,
+  actorId: string,
+  sequence: number,
+): Position | undefined => {
+  const indices = model.actors.get(actorId)?.positions ?? []
+  for (let offset = indices.length - 1; offset >= 0; offset -= 1) {
+    const index = indices[offset]
+    if (index === undefined) continue
+    const position = model.positions[index]
+    if (position !== undefined && position.sequence <= sequence) return position
+  }
+  return undefined
+}
+
+/** Returns the prior committed state for the same actor as a position. */
+export const previousPosition = (model: Model, position: Position): Position | undefined =>
+  position.previousActorPosition === undefined
+    ? undefined
+    : model.positions[position.previousActorPosition]

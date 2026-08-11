@@ -38,6 +38,7 @@ const definition = runner.make({
 const hello = Announcement.make({
   definition,
   sessionId: "session-1",
+  rootActorId: Machine.ActorId.make("actor:0"),
   app: { name: "test-app", runtime: "node" },
   quickEvents: [
     { id: "start", label: "Start", kind: "event", eventTag: "Start" },
@@ -54,6 +55,9 @@ describe("Protocol", () => {
       assert.strictEqual(decoded._tag, "Hello")
       if (decoded._tag !== "Hello") return
       assert.strictEqual(decoded.protocolVersion, Protocol.VERSION)
+      assert.strictEqual(decoded.rootActorId, "actor:0")
+      assert.strictEqual(decoded.definitions.length, 1)
+      assert.strictEqual(decoded.definitions[0]?.definitionPath, "root")
       assert.strictEqual(decoded.graph.nodes.length, 3)
       assert.strictEqual(decoded.graph.edges.length, 2)
       assert.ok(Object.keys(decoded.jsonSchemas.states).includes("Running"))
@@ -74,17 +78,21 @@ describe("Protocol", () => {
           _tag: "Fact",
           sessionId: "session-1",
           sequence: 0,
+          actorId: "actor:0",
+          definitionPath: "root",
           body: { _tag: "StateCommitted", state: { _tag: "Idle" } },
         },
         {
           _tag: "Dispatch",
           sessionId: "session-1",
+          actorId: "actor:0",
           correlationId: "c1",
           command: { _tag: "Custom", event: { _tag: "Start", speed: 2 } },
         },
         {
           _tag: "DispatchOutcome",
           sessionId: "session-1",
+          actorId: "actor:0",
           correlationId: "c1",
           result: { _tag: "Rejected", reason: "unavailable" },
         },
@@ -95,6 +103,62 @@ describe("Protocol", () => {
           yield* Protocol.encodeMessageString(message),
         )
         assert.deepStrictEqual(decoded, message)
+      }
+    }),
+  )
+
+  it.effect("round trips actor lifecycle and exact truncation ranges", () =>
+    Effect.gen(function* () {
+      const facts: ReadonlyArray<Protocol.FactMessage> = [
+        {
+          _tag: "Fact",
+          sessionId: "session-1",
+          sequence: 0,
+          actorId: "actor:0",
+          definitionPath: "root",
+          body: { _tag: "ActorStarted", machineId: "protocol-test" },
+        },
+        {
+          _tag: "Fact",
+          sessionId: "session-1",
+          sequence: 1,
+          actorId: "actor:1",
+          definitionPath: "root/Running:child",
+          body: {
+            _tag: "ActorStarted",
+            machineId: "child",
+            parentActorId: "actor:0",
+            ownerStateTag: "Running",
+            invocation: "child",
+            instanceId: "child:1",
+          },
+        },
+        {
+          _tag: "Fact",
+          sessionId: "session-1",
+          sequence: 2,
+          actorId: "actor:1",
+          definitionPath: "root/Running:child",
+          body: { _tag: "ActorTerminated", status: "completed" },
+        },
+      ]
+      const once = Protocol.truncateOldest("session-1", facts)
+      const twice = Protocol.truncateOldest("session-1", once)
+      const marker = twice[0]
+      assert.strictEqual(marker?.body._tag, "HistoryTruncated")
+      if (marker?.body._tag === "HistoryTruncated") {
+        assert.deepStrictEqual(marker.body, {
+          _tag: "HistoryTruncated",
+          dropped: 2,
+          fromSequence: 0,
+          toSequence: 1,
+        })
+      }
+      for (const fact of twice) {
+        const decoded = yield* Protocol.decodeMessageString(
+          yield* Protocol.encodeMessageString(fact),
+        )
+        assert.deepStrictEqual(decoded, fact)
       }
     }),
   )

@@ -1,12 +1,58 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
+import * as Schema from "effect/Schema"
 import { Machine } from "effect-state-machine"
 import * as Attach from "../src/Attach.js"
 import * as MemoryTransport from "../src/MemoryTransport.js"
 import type * as Protocol from "../src/Protocol.js"
 import { StudioTransport } from "../src/Transport.js"
 import { definition } from "./fixtures/Runner.js"
+
+const ChildInput = Schema.Struct({})
+const ChildWaiting = Schema.TaggedStruct("ChildWaiting", {})
+const ChildDone = Schema.TaggedStruct("ChildDone", {})
+const ChildState = Schema.Union([ChildWaiting, ChildDone]).pipe(Schema.toTaggedUnion("_tag"))
+const FinishChild = Schema.TaggedStruct("FinishChild", {})
+const ChildEvent = Schema.Union([FinishChild]).pipe(Schema.toTaggedUnion("_tag"))
+const childMachine = Machine.builder({ input: ChildInput, state: ChildState, event: ChildEvent })
+const childDefinition = childMachine.make({
+  id: "attached-child",
+  initial: () => ({ _tag: "ChildWaiting" }),
+  nodes: [
+    childMachine.state("ChildWaiting", {
+      on: {
+        FinishChild: { target: "ChildDone", reduce: () => ({ _tag: "ChildDone" }) },
+      },
+    }),
+    childMachine.final("ChildDone"),
+  ],
+})
+
+const ParentInput = Schema.Struct({})
+const RunningChild = Schema.TaggedStruct("RunningChild", {})
+const ParentDone = Schema.TaggedStruct("ParentDone", {})
+const ParentState = Schema.Union([RunningChild, ParentDone]).pipe(Schema.toTaggedUnion("_tag"))
+const CancelParent = Schema.TaggedStruct("CancelParent", {})
+const ParentEvent = Schema.Union([CancelParent]).pipe(Schema.toTaggedUnion("_tag"))
+const parentMachine = Machine.builder({
+  input: ParentInput,
+  state: ParentState,
+  event: ParentEvent,
+})
+const parentDefinition = parentMachine.make({
+  id: "attached-parent",
+  initial: () => ({ _tag: "RunningChild" }),
+  nodes: [
+    parentMachine.child("RunningChild", {
+      name: "child",
+      definition: childDefinition,
+      input: () => ({}),
+      onComplete: { target: "ParentDone", reduce: () => ({ _tag: "ParentDone" }) },
+    }),
+    parentMachine.final("ParentDone"),
+  ],
+})
 
 const takeUntil = (
   queue: Queue.Dequeue<Protocol.Message>,
@@ -27,6 +73,53 @@ const isFact = (
 ): message is Protocol.FactMessage => message._tag === "Fact" && message.body._tag === bodyTag
 
 describe("Attach", () => {
+  it.live("announces and dispatches a nested machine tree as one session", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { transport, studio } = yield* MemoryTransport.make
+        const handle = yield* Machine.run(parentDefinition, {})
+        yield* Attach.attach({ definition: parentDefinition, handle }).pipe(
+          Effect.provideService(StudioTransport, transport),
+        )
+
+        const hello = yield* takeUntil(studio.received, (message) => message._tag === "Hello")
+        assert.strictEqual(hello._tag, "Hello")
+        if (hello._tag !== "Hello") return
+        assert.deepStrictEqual(
+          hello.definitions.map(({ definitionPath }) => definitionPath),
+          ["root", "root/RunningChild:child"],
+        )
+
+        const childStarted = yield* takeUntil(
+          studio.received,
+          (message) =>
+            isFact(message, "ActorStarted") &&
+            message._tag === "Fact" &&
+            message.actorId !== hello.rootActorId,
+        )
+        assert.strictEqual(childStarted._tag, "Fact")
+        if (childStarted._tag !== "Fact") return
+        assert.strictEqual(childStarted.sessionId, hello.sessionId)
+        assert.strictEqual(childStarted.definitionPath, "root/RunningChild:child")
+
+        yield* studio.send({
+          _tag: "Dispatch",
+          sessionId: hello.sessionId,
+          actorId: childStarted.actorId,
+          correlationId: "finish-child",
+          command: { _tag: "Custom", event: { _tag: "FinishChild" } },
+        })
+        const outcome = yield* takeUntil(
+          studio.received,
+          (message) =>
+            message._tag === "DispatchOutcome" && message.correlationId === "finish-child",
+        )
+        assert.ok(outcome._tag === "DispatchOutcome" && outcome.result._tag === "Accepted")
+        assert.deepStrictEqual(yield* handle.completion, { _tag: "ParentDone" })
+      }),
+    ),
+  )
+
   it.live("announces the session and streams facts", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -45,6 +138,7 @@ describe("Attach", () => {
         assert.strictEqual(first._tag, "Hello")
         if (first._tag !== "Hello") return
         assert.strictEqual(first.machine.id, "runner")
+        assert.strictEqual(first.rootActorId, handle.actorId)
         assert.deepStrictEqual(
           first.quickEvents.map(({ id, kind, eventTag }) => ({ id, kind, eventTag })),
           [
@@ -58,6 +152,8 @@ describe("Attach", () => {
         )
         assert.ok(initialCommit._tag === "Fact" && initialCommit.body._tag === "StateCommitted")
         if (initialCommit._tag === "Fact" && initialCommit.body._tag === "StateCommitted") {
+          assert.strictEqual(initialCommit.actorId, handle.actorId)
+          assert.strictEqual(initialCommit.definitionPath, "root")
           assert.deepStrictEqual(initialCommit.body.state, { _tag: "Idle" })
         }
 
@@ -102,10 +198,10 @@ describe("Attach", () => {
         const hello = yield* takeUntil(studio.received, (message) => message._tag === "Hello")
         assert.strictEqual(hello._tag, "Hello")
         const status = yield* takeUntil(studio.received, (message) =>
-          isFact(message, "StatusChanged"),
+          isFact(message, "ActorTerminated"),
         )
-        assert.ok(status._tag === "Fact" && status.body._tag === "StatusChanged")
-        if (status._tag === "Fact" && status.body._tag === "StatusChanged") {
+        assert.ok(status._tag === "Fact" && status.body._tag === "ActorTerminated")
+        if (status._tag === "Fact" && status.body._tag === "ActorTerminated") {
           assert.strictEqual(status.body.status, "completed")
         }
       }),
@@ -136,6 +232,7 @@ describe("Attach", () => {
         yield* studio.send({
           _tag: "Dispatch",
           sessionId,
+          actorId: handle.actorId,
           correlationId: "c-unknown",
           command: { _tag: "Quick", id: "missing" },
         })
@@ -148,6 +245,7 @@ describe("Attach", () => {
         yield* studio.send({
           _tag: "Dispatch",
           sessionId,
+          actorId: handle.actorId,
           correlationId: "c-quick",
           command: { _tag: "Quick", id: "start" },
         })
@@ -157,6 +255,7 @@ describe("Attach", () => {
         yield* studio.send({
           _tag: "Dispatch",
           sessionId,
+          actorId: handle.actorId,
           correlationId: "c-invalid",
           command: { _tag: "Custom", event: { _tag: "Nope" } },
         })
@@ -169,6 +268,7 @@ describe("Attach", () => {
         yield* studio.send({
           _tag: "Dispatch",
           sessionId,
+          actorId: handle.actorId,
           correlationId: "c-unavailable",
           command: { _tag: "Custom", event: { _tag: "Start", speed: 1 } },
         })

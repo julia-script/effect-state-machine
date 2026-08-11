@@ -1,5 +1,4 @@
 import { useAtom, useAtomValue } from "@effect/atom-react"
-import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
 import { BehaviorMap } from "./components/BehaviorMap.js"
 import { DetailCard } from "./components/DetailCard.js"
@@ -21,7 +20,6 @@ function SelectionDetails({ session }: { readonly session: SessionView }) {
   if (selection === undefined) return null
   return (
     <DetailCard
-      graph={session.hello.graph as Graph.Graph}
       session={session}
       selection={selection}
       onClose={() => setSelection(undefined)}

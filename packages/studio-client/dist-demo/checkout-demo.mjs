@@ -14,6 +14,9 @@ import * as Schema6 from "effect/Schema";
 // ../core/src/Machine.ts
 var Machine_exports = {};
 __export(Machine_exports, {
+  ActorDispatchError: () => ActorDispatchError,
+  ActorId: () => ActorId,
+  DefinitionPath: () => DefinitionPath,
   MachineDefinitionDefect: () => MachineDefinitionDefect,
   ProtocolDefect: () => ProtocolDefect,
   builder: () => builder,
@@ -28,6 +31,7 @@ __export(Machine_exports, {
   taggedUnion: () => taggedUnion
 });
 import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -58,7 +62,15 @@ var taggedUnion = (cases) => {
   });
   return Schema.Union(members).pipe(Schema.toTaggedUnion("_tag"));
 };
-var normalizeTaggedSchema = (schema) => "cases" in schema ? schema : schema.pipe(Schema.toTaggedUnion("_tag"));
+var normalizeTaggedSchema = (schema) => (
+  // TypeScript cannot narrow a conditional return type from the "cases" in-check on a generic.
+  "cases" in schema ? schema : schema.pipe(Schema.toTaggedUnion("_tag"))
+);
+var ActorId = {
+  make: (value) => value
+};
+var ActorDispatchError = class extends Data.TaggedError("ActorDispatchError") {
+};
 var MachineDefinitionDefect = class extends Error {
   name = "MachineDefinitionDefect";
 };
@@ -91,6 +103,7 @@ var builder = (schemaSources) => {
     kind: "state",
     tag,
     source: capture(),
+    // {} is valid for the all-optional handler map, but TypeScript cannot prove it against a generic key union.
     on: config.on ?? {}
   });
   const final = (tag) => ({
@@ -108,6 +121,7 @@ var builder = (schemaSources) => {
     retry: config.retry,
     onSuccess: config.onSuccess,
     onFailure: config.onFailure,
+    // {} is valid for the all-optional handler map, but TypeScript cannot prove it against a generic key union.
     on: config.on ?? {}
   });
   const child = (tag, config) => ({
@@ -118,6 +132,7 @@ var builder = (schemaSources) => {
     source: capture(),
     definition: config.definition,
     input: config.input,
+    // {} is valid for these all-optional maps, but TypeScript cannot prove it against a generic key union.
     forward: config.forward ?? {},
     onComplete: config.onComplete,
     on: config.on ?? {}
@@ -304,7 +319,84 @@ var selectOutcome = (handler, args) => {
   }
   return void 0;
 };
+var makeActorId = (sequence) => `actor:${sequence}`;
+var rootDefinitionPath = "root";
+var childDefinitionPath = (parent, ownerStateTag, invocation) => `${parent}/${encodeURIComponent(ownerStateTag)}:${encodeURIComponent(invocation)}`;
+var DefinitionPath = {
+  root: rootDefinitionPath,
+  child: childDefinitionPath,
+  make: (value) => value
+};
+var makeTreeRuntime = () => Effect.gen(function* () {
+  const rootActorId = makeActorId(0);
+  const actorSequence = yield* Ref.make(1);
+  const journal = yield* SubscriptionRef.make([]);
+  const registry = yield* Ref.make(/* @__PURE__ */ new Map());
+  const append = Effect.fnUntraced(function* (actorId, definitionPath, body) {
+    return yield* SubscriptionRef.modify(journal, (records2) => {
+      const record = {
+        sequence: records2.length,
+        actorId,
+        definitionPath,
+        body
+      };
+      return [record, [...records2, record]];
+    });
+  });
+  const register = Effect.fnUntraced(function* (actorId, adapter) {
+    yield* Ref.update(registry, (entries) => new Map(entries).set(actorId, { status: "live", adapter }));
+  });
+  const terminate = Effect.fnUntraced(function* (actorId, definitionPath, status) {
+    yield* append(actorId, definitionPath, { _tag: "ActorTerminated", status });
+    yield* Ref.update(
+      registry,
+      (entries) => new Map(entries).set(actorId, { status: "ended", definitionPath })
+    );
+  });
+  const dispatch = Effect.fnUntraced(function* (actorId, event) {
+    const entry = (yield* Ref.get(registry)).get(actorId);
+    if (entry === void 0) {
+      return yield* new ActorDispatchError({ actorId, reason: "unknown" });
+    }
+    if (entry.status === "ended") {
+      return yield* new ActorDispatchError({ actorId, reason: "ended" });
+    }
+    if (!(yield* entry.adapter.can(event))) {
+      return yield* new ActorDispatchError({ actorId, reason: "unaccepted" });
+    }
+    return yield* entry.adapter.send(event);
+  });
+  const records = SubscriptionRef.changes(journal).pipe(
+    Stream.mapAccum(
+      () => 0,
+      (seen, retained) => [retained.length, retained.slice(seen)]
+    )
+  );
+  return {
+    handle: { rootActorId, records, dispatch },
+    allocateActor: Ref.getAndUpdate(actorSequence, (sequence) => sequence + 1).pipe(
+      Effect.map(makeActorId)
+    ),
+    append,
+    register,
+    terminate
+  };
+});
 var run2 = (definition2, input) => Effect.gen(function* () {
+  const runtime = yield* makeTreeRuntime();
+  return yield* runActor(definition2, input, {
+    runtime,
+    actorId: runtime.handle.rootActorId,
+    definitionPath: rootDefinitionPath
+  });
+});
+var runActor = (definition2, input, actorContext) => Effect.gen(function* () {
+  const {
+    runtime: treeRuntime,
+    actorId,
+    definitionPath,
+    parent: actorParent
+  } = actorContext;
   const environment = yield* Effect.context();
   const parentScope = yield* Scope.Scope;
   const initial = definition2.initial(input);
@@ -333,7 +425,16 @@ var run2 = (definition2, input) => Effect.gen(function* () {
   const emit = (metadata, event) => SubscriptionRef.update(inspectionRef, (events) => [
     ...events,
     { metadata, ...event === void 0 ? {} : { event } }
-  ]);
+  ]).pipe(
+    Effect.andThen(
+      treeRuntime.append(actorId, definitionPath, {
+        _tag: "Inspection",
+        metadata,
+        ...event === void 0 ? {} : { event }
+      })
+    ),
+    Effect.asVoid
+  );
   const inspection = (projectEvent) => SubscriptionRef.changes(inspectionRef).pipe(
     Stream.mapAccum(
       () => 0,
@@ -345,379 +446,457 @@ var run2 = (definition2, input) => Effect.gen(function* () {
       ]
     )
   );
-  const startInvocation = (state) => Effect.gen(function* () {
-    const node = nodes.get(state._tag);
-    if (node?.kind !== "invoke") return;
-    const invocationGeneration = generation;
-    yield* emit({
-      _tag: "InvocationStarted",
-      machineId: definition2.id,
-      stateTag: state._tag,
-      invocation: node.name,
-      generation: invocationGeneration
-    });
-    const operation = node.effect(state);
-    const retry2 = node.retry;
-    const retryingOperation = retry2 === void 0 ? operation : Effect.retry(
-      operation,
-      retry2.schedule.pipe(
-        Schedule.tap(
-          (metadata) => emit({
-            _tag: "InvocationRetryScheduled",
+  const startInvocation = Effect.fnUntraced(
+    function* (state) {
+      const node = nodes.get(state._tag);
+      if (node?.kind !== "invoke") return;
+      const invocationGeneration = generation;
+      yield* emit({
+        _tag: "InvocationStarted",
+        machineId: definition2.id,
+        stateTag: state._tag,
+        invocation: node.name,
+        generation: invocationGeneration
+      });
+      const operation = node.effect(state);
+      const retry2 = node.retry;
+      const retryingOperation = retry2 === void 0 ? operation : Effect.retry(
+        operation,
+        retry2.schedule.pipe(
+          Schedule.tap(
+            (metadata) => emit({
+              _tag: "InvocationRetryScheduled",
+              machineId: definition2.id,
+              stateTag: state._tag,
+              invocation: node.name,
+              generation: invocationGeneration,
+              policy: retry2.name,
+              attempt: metadata.attempt,
+              delayMillis: Duration.toMillis(metadata.duration)
+            })
+          )
+        )
+      );
+      const invocation = retryingOperation.pipe(
+        Effect.provideContext(environment),
+        Effect.matchEffect({
+          onFailure: (error) => Queue.offer(inbox, {
+            kind: "invocation-failure",
+            stateTag: state._tag,
+            generation: invocationGeneration,
+            error
+          }).pipe(Effect.asVoid),
+          onSuccess: (value) => Queue.offer(inbox, {
+            kind: "invocation-success",
+            stateTag: state._tag,
+            generation: invocationGeneration,
+            value
+          }).pipe(Effect.asVoid)
+        }),
+        Effect.onExit(
+          (exit) => Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) ? emit({
+            _tag: "InvocationCancelled",
             machineId: definition2.id,
             stateTag: state._tag,
             invocation: node.name,
+            generation: invocationGeneration
+          }) : Effect.void
+        ),
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.void;
+          }
+          return Queue.offer(inbox, {
+            kind: "invocation-defect",
+            stateTag: state._tag,
             generation: invocationGeneration,
-            policy: retry2.name,
-            attempt: metadata.attempt,
-            delayMillis: Duration.toMillis(metadata.duration)
-          })
-        )
-      )
-    );
-    const invocation = retryingOperation.pipe(
-      Effect.provideContext(environment),
-      Effect.matchEffect({
-        onFailure: (error) => Queue.offer(inbox, {
-          kind: "invocation-failure",
-          stateTag: state._tag,
-          generation: invocationGeneration,
-          error
-        }).pipe(Effect.asVoid),
-        onSuccess: (value) => Queue.offer(inbox, {
-          kind: "invocation-success",
-          stateTag: state._tag,
-          generation: invocationGeneration,
-          value
-        }).pipe(Effect.asVoid)
-      }),
-      Effect.onExit(
-        (exit2) => Exit.isFailure(exit2) && Cause.hasInterruptsOnly(exit2.cause) ? emit({
-          _tag: "InvocationCancelled",
-          machineId: definition2.id,
-          stateTag: state._tag,
+            cause
+          }).pipe(Effect.asVoid);
+        })
+      );
+      yield* FiberMap.run(activeFibers, "active")(invocation);
+    }
+  );
+  const startChild = Effect.fnUntraced(
+    function* (state) {
+      const node = nodes.get(state._tag);
+      if (node?.kind !== "child") return;
+      const childScope = yield* Scope.make();
+      yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void));
+      const childGeneration = generation;
+      const instanceId = `${definition2.id}:${node.name}:${++childInstanceSequence}`;
+      const childActorId = yield* treeRuntime.allocateActor;
+      const childHandle = yield* runActor(node.definition, node.input(state), {
+        runtime: treeRuntime,
+        actorId: childActorId,
+        definitionPath: childDefinitionPath(definitionPath, state._tag, node.name),
+        parent: {
+          actorId,
+          ownerStateTag: state._tag,
           invocation: node.name,
-          generation: invocationGeneration
-        }) : Effect.void
-      ),
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.void;
+          instanceId
         }
-        return Queue.offer(inbox, {
-          kind: "invocation-defect",
-          stateTag: state._tag,
-          generation: invocationGeneration,
-          cause
-        }).pipe(Effect.asVoid);
-      })
-    );
-    yield* FiberMap.run(activeFibers, "active")(invocation);
-  });
-  const startChild = (state) => Effect.gen(function* () {
-    const node = nodes.get(state._tag);
-    if (node?.kind !== "child") return;
-    const childScope = yield* Scope.make();
-    yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void));
-    const childGeneration = generation;
-    const instanceId = `${definition2.id}:${node.name}:${++childInstanceSequence}`;
-    const childHandle = yield* run2(node.definition, node.input(state)).pipe(
-      Effect.provideService(Scope.Scope, childScope),
-      Effect.provideContext(environment)
-    );
-    activeChild = {
-      stateTag: state._tag,
-      generation: childGeneration,
-      invocation: node.name,
-      instanceId,
-      scope: childScope,
-      handle: childHandle
-    };
-    yield* emit({
-      _tag: "ChildStarted",
-      machineId: definition2.id,
-      stateTag: state._tag,
-      invocation: node.name,
-      instanceId,
-      childDefinitionId: node.definition.id,
-      generation: childGeneration
-    });
-    const watchCompletion = childHandle.completion.pipe(
-      Effect.matchCauseEffect({
-        onFailure: (cause) => Queue.offer(inbox, {
-          kind: "child-defect",
-          stateTag: state._tag,
-          generation: childGeneration,
-          invocation: node.name,
-          instanceId,
-          cause
-        }).pipe(Effect.asVoid),
-        onSuccess: (value) => Queue.offer(inbox, {
-          kind: "child-complete",
-          stateTag: state._tag,
-          generation: childGeneration,
-          invocation: node.name,
-          instanceId,
-          value
-        }).pipe(Effect.asVoid)
-      })
-    );
-    yield* FiberMap.run(activeFibers, "active")(watchCompletion);
-  });
+      }).pipe(
+        Effect.provideService(Scope.Scope, childScope),
+        Effect.provideContext(environment)
+      );
+      activeChild = {
+        stateTag: state._tag,
+        generation: childGeneration,
+        invocation: node.name,
+        instanceId,
+        actorId: childActorId,
+        scope: childScope,
+        handle: childHandle
+      };
+      yield* emit({
+        _tag: "ChildStarted",
+        machineId: definition2.id,
+        stateTag: state._tag,
+        invocation: node.name,
+        instanceId,
+        childDefinitionId: node.definition.id,
+        generation: childGeneration
+      });
+      const watchCompletion = childHandle.completion.pipe(
+        Effect.matchCauseEffect({
+          onFailure: (cause) => Queue.offer(inbox, {
+            kind: "child-defect",
+            stateTag: state._tag,
+            generation: childGeneration,
+            invocation: node.name,
+            instanceId,
+            cause
+          }).pipe(Effect.asVoid),
+          onSuccess: (value) => Queue.offer(inbox, {
+            kind: "child-complete",
+            stateTag: state._tag,
+            generation: childGeneration,
+            invocation: node.name,
+            instanceId,
+            value
+          }).pipe(Effect.asVoid)
+        })
+      );
+      yield* FiberMap.run(activeFibers, "active")(watchCompletion);
+    }
+  );
   const startOwnedBehavior = (state) => Effect.andThen(startInvocation(state), startChild(state));
-  const closeActiveChild = (cancelled) => Effect.gen(function* () {
-    const child = activeChild;
-    if (child === void 0) return;
-    activeChild = void 0;
-    if (cancelled) {
-      yield* emit({
-        _tag: "ChildCancelled",
-        machineId: definition2.id,
-        stateTag: child.stateTag,
-        invocation: child.invocation,
-        instanceId: child.instanceId,
-        generation: child.generation
-      });
-    }
-    yield* Scope.close(child.scope, Exit.void);
-  });
-  const commit = (previous, next) => Effect.gen(function* () {
-    generation += 1;
-    yield* FiberMap.clear(activeFibers);
-    yield* closeActiveChild(true);
-    yield* SubscriptionRef.set(stateRef, next);
-    yield* emit({
-      _tag: "StateChanged",
-      machineId: definition2.id,
-      previousStateTag: previous._tag,
-      nextStateTag: next._tag
-    });
-    const isFinal = finalTags.has(next._tag);
-    if (isFinal) {
-      yield* Ref.set(status, "Completed");
-      yield* emit({
-        _tag: "MachineCompleted",
-        machineId: definition2.id,
-        finalStateTag: next._tag
-      });
-      yield* Deferred.succeed(completion, next);
-    } else {
-      yield* startOwnedBehavior(next);
-    }
-    return !isFinal;
-  });
-  const process = (envelope) => Effect.gen(function* () {
-    const current = yield* SubscriptionRef.get(stateRef);
-    const currentNode = nodes.get(current._tag);
-    if (envelope.kind === "child-complete" || envelope.kind === "child-defect") {
+  const closeActiveChild = Effect.fnUntraced(
+    function* (cancelled) {
       const child = activeChild;
-      if (envelope.generation !== generation || envelope.stateTag !== current._tag || currentNode?.kind !== "child" || child?.instanceId !== envelope.instanceId) {
-        return true;
-      }
-      if (envelope.kind === "child-defect") {
+      if (child === void 0) return;
+      activeChild = void 0;
+      if (cancelled) {
         yield* emit({
-          _tag: "ChildDefected",
+          _tag: "ChildCancelled",
+          machineId: definition2.id,
+          stateTag: child.stateTag,
+          invocation: child.invocation,
+          instanceId: child.instanceId,
+          generation: child.generation
+        });
+      }
+      yield* Scope.close(child.scope, Exit.void);
+    }
+  );
+  const commit = Effect.fnUntraced(
+    function* (previous, next) {
+      generation += 1;
+      yield* FiberMap.clear(activeFibers);
+      yield* closeActiveChild(true);
+      yield* SubscriptionRef.set(stateRef, next);
+      yield* emit({
+        _tag: "StateChanged",
+        machineId: definition2.id,
+        previousStateTag: previous._tag,
+        nextStateTag: next._tag
+      });
+      yield* treeRuntime.append(actorId, definitionPath, {
+        _tag: "StateSnapshot",
+        state: next
+      });
+      const isFinal = finalTags.has(next._tag);
+      if (isFinal) {
+        yield* Ref.set(status, "Completed");
+        yield* emit({
+          _tag: "MachineCompleted",
+          machineId: definition2.id,
+          finalStateTag: next._tag
+        });
+        yield* treeRuntime.terminate(actorId, definitionPath, "completed");
+        yield* Deferred.succeed(completion, next);
+      } else {
+        yield* startOwnedBehavior(next);
+      }
+      return !isFinal;
+    }
+  );
+  const process = Effect.fnUntraced(
+    function* (envelope) {
+      const current = yield* SubscriptionRef.get(stateRef);
+      const currentNode = nodes.get(current._tag);
+      if (envelope.kind === "child-complete" || envelope.kind === "child-defect") {
+        const child = activeChild;
+        if (envelope.generation !== generation || envelope.stateTag !== current._tag || currentNode?.kind !== "child" || child?.instanceId !== envelope.instanceId) {
+          return true;
+        }
+        if (envelope.kind === "child-defect") {
+          yield* emit({
+            _tag: "ChildDefected",
+            machineId: definition2.id,
+            stateTag: current._tag,
+            invocation: currentNode.name,
+            instanceId: envelope.instanceId,
+            generation
+          });
+          yield* closeActiveChild(false);
+          return yield* Effect.failCause(envelope.cause);
+        }
+        const selectedOutcome = selectOutcome(currentNode.onComplete, {
+          state: current,
+          value: envelope.value
+        });
+        if (selectedOutcome === void 0) {
+          return yield* Effect.die(
+            new ProtocolDefect(definition2.id, current._tag, "child-completion")
+          );
+        }
+        yield* emit({
+          _tag: "ChildCompleted",
           machineId: definition2.id,
           stateTag: current._tag,
           invocation: currentNode.name,
           instanceId: envelope.instanceId,
-          generation
+          generation,
+          ...selectedOutcome.branch === void 0 ? {} : { branch: selectedOutcome.branch }
         });
+        const transition2 = selectedOutcome.transition;
+        const next2 = transition2.reduce({ state: current, value: envelope.value });
+        if (next2._tag !== transition2.target) {
+          return yield* Effect.die(
+            new MachineDefinitionDefect(
+              `Machine ${definition2.id} reducer targeted ${transition2.target} but returned ${next2._tag}`
+            )
+          );
+        }
         yield* closeActiveChild(false);
-        return yield* Effect.failCause(envelope.cause);
+        return yield* commit(current, next2);
       }
-      const selectedOutcome = selectOutcome(currentNode.onComplete, {
-        state: current,
-        value: envelope.value
-      });
-      if (selectedOutcome === void 0) {
-        return yield* Effect.die(
-          new ProtocolDefect(definition2.id, current._tag, "child-completion")
-        );
-      }
-      yield* emit({
-        _tag: "ChildCompleted",
-        machineId: definition2.id,
-        stateTag: current._tag,
-        invocation: currentNode.name,
-        instanceId: envelope.instanceId,
-        generation,
-        ...selectedOutcome.branch === void 0 ? {} : { branch: selectedOutcome.branch }
-      });
-      const transition2 = selectedOutcome.transition;
-      const next2 = transition2.reduce({ state: current, value: envelope.value });
-      if (next2._tag !== transition2.target) {
-        return yield* Effect.die(
-          new MachineDefinitionDefect(
-            `Machine ${definition2.id} reducer targeted ${transition2.target} but returned ${next2._tag}`
-          )
-        );
-      }
-      yield* closeActiveChild(false);
-      return yield* commit(current, next2);
-    }
-    if (envelope.kind !== "external") {
-      if (envelope.generation !== generation || envelope.stateTag !== current._tag || currentNode?.kind !== "invoke") {
-        return true;
-      }
-      if (envelope.kind === "invocation-defect") {
-        yield* emit({
-          _tag: "InvocationDefected",
-          machineId: definition2.id,
-          stateTag: current._tag,
-          invocation: currentNode.name,
-          generation
-        });
-        return yield* Effect.failCause(envelope.cause);
-      }
-      const isSuccess2 = envelope.kind === "invocation-success";
-      const selectedOutcome = isSuccess2 ? selectOutcome(currentNode.onSuccess, { state: current, value: envelope.value }) : selectOutcome(currentNode.onFailure, { state: current, error: envelope.error });
-      if (selectedOutcome === void 0) {
-        return yield* Effect.die(
-          new ProtocolDefect(
-            definition2.id,
-            current._tag,
-            isSuccess2 ? "invocation-success" : "invocation-failure"
-          )
-        );
-      }
-      yield* emit({
-        _tag: isSuccess2 ? "InvocationSucceeded" : "InvocationFailed",
-        machineId: definition2.id,
-        stateTag: current._tag,
-        invocation: currentNode.name,
-        generation,
-        ...selectedOutcome.branch === void 0 ? {} : { branch: selectedOutcome.branch }
-      });
-      const transition2 = selectedOutcome.transition;
-      const next2 = isSuccess2 ? transition2.reduce({
-        state: current,
-        value: envelope.value
-      }) : transition2.reduce({
-        state: current,
-        error: envelope.error
-      });
-      if (next2._tag !== transition2.target) {
-        return yield* Effect.die(
-          new MachineDefinitionDefect(
-            `Machine ${definition2.id} reducer targeted ${transition2.target} but returned ${next2._tag}`
-          )
-        );
-      }
-      return yield* commit(current, next2);
-    }
-    yield* emit(
-      {
-        _tag: "EventReceived",
-        machineId: definition2.id,
-        stateTag: current._tag,
-        eventTag: envelope.event._tag
-      },
-      envelope.event
-    );
-    if (currentNode?.kind === "child") {
-      const forwarded = currentNode.forward[envelope.event._tag];
-      if (forwarded !== void 0) {
-        const child = activeChild;
-        if (child === void 0) {
-          return yield* Effect.die(
-            new MachineDefinitionDefect(
-              `Machine ${definition2.id} has no active instance for child ${currentNode.name}`
-            )
-          );
+      if (envelope.kind !== "external") {
+        if (envelope.generation !== generation || envelope.stateTag !== current._tag || currentNode?.kind !== "invoke") {
+          return true;
         }
-        const childEvent = forwarded.map({ state: current, event: envelope.event });
-        if (childEvent._tag !== forwarded.target) {
+        if (envelope.kind === "invocation-defect") {
+          yield* emit({
+            _tag: "InvocationDefected",
+            machineId: definition2.id,
+            stateTag: current._tag,
+            invocation: currentNode.name,
+            generation
+          });
+          return yield* Effect.failCause(envelope.cause);
+        }
+        const isSuccess = envelope.kind === "invocation-success";
+        const selectedOutcome = isSuccess ? selectOutcome(currentNode.onSuccess, { state: current, value: envelope.value }) : selectOutcome(currentNode.onFailure, { state: current, error: envelope.error });
+        if (selectedOutcome === void 0) {
           return yield* Effect.die(
-            new MachineDefinitionDefect(
-              `Machine ${definition2.id} forwards to ${forwarded.target} but returned ${childEvent._tag}`
+            new ProtocolDefect(
+              definition2.id,
+              current._tag,
+              isSuccess ? "invocation-success" : "invocation-failure"
             )
           );
         }
         yield* emit({
-          _tag: "ChildEventForwarded",
+          _tag: isSuccess ? "InvocationSucceeded" : "InvocationFailed",
           machineId: definition2.id,
           stateTag: current._tag,
           invocation: currentNode.name,
-          instanceId: child.instanceId,
-          parentEventTag: envelope.event._tag,
-          childEventTag: childEvent._tag,
-          generation
+          generation,
+          ...selectedOutcome.branch === void 0 ? {} : { branch: selectedOutcome.branch }
         });
-        yield* child.handle.send(childEvent).pipe(
-          Effect.catchCause(
-            (cause) => Effect.andThen(
-              emit({
-                _tag: "ChildDefected",
-                machineId: definition2.id,
-                stateTag: current._tag,
-                invocation: currentNode.name,
-                instanceId: child.instanceId,
-                generation
-              }),
-              Effect.failCause(cause)
+        const transition2 = selectedOutcome.transition;
+        const next2 = isSuccess ? transition2.reduce({
+          state: current,
+          value: envelope.value
+        }) : transition2.reduce({
+          state: current,
+          error: envelope.error
+        });
+        if (next2._tag !== transition2.target) {
+          return yield* Effect.die(
+            new MachineDefinitionDefect(
+              `Machine ${definition2.id} reducer targeted ${transition2.target} but returned ${next2._tag}`
             )
-          )
-        );
+          );
+        }
+        return yield* commit(current, next2);
+      }
+      yield* emit(
+        {
+          _tag: "EventReceived",
+          machineId: definition2.id,
+          stateTag: current._tag,
+          eventTag: envelope.event._tag
+        },
+        envelope.event
+      );
+      if (currentNode?.kind === "child") {
+        const forwarded = currentNode.forward[envelope.event._tag];
+        if (forwarded !== void 0) {
+          const child = activeChild;
+          if (child === void 0) {
+            return yield* Effect.die(
+              new MachineDefinitionDefect(
+                `Machine ${definition2.id} has no active instance for child ${currentNode.name}`
+              )
+            );
+          }
+          const childEvent = forwarded.map({ state: current, event: envelope.event });
+          if (childEvent._tag !== forwarded.target) {
+            return yield* Effect.die(
+              new MachineDefinitionDefect(
+                `Machine ${definition2.id} forwards to ${forwarded.target} but returned ${childEvent._tag}`
+              )
+            );
+          }
+          yield* emit({
+            _tag: "ChildEventForwarded",
+            machineId: definition2.id,
+            stateTag: current._tag,
+            invocation: currentNode.name,
+            instanceId: child.instanceId,
+            parentEventTag: envelope.event._tag,
+            childEventTag: childEvent._tag,
+            generation
+          });
+          yield* child.handle.send(childEvent).pipe(
+            Effect.catchCause(
+              (cause) => Effect.andThen(
+                emit({
+                  _tag: "ChildDefected",
+                  machineId: definition2.id,
+                  stateTag: current._tag,
+                  invocation: currentNode.name,
+                  instanceId: child.instanceId,
+                  generation
+                }),
+                Effect.failCause(cause)
+              )
+            )
+          );
+          yield* Deferred.succeed(envelope.reply, void 0);
+          return true;
+        }
+      }
+      const handler = currentNode?.kind === "state" || currentNode?.kind === "invoke" || currentNode?.kind === "child" ? currentNode.on[envelope.event._tag] : void 0;
+      const selected = selectHandler(handler, current, envelope.event);
+      if (selected === void 0) {
+        const defect = new ProtocolDefect(definition2.id, current._tag, envelope.event._tag);
+        yield* emit({
+          _tag: "MachineDefected",
+          machineId: definition2.id,
+          stateTag: current._tag,
+          eventTag: envelope.event._tag,
+          defect: "ProtocolDefect"
+        });
+        yield* Deferred.die(envelope.reply, defect);
+        return yield* Effect.die(defect);
+      }
+      if (selected.kind === "ignore") {
+        yield* emit({
+          _tag: "EventIgnored",
+          machineId: definition2.id,
+          stateTag: current._tag,
+          eventTag: envelope.event._tag
+        });
         yield* Deferred.succeed(envelope.reply, void 0);
         return true;
       }
-    }
-    const handler = currentNode?.kind === "state" || currentNode?.kind === "invoke" || currentNode?.kind === "child" ? currentNode.on[envelope.event._tag] : void 0;
-    const selected = selectHandler(handler, current, envelope.event);
-    if (selected === void 0) {
-      const defect = new ProtocolDefect(definition2.id, current._tag, envelope.event._tag);
+      const transition = selected.transition;
       yield* emit({
-        _tag: "MachineDefected",
+        _tag: "TransitionSelected",
         machineId: definition2.id,
-        stateTag: current._tag,
+        sourceStateTag: current._tag,
+        targetStateTag: transition.target,
         eventTag: envelope.event._tag,
-        defect: "ProtocolDefect"
+        ...selected.branch === void 0 ? {} : { branch: selected.branch }
       });
-      yield* Deferred.die(envelope.reply, defect);
-      return yield* Effect.die(defect);
-    }
-    if (selected.kind === "ignore") {
-      yield* emit({
-        _tag: "EventIgnored",
-        machineId: definition2.id,
-        stateTag: current._tag,
-        eventTag: envelope.event._tag
-      });
+      const next = transition.reduce({ state: current, event: envelope.event });
+      if (next._tag !== transition.target) {
+        return yield* Effect.die(
+          new MachineDefinitionDefect(
+            `Machine ${definition2.id} reducer targeted ${transition.target} but returned ${next._tag}`
+          )
+        );
+      }
+      const continueRunning = yield* commit(current, next);
       yield* Deferred.succeed(envelope.reply, void 0);
-      return true;
+      return continueRunning;
     }
-    const transition = selected.transition;
-    yield* emit({
-      _tag: "TransitionSelected",
-      machineId: definition2.id,
-      sourceStateTag: current._tag,
-      targetStateTag: transition.target,
-      eventTag: envelope.event._tag,
-      ...selected.branch === void 0 ? {} : { branch: selected.branch }
-    });
-    const next = transition.reduce({ state: current, event: envelope.event });
-    if (next._tag !== transition.target) {
-      return yield* Effect.die(
-        new MachineDefinitionDefect(
-          `Machine ${definition2.id} reducer targeted ${transition.target} but returned ${next._tag}`
-        )
-      );
+  );
+  const can = Effect.fnUntraced(function* (event) {
+    const current = yield* SubscriptionRef.get(stateRef);
+    const node = nodes.get(current._tag);
+    if (node?.kind === "child") {
+      const forwarded = node.forward[event._tag];
+      if (forwarded !== void 0) {
+        const child = activeChild;
+        if (child === void 0) return false;
+        const childEvent = forwarded.map({ state: current, event });
+        if (childEvent._tag !== forwarded.target) return false;
+        return yield* child.handle.can(childEvent);
+      }
     }
-    const continueRunning = yield* commit(current, next);
-    yield* Deferred.succeed(envelope.reply, void 0);
-    return continueRunning;
+    if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
+      return false;
+    }
+    return selectHandler(node.on[event._tag], current, event) !== void 0;
+  });
+  const send = Effect.fnUntraced(function* (event) {
+    const currentStatus = yield* Ref.get(status);
+    if (currentStatus === "Completed") {
+      const current = yield* SubscriptionRef.get(stateRef);
+      return yield* Effect.die(new ProtocolDefect(definition2.id, current._tag, event._tag));
+    }
+    if (currentStatus === "Defected") {
+      return yield* Deferred.await(terminated);
+    }
+    const reply = yield* Deferred.make();
+    yield* Queue.offer(inbox, { kind: "external", event, reply });
+    yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated));
+  });
+  yield* treeRuntime.register(actorId, {
+    definitionPath,
+    can: (event) => can(event),
+    send: (event) => send(event)
+  });
+  yield* treeRuntime.append(actorId, definitionPath, {
+    _tag: "ActorStarted",
+    machineId: definition2.id,
+    ...actorParent === void 0 ? {} : {
+      parentActorId: actorParent.actorId,
+      ownerStateTag: actorParent.ownerStateTag,
+      invocation: actorParent.invocation,
+      instanceId: actorParent.instanceId
+    }
   });
   yield* emit({
     _tag: "MachineStarted",
     machineId: definition2.id,
     initialStateTag: initial._tag
   });
+  yield* treeRuntime.append(actorId, definitionPath, {
+    _tag: "StateSnapshot",
+    state: initial
+  });
   const initialIsFinal = finalTags.has(initial._tag);
   if (initialIsFinal) {
     yield* Ref.set(status, "Completed");
     yield* Deferred.succeed(completion, initial);
     yield* Deferred.succeed(terminated, void 0);
+    yield* treeRuntime.terminate(actorId, definitionPath, "completed");
   } else {
     let continueRunning = true;
     yield* Effect.whileLoop({
@@ -728,11 +907,16 @@ var run2 = (definition2, input) => Effect.gen(function* () {
       }
     }).pipe(
       Effect.onExit(
-        (exit2) => Effect.gen(function* () {
-          if (Exit.isFailure(exit2)) {
+        (exit) => Effect.gen(function* () {
+          if (Exit.isFailure(exit)) {
             yield* Ref.set(status, "Defected");
-            yield* Deferred.failCause(completion, exit2.cause);
-            yield* Deferred.failCause(terminated, exit2.cause);
+            yield* treeRuntime.terminate(
+              actorId,
+              definitionPath,
+              Cause.hasInterruptsOnly(exit.cause) ? "cancelled" : "defected"
+            );
+            yield* Deferred.failCause(completion, exit.cause);
+            yield* Deferred.failCause(terminated, exit.cause);
           } else {
             yield* Deferred.succeed(terminated, void 0);
           }
@@ -743,52 +927,26 @@ var run2 = (definition2, input) => Effect.gen(function* () {
     yield* startOwnedBehavior(initial);
   }
   return {
+    actorId,
+    definitionPath,
+    tree: treeRuntime.handle,
     snapshot: SubscriptionRef.get(stateRef),
     changes: Stream.takeUntil(
       SubscriptionRef.changes(stateRef),
       (state) => finalTags.has(state._tag)
     ),
+    // inspection() returns the union of the plain and projected element types; the presence
+    // (or absence) of projectEvent decides which one, which TypeScript cannot track.
     inspection: inspection(),
     inspect: (projectEvent) => inspection(projectEvent),
     completion: Deferred.await(completion),
-    can: (event) => Effect.gen(function* () {
-      const current = yield* SubscriptionRef.get(stateRef);
-      const node = nodes.get(current._tag);
-      if (node?.kind === "child") {
-        const forwarded = node.forward[event._tag];
-        if (forwarded !== void 0) {
-          const child = activeChild;
-          if (child === void 0) return false;
-          const childEvent = forwarded.map({ state: current, event });
-          if (childEvent._tag !== forwarded.target) return false;
-          return yield* child.handle.can(childEvent);
-        }
-      }
-      if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
-        return false;
-      }
-      return selectHandler(node.on[event._tag], current, event) !== void 0;
-    }),
-    send: (event) => Effect.gen(function* () {
-      const currentStatus = yield* Ref.get(status);
-      if (currentStatus === "Completed") {
-        const current = yield* SubscriptionRef.get(stateRef);
-        return yield* Effect.die(new ProtocolDefect(definition2.id, current._tag, event._tag));
-      }
-      if (currentStatus === "Defected") {
-        return yield* Deferred.await(terminated);
-      }
-      const reply = yield* Deferred.make();
-      yield* Queue.offer(inbox, { kind: "external", event, reply });
-      yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated));
-    })
+    can,
+    send
   };
 });
 
 // src/Attach.ts
-import * as Cause2 from "effect/Cause";
 import * as Effect2 from "effect/Effect";
-import * as Exit2 from "effect/Exit";
 import * as Queue2 from "effect/Queue";
 import * as Ref2 from "effect/Ref";
 import * as Schema5 from "effect/Schema";
@@ -1089,7 +1247,7 @@ var fromDefinition = (definition2, options) => {
 
 // src/Protocol.ts
 import * as Schema3 from "effect/Schema";
-var VERSION = 1;
+var VERSION = 2;
 var DEFAULT_PORT = 4747;
 var APP_PATH = "/app";
 var Json = Schema3.Unknown;
@@ -1206,7 +1364,9 @@ var InspectionEvent = Schema3.Union([
     machineId: Schema3.String,
     stateTag: Schema3.String,
     eventTag: Schema3.String,
-    /** The schema-encoded event value; absent when encoding was not possible. */
+    /**
+     * Schema-encoded event value; absent when encoding was not possible.
+     */
     details: Schema3.optionalKey(Json)
   }),
   Schema3.TaggedStruct("TransitionSelected", {
@@ -1280,13 +1440,32 @@ var QuickEventControl = Schema3.Struct({
   description: Schema3.optionalKey(Schema3.String),
   group: Schema3.optionalKey(Schema3.String),
   kind: Schema3.Literals(["event", "factory"]),
-  /** Known for predefined event values; factories only reveal their tag when run. */
+  /**
+   * Known for predefined event values; factories reveal their tag only when run.
+   */
   eventTag: Schema3.optionalKey(Schema3.String)
+});
+var ChildDefinitionReference = Schema3.Struct({
+  ownerStateTag: Schema3.String,
+  invocation: Schema3.String,
+  definitionPath: Schema3.String
+});
+var DefinitionDescriptor = Schema3.Struct({
+  definitionPath: Schema3.String,
+  machine: MachineIdentity,
+  graph: SerializedGraph,
+  jsonSchemas: Schema3.Struct({
+    states: Schema3.Record(Schema3.String, Json),
+    events: Schema3.Record(Schema3.String, Json)
+  }),
+  quickEvents: Schema3.Array(QuickEventControl),
+  children: Schema3.Array(ChildDefinitionReference)
 });
 var Hello = Schema3.TaggedStruct("Hello", {
   protocolVersion: Schema3.Number,
   sessionId: Schema3.String,
   parentSessionId: Schema3.optionalKey(Schema3.String),
+  rootActorId: Schema3.String,
   app: AppIdentity,
   machine: MachineIdentity,
   graph: SerializedGraph,
@@ -1294,18 +1473,35 @@ var Hello = Schema3.TaggedStruct("Hello", {
     states: Schema3.Record(Schema3.String, Json),
     events: Schema3.Record(Schema3.String, Json)
   }),
-  quickEvents: Schema3.Array(QuickEventControl)
+  quickEvents: Schema3.Array(QuickEventControl),
+  definitions: Schema3.Array(DefinitionDescriptor)
 });
 var FactBody = Schema3.Union([
+  Schema3.TaggedStruct("ActorStarted", {
+    machineId: Schema3.String,
+    parentActorId: Schema3.optionalKey(Schema3.String),
+    ownerStateTag: Schema3.optionalKey(Schema3.String),
+    invocation: Schema3.optionalKey(Schema3.String),
+    instanceId: Schema3.optionalKey(Schema3.String)
+  }),
   Schema3.TaggedStruct("Inspection", { event: InspectionEvent }),
   Schema3.TaggedStruct("StateCommitted", { state: Json }),
+  Schema3.TaggedStruct("ActorTerminated", {
+    status: Schema3.Literals(["completed", "cancelled", "defected"])
+  }),
   Schema3.TaggedStruct("StateEncodingFailed", { stateTag: Schema3.String, message: Schema3.String }),
   Schema3.TaggedStruct("StatusChanged", { status: Schema3.Literals(["completed", "defected"]) }),
-  Schema3.TaggedStruct("HistoryTruncated", { dropped: Schema3.Number })
+  Schema3.TaggedStruct("HistoryTruncated", {
+    dropped: Schema3.Number,
+    fromSequence: Schema3.Number,
+    toSequence: Schema3.Number
+  })
 ]);
 var Fact = Schema3.TaggedStruct("Fact", {
   sessionId: Schema3.String,
   sequence: Schema3.Number,
+  actorId: Schema3.String,
+  definitionPath: Schema3.String,
   body: FactBody
 });
 var DispatchCommand = Schema3.Union([
@@ -1314,6 +1510,7 @@ var DispatchCommand = Schema3.Union([
 ]);
 var Dispatch = Schema3.TaggedStruct("Dispatch", {
   sessionId: Schema3.String,
+  actorId: Schema3.String,
   correlationId: Schema3.String,
   command: DispatchCommand
 });
@@ -1323,10 +1520,13 @@ var DispatchFailureReason = Schema3.Literals([
   "invalid",
   "unavailable",
   "not-running",
+  "unknown-actor",
+  "actor-ended",
   "disconnected"
 ]);
 var DispatchOutcome = Schema3.TaggedStruct("DispatchOutcome", {
   sessionId: Schema3.String,
+  actorId: Schema3.String,
   correlationId: Schema3.String,
   result: Schema3.Union([
     Schema3.TaggedStruct("Accepted", {}),
@@ -1362,8 +1562,17 @@ var truncateOldest = (sessionId, facts) => {
   const head = facts[0];
   if (head === void 0) return facts;
   if (head.body._tag === "HistoryTruncated") {
+    const dropped = facts[1];
     return [
-      { ...head, body: { _tag: "HistoryTruncated", dropped: head.body.dropped + 1 } },
+      {
+        ...head,
+        body: {
+          _tag: "HistoryTruncated",
+          dropped: head.body.dropped + 1,
+          fromSequence: head.body.fromSequence,
+          toSequence: dropped?.sequence ?? head.body.toSequence
+        }
+      },
       ...facts.slice(2)
     ];
   }
@@ -1372,7 +1581,14 @@ var truncateOldest = (sessionId, facts) => {
       _tag: "Fact",
       sessionId,
       sequence: head.sequence,
-      body: { _tag: "HistoryTruncated", dropped: 1 }
+      actorId: head.actorId,
+      definitionPath: head.definitionPath,
+      body: {
+        _tag: "HistoryTruncated",
+        dropped: 1,
+        fromSequence: head.sequence,
+        toSequence: head.sequence
+      }
     },
     ...facts.slice(1)
   ];
@@ -1393,11 +1609,48 @@ var jsonSchemas = (cases) => {
   }
   return documents;
 };
+var definitionRegistry = (definition2, options) => {
+  const entries = [];
+  const visit = (current, path) => {
+    const children = current.nodes.flatMap((node) => {
+      if (node.kind !== "child") return [];
+      return [
+        {
+          ownerStateTag: node.tag,
+          invocation: node.name,
+          definitionPath: Machine_exports.DefinitionPath.child(path, node.tag, node.name),
+          definition: node.definition
+        }
+      ];
+    });
+    const quickEvents = path === Machine_exports.DefinitionPath.root ? options.quickEvents ?? [] : options.quickEventsByDefinition?.[path] ?? [];
+    entries.push({
+      definitionPath: path,
+      machine: {
+        id: current.id,
+        ...current.description === void 0 ? {} : { description: current.description }
+      },
+      graph: Graph_exports.fromDefinition(current, { mapSource: options.mapSource }),
+      jsonSchemas: {
+        states: jsonSchemas(current.schemas.state.cases),
+        events: jsonSchemas(current.schemas.event.cases)
+      },
+      quickEvents,
+      children: children.map(({ definition: _, ...child }) => child)
+    });
+    for (const child of children) {
+      visit(child.definition, child.definitionPath);
+    }
+  };
+  visit(definition2, Machine_exports.DefinitionPath.root);
+  return entries;
+};
 var make6 = (options) => ({
   _tag: "Hello",
   protocolVersion: VERSION,
   sessionId: options.sessionId,
   ...options.parentSessionId === void 0 ? {} : { parentSessionId: options.parentSessionId },
+  rootActorId: options.rootActorId,
   app: options.app,
   machine: {
     id: options.definition.id,
@@ -1408,13 +1661,14 @@ var make6 = (options) => ({
     states: jsonSchemas(options.definition.schemas.state.cases),
     events: jsonSchemas(options.definition.schemas.event.cases)
   },
-  quickEvents: options.quickEvents ?? []
+  quickEvents: options.quickEvents ?? [],
+  definitions: definitionRegistry(options.definition, options)
 });
 
 // src/Transport.ts
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
-var TransportError = class extends Data.TaggedError("TransportError") {
+import * as Data2 from "effect/Data";
+var TransportError = class extends Data2.TaggedError("TransportError") {
 };
 var StudioTransport = class extends Context.Service()(
   "@effect-state-machine/studio-client/StudioTransport"
@@ -1429,99 +1683,126 @@ var detectRuntime = () => {
 };
 var attach = (options) => Effect2.gen(function* () {
   const transport = yield* StudioTransport;
-  const quickEvents = options.quickEvents ?? [];
-  const quickEventIds = /* @__PURE__ */ new Set();
-  for (const quickEvent of quickEvents) {
-    if (quickEventIds.has(quickEvent.id)) {
-      return yield* Effect2.die(
-        new Error(`Duplicate studio quick event identifier: ${quickEvent.id}`)
+  const quickEventsByDefinition = new Map([
+    [Machine_exports.DefinitionPath.root, options.quickEvents ?? []],
+    ...Object.entries(options.quickEventsByDefinition ?? {})
+  ]);
+  const controlsByDefinition = /* @__PURE__ */ new Map();
+  for (const [definitionPath, quickEvents] of quickEventsByDefinition) {
+    const ids = /* @__PURE__ */ new Set();
+    const controls = quickEvents.map((quickEvent) => {
+      if (ids.has(quickEvent.id)) {
+        throw new Error(
+          `Duplicate studio quick event identifier ${quickEvent.id} for ${definitionPath}`
+        );
+      }
+      ids.add(quickEvent.id);
+      return {
+        id: quickEvent.id,
+        label: quickEvent.label,
+        ...quickEvent.description === void 0 ? {} : { description: quickEvent.description },
+        ...quickEvent.group === void 0 ? {} : { group: quickEvent.group },
+        kind: "make" in quickEvent ? "factory" : "event",
+        ..."event" in quickEvent ? { eventTag: quickEvent.event._tag } : {}
+      };
+    });
+    controlsByDefinition.set(definitionPath, controls);
+  }
+  const definitions = /* @__PURE__ */ new Map();
+  const collectDefinitions = (definition2, definitionPath) => {
+    definitions.set(definitionPath, definition2);
+    for (const node of definition2.nodes) {
+      if (node.kind !== "child") continue;
+      collectDefinitions(
+        node.definition,
+        Machine_exports.DefinitionPath.child(definitionPath, node.tag, node.name)
       );
     }
-    quickEventIds.add(quickEvent.id);
-  }
-  const controls = quickEvents.map(
-    (quickEvent) => ({
-      id: quickEvent.id,
-      label: quickEvent.label,
-      ...quickEvent.description === void 0 ? {} : { description: quickEvent.description },
-      ...quickEvent.group === void 0 ? {} : { group: quickEvent.group },
-      kind: "make" in quickEvent ? "factory" : "event",
-      ..."event" in quickEvent ? { eventTag: quickEvent.event._tag } : {}
-    })
-  );
+  };
+  collectDefinitions(options.definition, Machine_exports.DefinitionPath.root);
   const sessionId = yield* Effect2.sync(() => globalThis.crypto.randomUUID());
   const hello = make6({
     definition: options.definition,
     sessionId,
+    rootActorId: options.handle.actorId,
     ...options.parentSessionId === void 0 ? {} : { parentSessionId: options.parentSessionId },
     app: { name: options.appName ?? options.definition.id, runtime: detectRuntime() },
-    quickEvents: controls,
+    quickEvents: controlsByDefinition.get(Machine_exports.DefinitionPath.root) ?? [],
+    quickEventsByDefinition: Object.fromEntries(controlsByDefinition),
     ...options.mapSource === void 0 ? {} : { mapSource: options.mapSource }
   });
   const bufferLimit = options.bufferLimit ?? 1e4;
   const reconnectInterval = options.reconnectInterval ?? "1 second";
-  const buffer = yield* Ref2.make({ facts: [], sequence: 0 });
+  const buffer = yield* Ref2.make({ facts: [] });
   const wake = yield* Queue2.sliding(1);
-  const terminated = yield* Ref2.make(false);
   const rejected = yield* Ref2.make(false);
   const active = yield* Ref2.make(void 0);
-  const emit = (body) => Ref2.update(buffer, (current) => {
+  const actorDefinitions = yield* Ref2.make(
+    /* @__PURE__ */ new Map([[options.handle.actorId, options.handle.definitionPath]])
+  );
+  const emit = (record, body) => Ref2.update(buffer, (current) => {
     const facts = [
       ...current.facts,
-      { _tag: "Fact", sessionId, sequence: current.sequence, body }
+      {
+        _tag: "Fact",
+        sessionId,
+        sequence: record.sequence,
+        actorId: record.actorId,
+        definitionPath: record.definitionPath,
+        body
+      }
     ];
     return {
-      facts: facts.length > bufferLimit ? truncateOldest(sessionId, facts) : facts,
-      sequence: current.sequence + 1
+      facts: facts.length > bufferLimit ? truncateOldest(sessionId, facts) : facts
     };
   }).pipe(Effect2.andThen(Queue2.offer(wake, void 0)));
-  const encodeState2 = (value) => Machine_exports.encodeState(options.definition, value);
-  const encodeEventDetails = (event) => {
-    try {
-      return Schema5.encodeUnknownSync(
-        options.definition.schemas.event
-      )(event);
-    } catch {
-      return void 0;
+  const project = (record) => {
+    const definition2 = definitions.get(record.definitionPath);
+    if (definition2 === void 0) {
+      return Effect2.die(new Error(`Missing definition for ${record.definitionPath}`));
+    }
+    switch (record.body._tag) {
+      case "ActorStarted":
+        return Ref2.update(
+          actorDefinitions,
+          (actors) => new Map(actors).set(record.actorId, record.definitionPath)
+        ).pipe(Effect2.as(record.body));
+      case "ActorTerminated":
+        return Effect2.succeed(record.body);
+      case "Inspection": {
+        const metadata = record.body.metadata;
+        if (metadata._tag !== "EventReceived" || record.body.event === void 0) {
+          return Effect2.succeed({ _tag: "Inspection", event: metadata });
+        }
+        let details;
+        try {
+          details = Schema5.encodeUnknownSync(definition2.schemas.event)(record.body.event);
+        } catch {
+          details = void 0;
+        }
+        return Effect2.succeed({
+          _tag: "Inspection",
+          event: { ...metadata, ...details === void 0 ? {} : { details } }
+        });
+      }
+      case "StateSnapshot":
+        return Schema5.encodeUnknownEffect(definition2.schemas.state)(record.body.state).pipe(
+          Effect2.match({
+            onFailure: (cause) => ({
+              _tag: "StateEncodingFailed",
+              stateTag: typeof record.body.state === "object" && record.body.state !== null && "_tag" in record.body.state ? String(record.body.state._tag) : "unknown",
+              message: String(cause)
+            }),
+            onSuccess: (state) => ({
+              _tag: "StateCommitted",
+              state
+            })
+          })
+        );
     }
   };
-  const emitState = (value) => encodeState2(value).pipe(
-    Effect2.flatMap((encoded) => emit({ _tag: "StateCommitted", state: encoded })),
-    Effect2.catch(
-      (cause) => emit({ _tag: "StateEncodingFailed", stateTag: value._tag, message: String(cause) })
-    )
-  );
-  const initial = yield* options.handle.snapshot;
-  yield* emitState(initial);
-  const lastState = yield* Ref2.make(initial);
-  yield* options.handle.changes.pipe(
-    Stream2.runForEach(
-      (value) => Effect2.gen(function* () {
-        const previous = yield* Ref2.get(lastState);
-        if (Object.is(previous, value)) return;
-        yield* Ref2.set(lastState, value);
-        yield* emitState(value);
-      })
-    ),
-    Effect2.forkScoped
-  );
-  yield* options.handle.inspect(encodeEventDetails).pipe(
-    Stream2.runForEach((event) => emit({ _tag: "Inspection", event })),
-    Effect2.forkScoped
-  );
-  yield* options.handle.completion.pipe(
-    Effect2.exit,
-    Effect2.flatMap(
-      (exit2) => Effect2.gen(function* () {
-        if (Exit2.isSuccess(exit2)) {
-          yield* Ref2.set(terminated, true);
-          yield* emit({ _tag: "StatusChanged", status: "completed" });
-        } else if (!Cause2.hasInterruptsOnly(exit2.cause)) {
-          yield* Ref2.set(terminated, true);
-          yield* emit({ _tag: "StatusChanged", status: "defected" });
-        }
-      })
-    ),
+  yield* options.handle.tree.records.pipe(
+    Stream2.runForEach((record) => project(record).pipe(Effect2.flatMap((body) => emit(record, body)))),
     Effect2.forkScoped
   );
   const rejectedOutcome = (reason, message) => ({
@@ -1529,47 +1810,52 @@ var attach = (options) => Effect2.gen(function* () {
     reason,
     ...message === void 0 ? {} : { message }
   });
-  const dispatchEvent = (event) => Effect2.gen(function* () {
-    if (yield* Ref2.get(terminated)) return rejectedOutcome("not-running");
-    if (!(yield* options.handle.can(event))) {
-      return rejectedOutcome(
+  const dispatchEvent = (actorId, event) => options.handle.tree.dispatch(actorId, event).pipe(
+    Effect2.match({
+      onFailure: (error) => error.reason === "unknown" ? rejectedOutcome("unknown-actor") : error.reason === "ended" ? rejectedOutcome("actor-ended") : rejectedOutcome(
         "unavailable",
-        `The machine does not accept ${event._tag} in its current state.`
-      );
-    }
-    yield* options.handle.send(event);
-    return { _tag: "Accepted" };
-  });
-  const handleDispatch = (command) => {
+        `The actor does not accept ${event._tag} in its current state.`
+      ),
+      onSuccess: () => ({ _tag: "Accepted" })
+    })
+  );
+  const handleDispatch = (actorId, command) => Effect2.gen(function* () {
+    const definitionPath = (yield* Ref2.get(actorDefinitions)).get(actorId);
+    if (definitionPath === void 0) return rejectedOutcome("unknown-actor");
+    const definition2 = definitions.get(definitionPath);
+    if (definition2 === void 0) return rejectedOutcome("unknown-actor");
+    const actor = Machine_exports.ActorId.make(actorId);
+    const quickEvents = quickEventsByDefinition.get(definitionPath) ?? [];
     switch (command._tag) {
       case "Quick": {
         const quickEvent = quickEvents.find((candidate) => candidate.id === command.id);
         if (quickEvent === void 0) {
-          return Effect2.succeed(rejectedOutcome("not-found"));
+          return rejectedOutcome("not-found");
         }
         const event = "make" in quickEvent ? Effect2.try({ try: quickEvent.make, catch: (cause) => String(cause) }) : Effect2.succeed(quickEvent.event);
-        return event.pipe(
-          Effect2.flatMap(dispatchEvent),
+        return yield* event.pipe(
+          Effect2.flatMap((value) => dispatchEvent(actor, value)),
           Effect2.catch((message) => Effect2.succeed(rejectedOutcome("factory-threw", message)))
         );
       }
       case "Custom": {
-        return Machine_exports.decodeEvent(options.definition, command.event).pipe(
-          Effect2.flatMap(dispatchEvent),
+        return yield* Machine_exports.decodeEvent(definition2, command.event).pipe(
+          Effect2.flatMap((event) => dispatchEvent(actor, event)),
           Effect2.catch((cause) => Effect2.succeed(rejectedOutcome("invalid", String(cause))))
         );
       }
     }
-  };
+  });
   const onMessage = (connection, message) => {
     switch (message._tag) {
       case "Dispatch": {
         if (message.sessionId !== sessionId) return Effect2.void;
-        return handleDispatch(message.command).pipe(
+        return handleDispatch(message.actorId, message.command).pipe(
           Effect2.flatMap(
             (result) => connection.send({
               _tag: "DispatchOutcome",
               sessionId,
+              actorId: message.actorId,
               correlationId: message.correlationId,
               result
             })
@@ -1656,8 +1942,8 @@ var make9 = (options) => ({
       { onOpen: Deferred2.succeed(opened, void 0) }
     ).pipe(
       Effect3.onExit(
-        (exit2) => Effect3.gen(function* () {
-          yield* Deferred2.fail(opened, new TransportError({ reason: "unavailable", cause: exit2 }));
+        (exit) => Effect3.gen(function* () {
+          yield* Deferred2.fail(opened, new TransportError({ reason: "unavailable", cause: exit }));
           yield* Queue3.end(inbound);
         })
       ),
@@ -1714,8 +2000,17 @@ var definition = checkout.make({
           reduce: ({ state, event }) => ({ ...state, items: state.items + event.amount })
         },
         BeginCheckout: {
-          target: "Checkout",
-          reduce: ({ state }) => ({ _tag: "Checkout", items: state.items })
+          branches: [
+            {
+              when: Machine_exports.namedGuard({
+                name: "Cart has items",
+                description: "Checkout requires at least one item.",
+                guard: ({ state }) => state.items > 0
+              }),
+              target: "Checkout",
+              reduce: ({ state }) => ({ _tag: "Checkout", items: state.items })
+            }
+          ]
         }
       }
     }),

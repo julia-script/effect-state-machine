@@ -1,7 +1,7 @@
 import type { Graph } from "effect-state-machine/devtools"
 import ELK from "elkjs/lib/elk.bundled.js"
 import type { ElkNode } from "elkjs/lib/elk-api"
-import { NODE_HEIGHT, NODE_WIDTH, type Point } from "./layout.js"
+import { nodeSize, type Point } from "./layout.js"
 
 /**
  * ELK layered layout with orthogonal edge routing — the engine behind
@@ -11,13 +11,22 @@ import { NODE_HEIGHT, NODE_WIDTH, type Point } from "./layout.js"
  */
 
 export const TRANSITION_HEIGHT = 24
+export const GUARDED_TRANSITION_HEIGHT = 46
 export const START_SIZE = 18
 export const START_ID = "__start"
+export const startId = (definitionPath: string): string => `${START_ID}:${definitionPath}`
 
-export const transitionSize = (label: string): { width: number; height: number } => ({
-  width: label.length * 6.4 + 22,
-  height: TRANSITION_HEIGHT,
-})
+export const transitionSize = (edge: Graph.Edge): { width: number; height: number } => {
+  const label = edgeLabelText(edge)
+  if (edge.branch === undefined) {
+    return { width: label.length * 6.4 + 22, height: TRANSITION_HEIGHT }
+  }
+  const description = edge.branch.kind === "guard" ? edge.branch.description : edge.description
+  const width = Math.max(170, Math.min(310, Math.max(label.length, description?.length ?? 0) * 6.2 + 44))
+  const descriptionLines =
+    description === undefined ? 0 : Math.max(1, Math.ceil(description.length / Math.max(24, Math.floor((width - 28) / 6.2))))
+  return { width, height: GUARDED_TRANSITION_HEIGHT + descriptionLines * 13 }
+}
 
 export const edgeLabelText = (edge: Graph.Edge): string => {
   const base = edge.event?.tag ?? (edge.outcome !== undefined ? edge.outcome.kind : "")
@@ -25,8 +34,8 @@ export const edgeLabelText = (edge: Graph.Edge): string => {
     edge.branch === undefined
       ? ""
       : edge.branch.kind === "guard"
-        ? ` [${edge.branch.index + 1}: ${edge.branch.name}]`
-        : " [otherwise]"
+        ? ` ${edge.branch.index + 1} IF ${edge.branch.name}`
+        : ` ${edge.branch.index + 1} ELSE`
   return `${base}${branch}` || "→"
 }
 
@@ -52,8 +61,21 @@ export const edgeIdOfTransition = (id: string): string => id.slice(2)
 
 const elk = new ELK()
 
-export const layout = async (graph: Graph.Graph, initialTag?: string): Promise<ElkPlacement> => {
-  const hasStart = initialTag !== undefined && graph.nodes.some((node) => node.id === initialTag)
+export const layout = async (
+  graph: Graph.Graph,
+  initial?: string | ReadonlyMap<string, string>,
+): Promise<ElkPlacement> => {
+  const starts: ReadonlyArray<readonly [string, string]> =
+    typeof initial === "string"
+      ? graph.nodes.some((node) => node.id === initial)
+        ? [[START_ID, initial]]
+        : []
+      : Array.from(initial ?? []).flatMap(([definitionPath, target]) =>
+          graph.nodes.some((node) => node.id === target)
+            ? [[startId(definitionPath), target] as const]
+            : [],
+        )
+  const initialTargets = new Set(starts.map(([, target]) => target))
   const labels = new Map(graph.edges.map((edge) => [edge.id, edgeLabelText(edge)]))
   const input: ElkNode = {
     id: "root",
@@ -69,34 +91,27 @@ export const layout = async (graph: Graph.Graph, initialTag?: string): Promise<E
       "elk.padding": "[top=24,left=24,bottom=24,right=24]",
     },
     children: [
-      ...(hasStart
-        ? [
-            {
-              id: START_ID,
-              width: START_SIZE,
-              height: START_SIZE,
-              layoutOptions: { "elk.layered.layering.layerConstraint": "FIRST_SEPARATE" },
-            },
-          ]
-        : []),
+      ...starts.map(([id]) => ({
+        id,
+        width: START_SIZE,
+        height: START_SIZE,
+        layoutOptions: { "elk.layered.layering.layerConstraint": "FIRST_SEPARATE" },
+      })),
       ...graph.nodes.map((node) => ({
         id: node.id,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        ...nodeSize(node),
         // The entry state stays in the top layer; cycles route back up to it.
-        ...(node.id === initialTag
+        ...(initialTargets.has(node.id)
           ? { layoutOptions: { "elk.layered.layering.layerConstraint": "FIRST" } }
           : {}),
       })),
       ...graph.edges.map((edge) => ({
         id: transitionId(edge.id),
-        ...transitionSize(labels.get(edge.id) ?? ""),
+        ...transitionSize(edge),
       })),
     ],
     edges: [
-      ...(hasStart && initialTag !== undefined
-        ? [{ id: START_ID, sources: [START_ID], targets: [initialTag] }]
-        : []),
+      ...starts.map(([id, target]) => ({ id, sources: [id], targets: [target] })),
       ...graph.edges.flatMap((edge) => [
         { id: `${edge.id}:in`, sources: [edge.source], targets: [transitionId(edge.id)] },
         { id: `${edge.id}:out`, sources: [transitionId(edge.id)], targets: [edge.target] },

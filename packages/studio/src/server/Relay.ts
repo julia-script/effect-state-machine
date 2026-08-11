@@ -167,21 +167,21 @@ const make = (options?: Options) =>
       )
       const receive = (message: Protocol.Message): Effect.Effect<void> => {
         if (message._tag !== "Dispatch") return Effect.void
-        return mutex.withPermits(1)(
-          Effect.gen(function* () {
-            const entry = sessions.get(message.sessionId)
-            const rejectWith = (reason: Protocol.DispatchFailure) =>
-              Queue.offer(queue, {
-                _tag: "DispatchOutcome",
-                sessionId: message.sessionId,
-                correlationId: message.correlationId,
-                result: { _tag: "Rejected", reason },
-              })
-            if (entry === undefined) return yield* rejectWith("not-found").pipe(Effect.asVoid)
-            if (entry.appSend === undefined) {
-              return yield* rejectWith("disconnected").pipe(Effect.asVoid)
-            }
-            yield* entry.appSend(message)
+        const rejectWith = (reason: Protocol.DispatchFailure) =>
+          Queue.offer(queue, {
+            _tag: "DispatchOutcome",
+            sessionId: message.sessionId,
+            actorId: message.actorId,
+            correlationId: message.correlationId,
+            result: { _tag: "Rejected", reason },
+          }).pipe(Effect.asVoid)
+        return mutex.withPermits(1)(Effect.sync(() => sessions.get(message.sessionId))).pipe(
+          Effect.flatMap((entry) => {
+            if (entry === undefined) return rejectWith("not-found")
+            if (entry.appSend === undefined) return rejectWith("disconnected")
+            // Never hold the relay mutex across a socket write. The application may answer
+            // immediately, and its outcome handler needs the same mutex to broadcast the reply.
+            return entry.appSend(message)
           }),
         )
       }

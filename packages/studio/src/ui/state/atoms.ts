@@ -67,6 +67,13 @@ export const selectedStepAtom = Atom.family((sessionId: string) =>
   ),
 )
 
+export const selectedActorIdAtom = Atom.family((sessionId: string) =>
+  Atom.make<string | undefined>(undefined).pipe(
+    Atom.setIdleTTL("10 minutes"),
+    Atom.withLabel(`selectedActor:${sessionId}`),
+  ),
+)
+
 /** Map depth in hops from the active node; "all" shows the whole machine. */
 export const depthAtom = Atom.family((sessionId: string) =>
   Atom.make<number | "all">("all").pipe(
@@ -78,6 +85,8 @@ export const depthAtom = Atom.family((sessionId: string) =>
 export interface MapSelection {
   readonly kind: "node" | "edge"
   readonly id: string
+  readonly definitionPath: string
+  readonly actorId?: string
 }
 
 export const selectionAtom = Atom.family((sessionId: string) =>
@@ -118,6 +127,17 @@ export const displayedPositionAtom = Atom.make((get) => {
   if (head < 0) return undefined
   const cursor = get(cursorAtom(session.sessionId))
   return cursor === undefined ? head : Math.min(cursor, head)
+})
+
+/** Global tree sequence represented by the cursor, including terminal facts at live head. */
+export const displayedSequenceAtom = Atom.make((get) => {
+  const session = get(currentSessionAtom)
+  if (session === undefined) return undefined
+  const cursor = get(cursorAtom(session.sessionId))
+  if (cursor === undefined) {
+    return session.history.facts[session.history.facts.length - 1]?.sequence
+  }
+  return session.history.positions[Math.min(cursor, session.history.positions.length - 1)]?.sequence
 })
 
 export const isLiveAtom = Atom.make((get) => {

@@ -172,7 +172,10 @@ const program = Effect.scoped(
 ).pipe(Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()))
 ```
 
-Attaching is scoped and observational: it never interrupts the machine, and it is inert when no
+Attaching is scoped and observational: one attachment represents the root machine and every child
+machine it owns as a single ordered Studio session. Each runtime actor keeps its own identity and
+structural definition path inside that session, so Studio can target a live child without creating
+another session. The attachment never interrupts the machine, and it is inert when no
 Studio is running — the client connects lazily, retries in the background, and buffers unsent
 facts (bounded, oldest dropped with a truncation notice). Everything Studio needs crosses the wire
 as plain data: the serialized behavior graph, JSON Schemas per state and event, schema-encoded
@@ -181,11 +184,14 @@ custom events dispatched from Studio are decoded against the machine's event sch
 with `can` before they reach the real handle.
 
 The interface shows the behavior map with depth-limited focus and traversed-edge emphasis, the
-current state as JSON with a line diff, node and event detail cards with their JSON Schemas and
+current actor state as JSON with an actor-local line diff, node and event detail cards with their JSON Schemas and
 source links (opened in your editor by the local server, `--editor` to configure), grouped quick
 events, a custom-event editor, and a semantic history with local time travel — the cursor is
-per-viewer state and never touches the wire or the machine. Multiple applications and machines
-appear as sessions in the top bar; disconnected sessions keep their history inspectable.
+per-viewer state and never touches the wire or the machine. The map composes the complete structural
+machine tree and shows inactive child definitions too; every live actor's state is highlighted at the
+global cursor. Multiple root machines appear as sessions in the top bar, while descendants stay in
+their root session; disconnected sessions keep their history inspectable. Dispatch requests carry
+both the root session ID and target actor ID.
 
 The connection is a swappable Effect service (`StudioTransport`), so future transports — an
 in-memory pair for tests ships today, a browser-extension port is possible later — reuse the whole

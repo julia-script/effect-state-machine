@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause"
+import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -672,6 +673,98 @@ export interface DefinitionMetadata {
   >
 }
 
+declare const ActorIdTypeId: unique symbol
+declare const DefinitionPathTypeId: unique symbol
+
+/**
+ * Runtime identity of one machine instance within a root execution tree.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export type ActorId = string & Readonly<{ [ActorIdTypeId]: "ActorId" }>
+
+/** @category observability @since 0.2.0 */
+export const ActorId = {
+  make: (value: string): ActorId => value as ActorId,
+} as const
+
+/**
+ * Static location of a machine definition within its root definition tree.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export type DefinitionPath = string & Readonly<{ [DefinitionPathTypeId]: "DefinitionPath" }>
+
+/**
+ * Lifecycle and machine facts retained by a root execution tree.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export type TreeRecordBody =
+  | Readonly<{
+      _tag: "ActorStarted"
+      machineId: string
+      parentActorId?: ActorId
+      ownerStateTag?: string
+      invocation?: string
+      instanceId?: string
+    }>
+  | Readonly<{
+      _tag: "Inspection"
+      metadata: InspectionEvent
+      event?: unknown
+    }>
+  | Readonly<{
+      _tag: "StateSnapshot"
+      state: unknown
+    }>
+  | Readonly<{
+      _tag: "ActorTerminated"
+      status: "completed" | "cancelled" | "defected"
+    }>
+
+/**
+ * One globally ordered fact produced by a machine execution tree.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export interface TreeRecord {
+  readonly sequence: number
+  readonly actorId: ActorId
+  readonly definitionPath: DefinitionPath
+  readonly body: TreeRecordBody
+}
+
+/**
+ * Expected failure while routing an event to an actor in a machine tree.
+ *
+ * @category errors
+ * @since 0.2.0
+ */
+export class ActorDispatchError extends Data.TaggedError("ActorDispatchError")<{
+  readonly actorId: ActorId
+  readonly reason: "unknown" | "ended" | "unaccepted"
+}> {}
+
+/**
+ * Type-erased inspection and dispatch surface shared by every actor under a root machine.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export interface MachineTreeHandle {
+  readonly rootActorId: ActorId
+  readonly records: Stream.Stream<TreeRecord>
+  readonly dispatch: (
+    actorId: ActorId,
+    event: unknown,
+  ) => Effect.Effect<void, ActorDispatchError>
+}
+
 /**
  * Effect-native interface to one scoped running machine instance.
  *
@@ -695,6 +788,9 @@ export interface MachineHandle<
   Event extends Tagged,
   Completion extends State = never,
 > {
+  readonly actorId: ActorId
+  readonly definitionPath: DefinitionPath
+  readonly tree: MachineTreeHandle
   readonly snapshot: Effect.Effect<State>
   readonly changes: Stream.Stream<State>
   readonly inspection: Stream.Stream<InspectionEvent>
@@ -1553,6 +1649,7 @@ interface ActiveChild {
   readonly generation: number
   readonly invocation: string
   readonly instanceId: string
+  readonly actorId: ActorId
   readonly scope: Scope.Closeable
   readonly handle: MachineHandle<Tagged, Tagged, Tagged>
 }
@@ -1642,6 +1739,142 @@ const selectOutcome = <State extends Tagged, Value, Key extends "value" | "error
   return undefined
 }
 
+interface ActorAdapter {
+  readonly definitionPath: DefinitionPath
+  readonly can: (event: unknown) => Effect.Effect<boolean>
+  readonly send: (event: unknown) => Effect.Effect<void>
+}
+
+type ActorRegistryEntry =
+  | Readonly<{ status: "live"; adapter: ActorAdapter }>
+  | Readonly<{ status: "ended"; definitionPath: DefinitionPath }>
+
+interface TreeRuntime {
+  readonly handle: MachineTreeHandle
+  readonly allocateActor: Effect.Effect<ActorId>
+  readonly append: (
+    actorId: ActorId,
+    definitionPath: DefinitionPath,
+    body: TreeRecordBody,
+  ) => Effect.Effect<TreeRecord>
+  readonly register: (actorId: ActorId, adapter: ActorAdapter) => Effect.Effect<void>
+  readonly terminate: (
+    actorId: ActorId,
+    definitionPath: DefinitionPath,
+    status: "completed" | "cancelled" | "defected",
+  ) => Effect.Effect<void>
+}
+
+interface ActorParent {
+  readonly actorId: ActorId
+  readonly ownerStateTag: string
+  readonly invocation: string
+  readonly instanceId: string
+}
+
+interface ActorContext {
+  readonly runtime: TreeRuntime
+  readonly actorId: ActorId
+  readonly definitionPath: DefinitionPath
+  readonly parent?: ActorParent
+}
+
+const makeActorId = (sequence: number): ActorId => `actor:${sequence}` as ActorId
+
+const rootDefinitionPath = "root" as DefinitionPath
+
+const childDefinitionPath = (
+  parent: DefinitionPath,
+  ownerStateTag: string,
+  invocation: string,
+): DefinitionPath =>
+  `${parent}/${encodeURIComponent(ownerStateTag)}:${encodeURIComponent(invocation)}` as DefinitionPath
+
+/**
+ * Constructors for the canonical structural paths shared by runtime actors and development tools.
+ *
+ * @category observability
+ * @since 0.2.0
+ */
+export const DefinitionPath = {
+  root: rootDefinitionPath,
+  child: childDefinitionPath,
+  make: (value: string): DefinitionPath => value as DefinitionPath,
+} as const
+
+const makeTreeRuntime = (): Effect.Effect<TreeRuntime> =>
+  Effect.gen(function* () {
+    const rootActorId = makeActorId(0)
+    const actorSequence = yield* Ref.make(1)
+    const journal = yield* SubscriptionRef.make<ReadonlyArray<TreeRecord>>([])
+    const registry = yield* Ref.make<ReadonlyMap<ActorId, ActorRegistryEntry>>(new Map())
+
+    const append: TreeRuntime["append"] = Effect.fnUntraced(function* (
+      actorId,
+      definitionPath,
+      body,
+    ) {
+      return yield* SubscriptionRef.modify(journal, (records) => {
+        const record: TreeRecord = {
+          sequence: records.length,
+          actorId,
+          definitionPath,
+          body,
+        }
+        return [record, [...records, record]]
+      })
+    })
+
+    const register: TreeRuntime["register"] = Effect.fnUntraced(function* (actorId, adapter) {
+      yield* Ref.update(registry, (entries) => new Map(entries).set(actorId, { status: "live", adapter }))
+    })
+
+    const terminate: TreeRuntime["terminate"] = Effect.fnUntraced(function* (
+      actorId,
+      definitionPath,
+      status,
+    ) {
+      yield* append(actorId, definitionPath, { _tag: "ActorTerminated", status })
+      yield* Ref.update(registry, (entries) =>
+        new Map(entries).set(actorId, { status: "ended", definitionPath }),
+      )
+    })
+
+    const dispatch: MachineTreeHandle["dispatch"] = Effect.fnUntraced(function* (
+      actorId,
+      event,
+    ) {
+      const entry = (yield* Ref.get(registry)).get(actorId)
+      if (entry === undefined) {
+        return yield* new ActorDispatchError({ actorId, reason: "unknown" })
+      }
+      if (entry.status === "ended") {
+        return yield* new ActorDispatchError({ actorId, reason: "ended" })
+      }
+      if (!(yield* entry.adapter.can(event))) {
+        return yield* new ActorDispatchError({ actorId, reason: "unaccepted" })
+      }
+      return yield* entry.adapter.send(event)
+    })
+
+    const records = SubscriptionRef.changes(journal).pipe(
+      Stream.mapAccum(
+        () => 0,
+        (seen, retained) => [retained.length, retained.slice(seen)],
+      ),
+    )
+
+    return {
+      handle: { rootActorId, records, dispatch },
+      allocateActor: Ref.getAndUpdate(actorSequence, (sequence) => sequence + 1).pipe(
+        Effect.map(makeActorId),
+      ),
+      append,
+      register,
+      terminate,
+    }
+  })
+
 // Stays an annotated arrow over Effect.gen instead of Effect.fnUntraced: run is generic and
 // self-recursive (startChild runs child definitions), so the generator form cannot carry the
 // pinned public signature without circular inference or new casts.
@@ -1684,10 +1917,46 @@ export const run = <
   Scope.Scope | RequirementsFromNodes<Nodes>
 > =>
   Effect.gen(function* () {
+    const runtime = yield* makeTreeRuntime()
+    return yield* runActor(definition, input, {
+      runtime,
+      actorId: runtime.handle.rootActorId,
+      definitionPath: rootDefinitionPath,
+    })
+  })
+
+const runActor = <
+  InputSchema extends Schema.Top,
+  StateSchema extends TaggedSchema,
+  EventSchema extends TaggedSchema,
+  Nodes extends ReadonlyArray<
+    NodeUnion<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>
+  >,
+>(
+  definition: MachineDefinition<InputSchema, StateSchema, EventSchema, Nodes>,
+  input: Schema.Schema.Type<InputSchema>,
+  actorContext: ActorContext,
+): Effect.Effect<
+  MachineHandle<
+    Schema.Schema.Type<StateSchema>,
+    Schema.Schema.Type<EventSchema>,
+    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTag<Nodes> }>
+  >,
+  never,
+  Scope.Scope | RequirementsFromNodes<Nodes>
+> =>
+  Effect.gen(function* () {
     type State = Schema.Schema.Type<StateSchema>
     type Event = Schema.Schema.Type<EventSchema>
     type Completion = Extract<State, { _tag: FinalTag<Nodes> }>
     type Requirements = RequirementsFromNodes<Nodes>
+
+    const {
+      runtime: treeRuntime,
+      actorId,
+      definitionPath,
+      parent: actorParent,
+    } = actorContext
 
     const environment = yield* Effect.context<Requirements>()
     const parentScope = yield* Scope.Scope
@@ -1724,7 +1993,16 @@ export const run = <
       SubscriptionRef.update(inspectionRef, (events) => [
         ...events,
         { metadata, ...(event === undefined ? {} : { event }) },
-      ])
+      ]).pipe(
+        Effect.andThen(
+          treeRuntime.append(actorId, definitionPath, {
+            _tag: "Inspection",
+            metadata,
+            ...(event === undefined ? {} : { event }),
+          }),
+        ),
+        Effect.asVoid,
+      )
 
     const inspection = <EventDetails>(
       projectEvent?: (event: Event) => EventDetails,
@@ -1836,7 +2114,18 @@ export const run = <
         yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void))
         const childGeneration = generation
         const instanceId = `${definition.id}:${node.name}:${++childInstanceSequence}`
-        const childHandle = yield* run(node.definition, node.input(state)).pipe(
+        const childActorId = yield* treeRuntime.allocateActor
+        const childHandle = yield* runActor(node.definition, node.input(state), {
+          runtime: treeRuntime,
+          actorId: childActorId,
+          definitionPath: childDefinitionPath(definitionPath, state._tag, node.name),
+          parent: {
+            actorId,
+            ownerStateTag: state._tag,
+            invocation: node.name,
+            instanceId,
+          },
+        }).pipe(
           Effect.provideService(Scope.Scope, childScope),
           Effect.provideContext(environment),
         )
@@ -1845,6 +2134,7 @@ export const run = <
           generation: childGeneration,
           invocation: node.name,
           instanceId,
+          actorId: childActorId,
           scope: childScope,
           handle: childHandle,
         }
@@ -1917,6 +2207,10 @@ export const run = <
           previousStateTag: previous._tag,
           nextStateTag: next._tag,
         })
+        yield* treeRuntime.append(actorId, definitionPath, {
+          _tag: "StateSnapshot",
+          state: next,
+        })
         const isFinal = finalTags.has(next._tag)
         if (isFinal) {
           yield* Ref.set(status, "Completed")
@@ -1925,6 +2219,7 @@ export const run = <
             machineId: definition.id,
             finalStateTag: next._tag,
           })
+          yield* treeRuntime.terminate(actorId, definitionPath, "completed")
           // finalTags membership proves the Completion narrowing that Set.has cannot express.
           yield* Deferred.succeed(completion, next as Completion)
         } else {
@@ -2169,10 +2464,65 @@ export const run = <
         return continueRunning
       })
 
+    const can = Effect.fnUntraced(function* (event: Event) {
+      const current = yield* SubscriptionRef.get(stateRef)
+      const node = nodes.get(current._tag)
+      if (node?.kind === "child") {
+        const forwarded = node.forward[event._tag]
+        if (forwarded !== undefined) {
+          const child = activeChild
+          if (child === undefined) return false
+          const childEvent = forwarded.map({ state: current, event })
+          if (childEvent._tag !== forwarded.target) return false
+          return yield* child.handle.can(childEvent)
+        }
+      }
+      if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
+        return false
+      }
+      return selectHandler(node.on[event._tag], current, event) !== undefined
+    })
+
+    const send = Effect.fnUntraced(function* (event: Event) {
+      const currentStatus = yield* Ref.get(status)
+      if (currentStatus === "Completed") {
+        const current = yield* SubscriptionRef.get(stateRef)
+        return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, event._tag))
+      }
+      if (currentStatus === "Defected") {
+        return yield* Deferred.await(terminated)
+      }
+      const reply = yield* Deferred.make<void>()
+      yield* Queue.offer(inbox, { kind: "external", event, reply })
+      yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated))
+    })
+
+    // This is the single interpreter-owned erasure boundary for heterogeneous child events.
+    yield* treeRuntime.register(actorId, {
+      definitionPath,
+      can: (event) => can(event as Event),
+      send: (event) => send(event as Event),
+    })
+    yield* treeRuntime.append(actorId, definitionPath, {
+      _tag: "ActorStarted",
+      machineId: definition.id,
+      ...(actorParent === undefined
+        ? {}
+        : {
+            parentActorId: actorParent.actorId,
+            ownerStateTag: actorParent.ownerStateTag,
+            invocation: actorParent.invocation,
+            instanceId: actorParent.instanceId,
+          }),
+    })
     yield* emit({
       _tag: "MachineStarted",
       machineId: definition.id,
       initialStateTag: initial._tag,
+    })
+    yield* treeRuntime.append(actorId, definitionPath, {
+      _tag: "StateSnapshot",
+      state: initial,
     })
 
     const initialIsFinal = finalTags.has(initial._tag)
@@ -2181,6 +2531,7 @@ export const run = <
       // finalTags membership proves the Completion narrowing that Set.has cannot express.
       yield* Deferred.succeed(completion, initial as Completion)
       yield* Deferred.succeed(terminated, undefined)
+      yield* treeRuntime.terminate(actorId, definitionPath, "completed")
     } else {
       let continueRunning = true
       yield* Effect.whileLoop({
@@ -2194,6 +2545,11 @@ export const run = <
           Effect.gen(function* () {
             if (Exit.isFailure(exit)) {
               yield* Ref.set(status, "Defected")
+              yield* treeRuntime.terminate(
+                actorId,
+                definitionPath,
+                Cause.hasInterruptsOnly(exit.cause) ? "cancelled" : "defected",
+              )
               yield* Deferred.failCause(completion, exit.cause)
               yield* Deferred.failCause(terminated, exit.cause)
             } else {
@@ -2207,6 +2563,9 @@ export const run = <
     }
 
     return {
+      actorId,
+      definitionPath,
+      tree: treeRuntime.handle,
       snapshot: SubscriptionRef.get(stateRef),
       changes: Stream.takeUntil(SubscriptionRef.changes(stateRef), (state) =>
         finalTags.has(state._tag),
@@ -2219,36 +2578,7 @@ export const run = <
           ProjectedInspectionEvent<ReturnType<typeof projectEvent>>
         >,
       completion: Deferred.await(completion),
-      can: Effect.fnUntraced(function* (event: Event) {
-          const current = yield* SubscriptionRef.get(stateRef)
-          const node = nodes.get(current._tag)
-          if (node?.kind === "child") {
-            const forwarded = node.forward[event._tag]
-            if (forwarded !== undefined) {
-              const child = activeChild
-              if (child === undefined) return false
-              const childEvent = forwarded.map({ state: current, event })
-              if (childEvent._tag !== forwarded.target) return false
-              return yield* child.handle.can(childEvent)
-            }
-          }
-          if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
-            return false
-          }
-          return selectHandler(node.on[event._tag], current, event) !== undefined
-        }),
-      send: Effect.fnUntraced(function* (event: Event) {
-          const currentStatus = yield* Ref.get(status)
-          if (currentStatus === "Completed") {
-            const current = yield* SubscriptionRef.get(stateRef)
-            return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, event._tag))
-          }
-          if (currentStatus === "Defected") {
-            return yield* Deferred.await(terminated)
-          }
-          const reply = yield* Deferred.make<void>()
-          yield* Queue.offer(inbox, { kind: "external", event, reply })
-          yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated))
-        }),
+      can,
+      send,
     }
   })

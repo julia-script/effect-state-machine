@@ -1,7 +1,5 @@
-import * as Cause from "effect/Cause"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
@@ -48,6 +46,9 @@ export interface AttachOptions<State extends Tagged, Event extends Tagged> {
   readonly definition: Machine.DefinitionMetadata
   readonly handle: Machine.MachineHandle<State, Event, State>
   readonly quickEvents?: ReadonlyArray<QuickEvent<NoInfer<Event>>>
+  readonly quickEventsByDefinition?: Readonly<
+    Record<string, ReadonlyArray<QuickEvent<Tagged>>>
+  >
   /**
    * Name shown in Studio's session picker; defaults to the machine identifier.
    */
@@ -79,7 +80,6 @@ const detectRuntime = (): "browser" | "node" | "other" => {
 
 interface BufferState {
   readonly facts: ReadonlyArray<Protocol.FactMessage>
-  readonly sequence: number
 }
 
 /**
@@ -105,26 +105,53 @@ export const attach = <State extends Tagged, Event extends Tagged>(
 ): Effect.Effect<Attachment, never, Scope.Scope | StudioTransport> =>
   Effect.gen(function* () {
     const transport = yield* StudioTransport
-    const quickEvents = options.quickEvents ?? []
-    const quickEventIds = new Set<string>()
-    for (const quickEvent of quickEvents) {
-      if (quickEventIds.has(quickEvent.id)) {
-        return yield* Effect.die(
-          new Error(`Duplicate studio quick event identifier: ${quickEvent.id}`),
+    const quickEventsByDefinition = new Map<
+      string,
+      ReadonlyArray<QuickEvent<Tagged>>
+    >([
+      [Machine.DefinitionPath.root, options.quickEvents ?? []],
+      ...Object.entries(options.quickEventsByDefinition ?? {}),
+    ])
+    const controlsByDefinition = new Map<
+      string,
+      ReadonlyArray<Protocol.QuickEventControlMessage>
+    >()
+    for (const [definitionPath, quickEvents] of quickEventsByDefinition) {
+      const ids = new Set<string>()
+      const controls = quickEvents.map((quickEvent): Protocol.QuickEventControlMessage => {
+        if (ids.has(quickEvent.id)) {
+          throw new Error(
+            `Duplicate studio quick event identifier ${quickEvent.id} for ${definitionPath}`,
+          )
+        }
+        ids.add(quickEvent.id)
+        return {
+          id: quickEvent.id,
+          label: quickEvent.label,
+          ...(quickEvent.description === undefined ? {} : { description: quickEvent.description }),
+          ...(quickEvent.group === undefined ? {} : { group: quickEvent.group }),
+          kind: "make" in quickEvent ? "factory" : "event",
+          ...("event" in quickEvent ? { eventTag: quickEvent.event._tag } : {}),
+        }
+      })
+      controlsByDefinition.set(definitionPath, controls)
+    }
+
+    const definitions = new Map<string, Machine.DefinitionMetadata>()
+    const collectDefinitions = (
+      definition: Machine.DefinitionMetadata,
+      definitionPath: Machine.DefinitionPath,
+    ): void => {
+      definitions.set(definitionPath, definition)
+      for (const node of definition.nodes) {
+        if (node.kind !== "child") continue
+        collectDefinitions(
+          node.definition,
+          Machine.DefinitionPath.child(definitionPath, node.tag, node.name),
         )
       }
-      quickEventIds.add(quickEvent.id)
     }
-    const controls = quickEvents.map(
-      (quickEvent): Protocol.QuickEventControlMessage => ({
-        id: quickEvent.id,
-        label: quickEvent.label,
-        ...(quickEvent.description === undefined ? {} : { description: quickEvent.description }),
-        ...(quickEvent.group === undefined ? {} : { group: quickEvent.group }),
-        kind: "make" in quickEvent ? "factory" : "event",
-        ...("event" in quickEvent ? { eventTag: quickEvent.event._tag } : {}),
-      }),
-    )
+    collectDefinitions(options.definition, Machine.DefinitionPath.root)
 
     // ponytail: ambient UUID over a Crypto service layer — available in every
     // supported runtime and not worth a dependency in the public attach signature.
@@ -132,87 +159,96 @@ export const attach = <State extends Tagged, Event extends Tagged>(
     const hello = Announcement.make({
       definition: options.definition,
       sessionId,
+      rootActorId: options.handle.actorId,
       ...(options.parentSessionId === undefined
         ? {}
         : { parentSessionId: options.parentSessionId }),
       app: { name: options.appName ?? options.definition.id, runtime: detectRuntime() },
-      quickEvents: controls,
+      quickEvents: controlsByDefinition.get(Machine.DefinitionPath.root) ?? [],
+      quickEventsByDefinition: Object.fromEntries(controlsByDefinition),
       ...(options.mapSource === undefined ? {} : { mapSource: options.mapSource }),
     })
     const bufferLimit = options.bufferLimit ?? 10_000
     const reconnectInterval = options.reconnectInterval ?? "1 second"
 
-    const buffer = yield* Ref.make<BufferState>({ facts: [], sequence: 0 })
+    const buffer = yield* Ref.make<BufferState>({ facts: [] })
     const wake = yield* Queue.sliding<void>(1)
-    const terminated = yield* Ref.make(false)
     const rejected = yield* Ref.make(false)
     const active = yield* Ref.make<Connection | undefined>(undefined)
+    const actorDefinitions = yield* Ref.make<ReadonlyMap<string, string>>(
+      new Map([[options.handle.actorId, options.handle.definitionPath]]),
+    )
 
-    const emit = (body: Protocol.FactBodyMessage) =>
+    const emit = (record: Machine.TreeRecord, body: Protocol.FactBodyMessage) =>
       Ref.update(buffer, (current) => {
         const facts = [
           ...current.facts,
-          { _tag: "Fact" as const, sessionId, sequence: current.sequence, body },
+          {
+            _tag: "Fact" as const,
+            sessionId,
+            sequence: record.sequence,
+            actorId: record.actorId,
+            definitionPath: record.definitionPath,
+            body,
+          },
         ]
         return {
           facts: facts.length > bufferLimit ? Protocol.truncateOldest(sessionId, facts) : facts,
-          sequence: current.sequence + 1,
         }
       }).pipe(Effect.andThen(Queue.offer(wake, undefined)))
 
-    // Definition metadata intentionally erases codec requirements. The client
-    // encodes the service-free state/event Schemas accepted by the v0 builder.
-    const encodeState = (value: State) =>
-      Machine.encodeState(options.definition, value) as Effect.Effect<unknown, unknown>
-    const encodeEventDetails = (event: Event): unknown => {
-      try {
-        return Schema.encodeUnknownSync(
-          options.definition.schemas.event as unknown as Schema.Codec<unknown>,
-        )(event)
-      } catch {
-        return undefined
+    const project = (record: Machine.TreeRecord): Effect.Effect<Protocol.FactBodyMessage> => {
+      const definition = definitions.get(record.definitionPath)
+      if (definition === undefined) {
+        return Effect.die(new Error(`Missing definition for ${record.definitionPath}`))
+      }
+      switch (record.body._tag) {
+        case "ActorStarted":
+          return Ref.update(actorDefinitions, (actors) =>
+            new Map(actors).set(record.actorId, record.definitionPath),
+          ).pipe(Effect.as(record.body))
+        case "ActorTerminated":
+          return Effect.succeed(record.body)
+        case "Inspection": {
+          const metadata = record.body.metadata
+          if (metadata._tag !== "EventReceived" || record.body.event === undefined) {
+            return Effect.succeed({ _tag: "Inspection", event: metadata })
+          }
+          let details: unknown
+          try {
+            details = Schema.encodeUnknownSync(definition.schemas.event)(record.body.event)
+          } catch {
+            details = undefined
+          }
+          return Effect.succeed({
+            _tag: "Inspection",
+            event: { ...metadata, ...(details === undefined ? {} : { details }) },
+          })
+        }
+        case "StateSnapshot":
+          return Schema.encodeUnknownEffect(definition.schemas.state)(record.body.state).pipe(
+            Effect.match({
+              onFailure: (cause): Protocol.FactBodyMessage => ({
+                _tag: "StateEncodingFailed",
+                stateTag:
+                  typeof record.body.state === "object" &&
+                  record.body.state !== null &&
+                  "_tag" in record.body.state
+                    ? String(record.body.state._tag)
+                    : "unknown",
+                message: String(cause),
+              }),
+              onSuccess: (state): Protocol.FactBodyMessage => ({
+                _tag: "StateCommitted",
+                state,
+              }),
+            }),
+          )
       }
     }
 
-    const emitState = (value: State) =>
-      encodeState(value).pipe(
-        Effect.flatMap((encoded) => emit({ _tag: "StateCommitted", state: encoded })),
-        Effect.catch((cause) =>
-          emit({ _tag: "StateEncodingFailed", stateTag: value._tag, message: String(cause) }),
-        ),
-      )
-
-    const initial = yield* options.handle.snapshot
-    yield* emitState(initial)
-    const lastState = yield* Ref.make<State>(initial)
-    yield* options.handle.changes.pipe(
-      Stream.runForEach((value) =>
-        Effect.gen(function* () {
-          const previous = yield* Ref.get(lastState)
-          if (Object.is(previous, value)) return
-          yield* Ref.set(lastState, value)
-          yield* emitState(value)
-        }),
-      ),
-      Effect.forkScoped,
-    )
-    yield* options.handle.inspect(encodeEventDetails).pipe(
-      Stream.runForEach((event) => emit({ _tag: "Inspection", event })),
-      Effect.forkScoped,
-    )
-    yield* options.handle.completion.pipe(
-      Effect.exit,
-      Effect.flatMap((exit) =>
-        Effect.gen(function* () {
-          if (Exit.isSuccess(exit)) {
-            yield* Ref.set(terminated, true)
-            yield* emit({ _tag: "StatusChanged", status: "completed" })
-          } else if (!Cause.hasInterruptsOnly(exit.cause)) {
-            yield* Ref.set(terminated, true)
-            yield* emit({ _tag: "StatusChanged", status: "defected" })
-          }
-        }),
-      ),
+    yield* options.handle.tree.records.pipe(
+      Stream.runForEach((record) => project(record).pipe(Effect.flatMap((body) => emit(record, body)))),
       Effect.forkScoped,
     )
 
@@ -225,48 +261,56 @@ export const attach = <State extends Tagged, Event extends Tagged>(
       ...(message === undefined ? {} : { message }),
     })
 
-    const dispatchEvent = (event: Event) =>
-      Effect.gen(function* () {
-        if (yield* Ref.get(terminated)) return rejectedOutcome("not-running")
-        if (!(yield* options.handle.can(event))) {
-          return rejectedOutcome(
-            "unavailable",
-            `The machine does not accept ${event._tag} in its current state.`,
-          )
-        }
-        yield* options.handle.send(event)
-        return { _tag: "Accepted" } as const
-      })
+    const dispatchEvent = (actorId: Machine.ActorId, event: Tagged) =>
+      options.handle.tree.dispatch(actorId, event).pipe(
+        Effect.match({
+          onFailure: (error) =>
+            error.reason === "unknown"
+              ? rejectedOutcome("unknown-actor")
+              : error.reason === "ended"
+                ? rejectedOutcome("actor-ended")
+                : rejectedOutcome(
+                    "unavailable",
+                    `The actor does not accept ${event._tag} in its current state.`,
+                  ),
+          onSuccess: (): Protocol.DispatchOutcomeMessage["result"] => ({ _tag: "Accepted" }),
+        }),
+      )
 
     const handleDispatch = (
+      actorId: string,
       command: Schema.Schema.Type<typeof Protocol.DispatchCommand>,
-    ): Effect.Effect<Protocol.DispatchOutcomeMessage["result"]> => {
+    ): Effect.Effect<Protocol.DispatchOutcomeMessage["result"]> =>
+      Effect.gen(function* () {
+        const definitionPath = (yield* Ref.get(actorDefinitions)).get(actorId)
+        if (definitionPath === undefined) return rejectedOutcome("unknown-actor")
+        const definition = definitions.get(definitionPath)
+        if (definition === undefined) return rejectedOutcome("unknown-actor")
+        const actor = Machine.ActorId.make(actorId)
+        const quickEvents = quickEventsByDefinition.get(definitionPath) ?? []
       switch (command._tag) {
         case "Quick": {
           const quickEvent = quickEvents.find((candidate) => candidate.id === command.id)
           if (quickEvent === undefined) {
-            return Effect.succeed(rejectedOutcome("not-found"))
+            return rejectedOutcome("not-found")
           }
           const event =
             "make" in quickEvent
               ? Effect.try({ try: quickEvent.make, catch: (cause) => String(cause) })
               : Effect.succeed(quickEvent.event)
-          return event.pipe(
-            Effect.flatMap(dispatchEvent),
+          return yield* event.pipe(
+            Effect.flatMap((value) => dispatchEvent(actor, value)),
             Effect.catch((message) => Effect.succeed(rejectedOutcome("factory-threw", message))),
           )
         }
         case "Custom": {
-          // Same codec erasure boundary as decodeEvent's use in the v0 builder.
-          return (
-            Machine.decodeEvent(options.definition, command.event) as Effect.Effect<Event, unknown>
-          ).pipe(
-            Effect.flatMap(dispatchEvent),
+          return yield* Machine.decodeEvent(definition, command.event).pipe(
+            Effect.flatMap((event) => dispatchEvent(actor, event)),
             Effect.catch((cause) => Effect.succeed(rejectedOutcome("invalid", String(cause)))),
           )
         }
       }
-    }
+      })
 
     const onMessage = (
       connection: Connection,
@@ -275,11 +319,12 @@ export const attach = <State extends Tagged, Event extends Tagged>(
       switch (message._tag) {
         case "Dispatch": {
           if (message.sessionId !== sessionId) return Effect.void
-          return handleDispatch(message.command).pipe(
+          return handleDispatch(message.actorId, message.command).pipe(
             Effect.flatMap((result) =>
               connection.send({
                 _tag: "DispatchOutcome",
                 sessionId,
+                actorId: message.actorId,
                 correlationId: message.correlationId,
                 result,
               }),
