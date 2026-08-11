@@ -1,0 +1,1345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Clockwork Heist — State Model Prototype</title>
+    <style>
+      :root {
+        --night: #0b1115;
+        --panel: #121b20;
+        --panel-2: #18242a;
+        --line: #2f424a;
+        --ink: #eef2e8;
+        --muted: #9aaba8;
+        --amber: #f4b942;
+        --amber-soft: #3b301c;
+        --cyan: #65d5ca;
+        --cyan-soft: #163b3a;
+        --red: #ff746c;
+        --red-soft: #402321;
+        --green: #9bd37b;
+        --radius: 14px;
+        --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 18% 0%, #172a2d 0, transparent 30rem),
+          var(--night);
+        font-family: var(--sans);
+      }
+
+      button {
+        min-height: 42px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 9px 14px;
+        color: var(--ink);
+        background: var(--panel-2);
+        font: 650 0.88rem/1 var(--sans);
+        cursor: pointer;
+      }
+
+      button:hover {
+        border-color: var(--cyan);
+      }
+
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--amber);
+        outline-offset: 3px;
+      }
+
+      button[aria-disabled="true"] {
+        color: var(--muted);
+        border-style: dashed;
+        background: transparent;
+      }
+
+      button.primary {
+        color: #071513;
+        border-color: var(--cyan);
+        background: var(--cyan);
+      }
+
+      button.danger {
+        border-color: #78413d;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 10px;
+        font-size: clamp(2rem, 6vw, 4.3rem);
+        line-height: 0.94;
+        letter-spacing: -0.055em;
+      }
+
+      h2 {
+        margin-bottom: 16px;
+        font-size: 1rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 0.95rem;
+      }
+
+      .mono,
+      code,
+      pre,
+      .eyebrow,
+      .phase,
+      .stat-value,
+      .event-name,
+      .history-sequence {
+        font-family: var(--mono);
+      }
+
+      .shell {
+        width: min(1500px, 100%);
+        margin: 0 auto;
+        padding: clamp(18px, 4vw, 46px);
+      }
+
+      .intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 520px);
+        gap: 32px;
+        align-items: end;
+        margin-bottom: 30px;
+      }
+
+      .eyebrow {
+        margin-bottom: 12px;
+        color: var(--amber);
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .lede,
+      .question {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .question {
+        margin: 0;
+        padding: 18px 20px;
+        border-left: 3px solid var(--amber);
+        background: var(--amber-soft);
+      }
+
+      .question strong {
+        color: var(--ink);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(430px, 0.95fr) minmax(460px, 1.05fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 58px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-header h2 {
+        margin: 0;
+      }
+
+      .phase {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--cyan);
+        border-radius: 999px;
+        padding: 6px 9px;
+        color: var(--cyan);
+        background: var(--cyan-soft);
+        font-size: 0.72rem;
+      }
+
+      .phase::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .game-body {
+        display: grid;
+        grid-template-columns: minmax(270px, 1fr) minmax(150px, 0.42fr);
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(44px, 1fr));
+        aspect-ratio: 1;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #0e171b;
+      }
+
+      .cell {
+        position: relative;
+        display: grid;
+        place-items: center;
+        min-width: 0;
+        border-right: 1px solid #26383f;
+        border-bottom: 1px solid #26383f;
+        color: var(--muted);
+        font: 700 clamp(0.62rem, 2vw, 0.85rem)/1 var(--mono);
+      }
+
+      .cell:nth-child(5n) {
+        border-right: 0;
+      }
+
+      .cell:nth-last-child(-n + 5) {
+        border-bottom: 0;
+      }
+
+      .cell.wall {
+        background: repeating-linear-gradient(135deg, #223138, #223138 5px, #1a282e 5px, #1a282e 10px);
+      }
+
+      .cell.door {
+        color: var(--amber);
+        background: #302818;
+      }
+
+      .cell.terminal {
+        color: var(--cyan);
+      }
+
+      .cell.artifact {
+        color: var(--amber);
+      }
+
+      .cell.exit {
+        color: var(--green);
+      }
+
+      .token {
+        z-index: 2;
+        display: grid;
+        width: clamp(28px, 5vw, 38px);
+        height: clamp(28px, 5vw, 38px);
+        place-items: center;
+        border-radius: 50%;
+        color: #071513;
+        box-shadow: 0 0 0 3px #0e171b;
+        font: 900 0.86rem/1 var(--mono);
+      }
+
+      .token.player {
+        background: var(--cyan);
+      }
+
+      .token.guard {
+        color: #260b09;
+        background: var(--red);
+      }
+
+      .under-token {
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        font-size: 0.58rem;
+      }
+
+      .facts {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+      }
+
+      .stat {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #0e171b;
+      }
+
+      .stat-label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .stat-value {
+        font-size: 0.9rem;
+      }
+
+      .alarm-track {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        margin-top: 8px;
+      }
+
+      .alarm-segment {
+        height: 7px;
+        border-radius: 99px;
+        background: #26363c;
+      }
+
+      .alarm-segment.on {
+        background: var(--red);
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px 14px;
+        padding: 0 16px 16px;
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .legend span {
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+      }
+
+      .change-banner {
+        min-height: 60px;
+        margin: 0 16px 16px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        color: var(--muted);
+        background: #0e171b;
+        line-height: 1.45;
+      }
+
+      .change-banner strong {
+        color: var(--ink);
+      }
+
+      .studio-body {
+        display: grid;
+        grid-template-rows: auto minmax(360px, 1fr) auto;
+        min-height: 100%;
+      }
+
+      .machine-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .machine-card {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #0e171b;
+      }
+
+      .machine-card p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 0.78rem;
+        line-height: 1.4;
+      }
+
+      .accepted-events {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .event-chip {
+        border: 1px solid #336861;
+        border-radius: 999px;
+        padding: 4px 7px;
+        color: var(--cyan);
+        background: var(--cyan-soft);
+        font: 0.66rem/1 var(--mono);
+      }
+
+      .history {
+        min-height: 0;
+        max-height: 525px;
+        overflow: auto;
+      }
+
+      .history-empty {
+        padding: 24px 16px;
+        color: var(--muted);
+      }
+
+      .history-row {
+        display: grid;
+        grid-template-columns: 44px minmax(100px, 0.42fr) minmax(0, 1fr);
+        gap: 10px;
+        padding: 11px 16px;
+        border-bottom: 1px solid #24343b;
+      }
+
+      .history-row.rejected {
+        background: color-mix(in srgb, var(--red-soft) 55%, transparent);
+      }
+
+      .history-sequence {
+        color: var(--muted);
+        font-size: 0.7rem;
+      }
+
+      .event-name {
+        color: var(--amber);
+        font-size: 0.72rem;
+        overflow-wrap: anywhere;
+      }
+
+      .history-copy {
+        min-width: 0;
+      }
+
+      .history-copy strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 0.78rem;
+      }
+
+      .history-copy span {
+        color: var(--muted);
+        font-size: 0.72rem;
+        line-height: 1.4;
+      }
+
+      details {
+        border-top: 1px solid var(--line);
+      }
+
+      summary {
+        padding: 13px 16px;
+        color: var(--muted);
+        cursor: pointer;
+        font: 0.72rem/1.4 var(--mono);
+      }
+
+      pre {
+        max-height: 280px;
+        margin: 0;
+        padding: 0 16px 16px;
+        overflow: auto;
+        color: #bbcac5;
+        font-size: 0.7rem;
+        line-height: 1.5;
+      }
+
+      .controls,
+      .walkthroughs {
+        margin-top: 16px;
+        padding: 18px;
+      }
+
+      .controls-header,
+      .walkthrough-header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 16px;
+      }
+
+      .controls-header p,
+      .walkthrough-header p {
+        max-width: 64ch;
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.5;
+      }
+
+      .button-groups {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .button-group {
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #0e171b;
+      }
+
+      .button-group h3 {
+        color: var(--muted);
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .scenario-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .scenario-tab[aria-selected="true"] {
+        color: #071513;
+        border-color: var(--amber);
+        background: var(--amber);
+      }
+
+      .scenario-copy {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.38fr) minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      .scenario-description {
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.55;
+      }
+
+      .scenario-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .scenario-step {
+        position: relative;
+        padding-left: 34px;
+      }
+
+      .scenario-step::before {
+        position: absolute;
+        left: 13px;
+        color: var(--muted);
+        content: attr(data-step);
+        font: 0.68rem/1 var(--mono);
+      }
+
+      .scenario-step.done {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+
+      .scenario-step.current {
+        border-color: var(--amber);
+        box-shadow: 0 0 0 2px var(--amber-soft);
+      }
+
+      @media (max-width: 980px) {
+        .intro,
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .studio-body {
+          min-height: 650px;
+        }
+      }
+
+      @media (max-width: 650px) {
+        .shell {
+          padding: 14px;
+        }
+
+        .game-body,
+        .machine-summary,
+        .button-groups,
+        .scenario-copy {
+          grid-template-columns: 1fr;
+        }
+
+        .history-row {
+          grid-template-columns: 34px minmax(90px, 0.42fr) minmax(0, 1fr);
+          padding-inline: 10px;
+        }
+
+        .controls-header,
+        .walkthrough-header {
+          display: block;
+        }
+
+        .controls-header button {
+          margin-top: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="intro">
+        <div>
+          <p class="eyebrow">Throwaway logic prototype · not production</p>
+          <h1>Clockwork<br />Heist</h1>
+          <p class="lede">
+            Drive a tiny turn-based museum escape and watch every accepted, rejected, automatic,
+            and child-like transition appear in the machine lens beside it.
+          </p>
+        </div>
+        <p class="question">
+          <strong>Question:</strong> can a compact heist produce a legible range of semantic events
+          and transitions—guards, retries, cancellation, completion, and protocol rejection—without
+          turning the state machine into a rendering loop? This page tests the domain model only; it
+          is not wired to the real library or Studio transport yet.
+        </p>
+      </header>
+
+      <section class="workspace" aria-label="Game and machine lens">
+        <article class="panel">
+          <header class="panel-header">
+            <h2>Museum floor</h2>
+            <span class="phase" id="game-status">Awaiting command</span>
+          </header>
+          <div class="game-body">
+            <div class="board" id="board" aria-label="Five by five museum board"></div>
+            <aside class="facts" id="facts"></aside>
+          </div>
+          <div class="legend" aria-label="Board legend">
+            <span><b>P</b> infiltrator</span>
+            <span><b>G</b> guard</span>
+            <span><b>T</b> terminal</span>
+            <span><b>D</b> security door</span>
+            <span><b>A</b> artifact</span>
+            <span><b>E</b> exit</span>
+          </div>
+          <p class="change-banner" id="change-banner" aria-live="polite"></p>
+        </article>
+
+        <article class="panel">
+          <header class="panel-header">
+            <h2>Machine lens</h2>
+            <span class="phase" id="machine-phase">planning</span>
+          </header>
+          <div class="studio-body">
+            <div class="machine-summary" id="machine-summary"></div>
+            <div class="history" id="history" aria-label="Semantic transition history"></div>
+            <details>
+              <summary>Full machine state (portable reducer output)</summary>
+              <pre id="state-json"></pre>
+            </details>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel controls">
+        <div class="controls-header">
+          <div>
+            <h2>Free play</h2>
+            <p>
+              Every action remains clickable. Dashed actions are not accepted in the current state;
+              press one to see the rejection recorded without mutating game state.
+            </p>
+          </div>
+          <button class="danger" type="button" data-event="RESET">Reset mission</button>
+        </div>
+        <div class="button-groups">
+          <div class="button-group">
+            <h3>Move</h3>
+            <div class="button-row">
+              <button type="button" data-event="MOVE_NORTH">↑ North</button>
+              <button type="button" data-event="MOVE_WEST">← West</button>
+              <button type="button" data-event="MOVE_SOUTH">↓ South</button>
+              <button type="button" data-event="MOVE_EAST">→ East</button>
+            </div>
+          </div>
+          <div class="button-group">
+            <h3>Act</h3>
+            <div class="button-row">
+              <button type="button" data-event="WAIT">Wait</button>
+              <button type="button" data-event="INTERACT">Interact</button>
+              <button type="button" data-event="USE_SMOKE">Use smoke</button>
+            </div>
+          </div>
+          <div class="button-group">
+            <h3>Security terminal</h3>
+            <div class="button-row">
+              <button type="button" data-event="HACK_PULSE">Boost signal</button>
+              <button type="button" data-event="CANCEL_HACK">Abort hack</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel walkthroughs">
+        <div class="walkthrough-header">
+          <div>
+            <h2>Guided walkthroughs</h2>
+            <p>
+              Selecting a walkthrough resets the mission. Follow its highlighted buttons in order and
+              watch the game and machine history tell the same story.
+            </p>
+          </div>
+        </div>
+        <div class="scenario-tabs" id="scenario-tabs" role="tablist"></div>
+        <div class="scenario-copy">
+          <div class="scenario-description" id="scenario-description"></div>
+          <div class="scenario-steps" id="scenario-steps"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      // Portable, pure logic module. It knows nothing about the DOM around it.
+      const ClockworkHeist = (() => {
+        const width = 5;
+        const height = 5;
+        const walls = new Set(["0,2", "1,1", "2,0", "2,3", "3,2"]);
+        const terminal = { x: 1, y: 3 };
+        const door = { x: 2, y: 2 };
+        const artifact = { x: 3, y: 1 };
+        const exit = { x: 4, y: 0 };
+        const guardRoute = [
+          { x: 4, y: 4 },
+          { x: 3, y: 4 },
+          { x: 2, y: 4 },
+          { x: 1, y: 4 },
+          { x: 0, y: 4 },
+          { x: 1, y: 4 },
+          { x: 2, y: 4 },
+          { x: 3, y: 4 },
+        ];
+
+        const directions = {
+          MOVE_NORTH: { dx: 0, dy: -1, label: "north" },
+          MOVE_WEST: { dx: -1, dy: 0, label: "west" },
+          MOVE_SOUTH: { dx: 0, dy: 1, label: "south" },
+          MOVE_EAST: { dx: 1, dy: 0, label: "east" },
+        };
+
+        const clone = (value) => JSON.parse(JSON.stringify(value));
+        const at = (a, b) => a.x === b.x && a.y === b.y;
+        const key = (point) => `${point.x},${point.y}`;
+
+        const initialState = () => ({
+          phase: "planning",
+          result: null,
+          turn: 0,
+          turnLimit: 18,
+          alarm: 0,
+          player: { x: 0, y: 4 },
+          guard: { routeIndex: 0, x: 4, y: 4, facing: "west" },
+          inventory: { smoke: 1, artifact: false },
+          security: { doorLocked: true, hackAttempts: 0, retryScheduled: false },
+          smokeActive: false,
+          sequence: 0,
+          lastChange: "Mission ready. Reach the terminal, steal the artifact, and leave through the exit.",
+          history: [],
+        });
+
+        const record = (state, entry) => {
+          state.sequence += 1;
+          state.history.push({ sequence: state.sequence, ...entry });
+          state.lastChange = entry.summary;
+          return state;
+        };
+
+        const reject = (state, event, reason) => {
+          const next = clone(state);
+          return record(next, {
+            actor: "Mission",
+            event,
+            from: state.phase,
+            to: state.phase,
+            status: "rejected",
+            summary: reason,
+          });
+        };
+
+        const clearLine = (state, from, to) => {
+          const dx = Math.sign(to.x - from.x);
+          const dy = Math.sign(to.y - from.y);
+          let x = from.x + dx;
+          let y = from.y + dy;
+          while (x !== to.x || y !== to.y) {
+            if (walls.has(`${x},${y}`)) return false;
+            if (state.security.doorLocked && x === door.x && y === door.y) return false;
+            x += dx;
+            y += dy;
+          }
+          return true;
+        };
+
+        const guardSeesPlayer = (state) => {
+          const guard = state.guard;
+          const player = state.player;
+          const distance = Math.abs(guard.x - player.x) + Math.abs(guard.y - player.y);
+          if (distance > 3) return false;
+          if (guard.facing === "west" && guard.y === player.y && player.x < guard.x) {
+            return clearLine(state, guard, player);
+          }
+          if (guard.facing === "east" && guard.y === player.y && player.x > guard.x) {
+            return clearLine(state, guard, player);
+          }
+          return false;
+        };
+
+        const endMission = (state, result, event, summary) => {
+          state.phase = result;
+          state.result = result;
+          return record(state, {
+            actor: "Mission",
+            event,
+            from: "guard_response",
+            to: result,
+            status: "accepted",
+            summary,
+          });
+        };
+
+        const resolveGuard = (state, resumePhase) => {
+          state.turn += 1;
+          if (state.turn > state.turnLimit) {
+            return endMission(state, "timed_out", "CLOCK_EXPIRED", "The museum sealed before you escaped.");
+          }
+
+          const previous = guardRoute[state.guard.routeIndex];
+          state.guard.routeIndex = (state.guard.routeIndex + 1) % guardRoute.length;
+          const current = guardRoute[state.guard.routeIndex];
+          state.guard.x = current.x;
+          state.guard.y = current.y;
+          state.guard.facing = current.x < previous.x ? "west" : "east";
+
+          if (at(state.guard, state.player)) {
+            return endMission(state, "captured", "GUARD_RESOLVED", "The guard entered your tile. Mission over.");
+          }
+
+          let summary = `Guard patrolled ${state.guard.facing}; no contact.`;
+          if (guardSeesPlayer(state)) {
+            if (state.smokeActive) {
+              summary = "The guard looked your way but lost you in the smoke.";
+            } else {
+              state.alarm += 1;
+              summary = `The guard spotted you. Alarm rose to ${state.alarm}/3.`;
+            }
+          }
+          state.smokeActive = false;
+
+          if (state.alarm >= 3) {
+            return endMission(state, "captured", "GUARD_RESOLVED", "Alarm reached 3/3. Security locked down the floor.");
+          }
+
+          const from = state.phase;
+          state.phase = resumePhase;
+          return record(state, {
+            actor: "Guard",
+            event: "GUARD_RESOLVED",
+            from,
+            to: resumePhase,
+            status: "accepted",
+            summary,
+          });
+        };
+
+        const spendTurn = (state, event, from, resumePhase, summary) => {
+          state.phase = "guard_response";
+          record(state, {
+            actor: "Mission",
+            event,
+            from,
+            to: "guard_response",
+            status: "accepted",
+            summary,
+          });
+          return resolveGuard(state, resumePhase);
+        };
+
+        const canMove = (state, event) => {
+          if (state.phase !== "planning") return false;
+          const direction = directions[event];
+          const target = { x: state.player.x + direction.dx, y: state.player.y + direction.dy };
+          if (target.x < 0 || target.y < 0 || target.x >= width || target.y >= height) return false;
+          if (walls.has(key(target))) return false;
+          if (state.security.doorLocked && at(target, door)) return false;
+          return true;
+        };
+
+        const interactable = (state) => {
+          if (state.phase !== "planning") return false;
+          if (at(state.player, terminal) && state.security.doorLocked) return true;
+          if (at(state.player, artifact) && !state.inventory.artifact) return true;
+          if (at(state.player, exit) && state.inventory.artifact) return true;
+          return false;
+        };
+
+        const allowedEvents = (state) => {
+          if (["escaped", "captured", "timed_out"].includes(state.phase)) return [];
+          if (state.phase === "hacking") return ["HACK_PULSE", "CANCEL_HACK"];
+          if (state.phase !== "planning") return [];
+          const events = Object.keys(directions).filter((event) => canMove(state, event));
+          events.push("WAIT");
+          if (interactable(state)) events.push("INTERACT");
+          if (state.inventory.smoke > 0) events.push("USE_SMOKE");
+          return events;
+        };
+
+        const dispatch = (state, event) => {
+          if (event === "RESET") return initialState();
+          if (["escaped", "captured", "timed_out"].includes(state.phase)) {
+            return reject(state, event, "Mission already ended. Reset before sending another command.");
+          }
+
+          if (event in directions) {
+            if (!canMove(state, event)) {
+              const reason = state.phase !== "planning"
+                ? `Movement is unavailable while ${state.phase.replaceAll("_", " ")}.`
+                : "That move is blocked by the museum boundary, a wall, or the locked security door.";
+              return reject(state, event, reason);
+            }
+            const next = clone(state);
+            const direction = directions[event];
+            next.player.x += direction.dx;
+            next.player.y += direction.dy;
+            return spendTurn(next, event, state.phase, "planning", `You moved ${direction.label}.`);
+          }
+
+          if (event === "WAIT") {
+            if (state.phase !== "planning") return reject(state, event, "You can only wait while planning your next move.");
+            return spendTurn(clone(state), event, state.phase, "planning", "You held position for one patrol beat.");
+          }
+
+          if (event === "USE_SMOKE") {
+            if (state.phase !== "planning" || state.inventory.smoke < 1) {
+              return reject(state, event, "No smoke charge is available in this state.");
+            }
+            const next = clone(state);
+            next.inventory.smoke -= 1;
+            next.smokeActive = true;
+            return spendTurn(next, event, state.phase, "planning", "You released smoke for the next guard response.");
+          }
+
+          if (event === "INTERACT") {
+            if (!interactable(state)) {
+              return reject(state, event, "There is nothing usable here, or the objective needed for this interaction is missing.");
+            }
+            const next = clone(state);
+            if (at(next.player, terminal)) {
+              next.phase = "hacking";
+              next.security.retryScheduled = false;
+              return record(next, {
+                actor: "Lockpick child",
+                event,
+                from: state.phase,
+                to: "hacking",
+                status: "accepted",
+                summary: "Security-terminal child started. Movement is now unavailable until success or cancellation.",
+              });
+            }
+            if (at(next.player, artifact)) {
+              next.inventory.artifact = true;
+              return spendTurn(next, event, state.phase, "planning", "The clockwork artifact is in your inventory.");
+            }
+            next.phase = "escaped";
+            next.result = "escaped";
+            return record(next, {
+              actor: "Mission",
+              event,
+              from: state.phase,
+              to: "escaped",
+              status: "accepted",
+              summary: "You crossed the exit with the artifact. Mission complete.",
+            });
+          }
+
+          if (event === "HACK_PULSE") {
+            if (state.phase !== "hacking") return reject(state, event, "No terminal invocation is active.");
+            const next = clone(state);
+            next.security.hackAttempts += 1;
+            if (next.security.hackAttempts === 1) {
+              next.security.retryScheduled = true;
+              return spendTurn(
+                next,
+                event,
+                state.phase,
+                "hacking",
+                "The first signal jammed. A named retry was scheduled; the child remains active.",
+              );
+            }
+            next.security.doorLocked = false;
+            next.security.retryScheduled = false;
+            return spendTurn(
+              next,
+              event,
+              state.phase,
+              "planning",
+              "Retry succeeded. The door unlocked and the terminal child completed.",
+            );
+          }
+
+          if (event === "CANCEL_HACK") {
+            if (state.phase !== "hacking") return reject(state, event, "There is no active terminal child to cancel.");
+            const next = clone(state);
+            next.phase = "planning";
+            next.security.retryScheduled = false;
+            return record(next, {
+              actor: "Lockpick child",
+              event,
+              from: state.phase,
+              to: "planning",
+              status: "accepted",
+              summary: "The terminal child was cancelled. Its partial attempt count remains visible.",
+            });
+          }
+
+          return reject(state, event, "Unknown mission event.");
+        };
+
+        return {
+          width,
+          height,
+          walls,
+          terminal,
+          door,
+          artifact,
+          exit,
+          initialState,
+          dispatch,
+          allowedEvents,
+        };
+      })();
+
+      // Thin prototype shell. Everything below only renders or dispatches into the module above.
+      const labels = {
+        MOVE_NORTH: "Move north",
+        MOVE_WEST: "Move west",
+        MOVE_SOUTH: "Move south",
+        MOVE_EAST: "Move east",
+        WAIT: "Wait",
+        INTERACT: "Interact",
+        USE_SMOKE: "Use smoke",
+        HACK_PULSE: "Boost signal",
+        CANCEL_HACK: "Abort hack",
+      };
+
+      const phaseLabels = {
+        planning: "Awaiting command",
+        hacking: "Hacking terminal",
+        guard_response: "Guard response",
+        escaped: "Escaped",
+        captured: "Captured",
+        timed_out: "Timed out",
+      };
+
+      const scenarios = [
+        {
+          id: "quiet",
+          label: "Steal the artifact",
+          title: "Happy path with child retry",
+          description:
+            "Reach the terminal, observe the first hack attempt fail and schedule a retry, then cross the unlocked door, take the artifact, and escape. Watch one player command unfold into mission and guard transitions.",
+          steps: [
+            "MOVE_EAST",
+            "MOVE_NORTH",
+            "INTERACT",
+            "HACK_PULSE",
+            "HACK_PULSE",
+            "MOVE_NORTH",
+            "MOVE_EAST",
+            "MOVE_NORTH",
+            "MOVE_EAST",
+            "INTERACT",
+            "MOVE_EAST",
+            "MOVE_NORTH",
+            "INTERACT",
+          ],
+        },
+        {
+          id: "protocol",
+          label: "Push illegal events",
+          title: "Protocol rejection and cancellation",
+          description:
+            "Start with interactions that should be rejected, enter the terminal child, try to move while it owns the phase, cancel it, then test that the security door remains locked. Rejections stay in history but do not advance the turn.",
+          steps: [
+            "INTERACT",
+            "MOVE_WEST",
+            "MOVE_EAST",
+            "MOVE_NORTH",
+            "INTERACT",
+            "MOVE_NORTH",
+            "CANCEL_HACK",
+            "MOVE_NORTH",
+            "MOVE_EAST",
+          ],
+        },
+        {
+          id: "caught",
+          label: "Trigger lockdown",
+          title: "Deterministic guard escalation",
+          description:
+            "Wait in the guard's patrol line. Three independently recorded sightings raise alarm from zero to lockdown, making the terminal state easy to reconstruct from semantic history.",
+          steps: ["WAIT", "WAIT", "WAIT"],
+        },
+      ];
+
+      let state = ClockworkHeist.initialState();
+      let activeScenario = 0;
+      let scenarioStep = 0;
+
+      const board = document.querySelector("#board");
+      const facts = document.querySelector("#facts");
+      const history = document.querySelector("#history");
+      const machineSummary = document.querySelector("#machine-summary");
+      const stateJson = document.querySelector("#state-json");
+      const gameStatus = document.querySelector("#game-status");
+      const machinePhase = document.querySelector("#machine-phase");
+      const changeBanner = document.querySelector("#change-banner");
+      const scenarioTabs = document.querySelector("#scenario-tabs");
+      const scenarioDescription = document.querySelector("#scenario-description");
+      const scenarioSteps = document.querySelector("#scenario-steps");
+
+      const isAt = (point, x, y) => point.x === x && point.y === y;
+
+      function renderBoard() {
+        board.replaceChildren();
+        for (let y = 0; y < ClockworkHeist.height; y += 1) {
+          for (let x = 0; x < ClockworkHeist.width; x += 1) {
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            let feature = "";
+            if (ClockworkHeist.walls.has(`${x},${y}`)) {
+              cell.classList.add("wall");
+              feature = "#";
+            } else if (isAt(ClockworkHeist.door, x, y)) {
+              cell.classList.add("door");
+              feature = state.security.doorLocked ? "D" : "·";
+            } else if (isAt(ClockworkHeist.terminal, x, y)) {
+              cell.classList.add("terminal");
+              feature = "T";
+            } else if (isAt(ClockworkHeist.artifact, x, y) && !state.inventory.artifact) {
+              cell.classList.add("artifact");
+              feature = "A";
+            } else if (isAt(ClockworkHeist.exit, x, y)) {
+              cell.classList.add("exit");
+              feature = "E";
+            }
+
+            const playerHere = isAt(state.player, x, y);
+            const guardHere = isAt(state.guard, x, y);
+            if (playerHere || guardHere) {
+              const token = document.createElement("span");
+              token.className = `token ${playerHere ? "player" : "guard"}`;
+              token.textContent = playerHere && guardHere ? "!" : playerHere ? "P" : "G";
+              cell.append(token);
+              if (feature) {
+                const under = document.createElement("span");
+                under.className = "under-token";
+                under.textContent = feature;
+                cell.append(under);
+              }
+            } else {
+              cell.textContent = feature;
+            }
+            board.append(cell);
+          }
+        }
+      }
+
+      function renderFacts() {
+        const alarm = [0, 1, 2]
+          .map((index) => `<span class="alarm-segment ${index < state.alarm ? "on" : ""}"></span>`)
+          .join("");
+        facts.innerHTML = `
+          <div class="stat">
+            <span class="stat-label">Turn</span>
+            <span class="stat-value">${state.turn} / ${state.turnLimit}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Alarm</span>
+            <span class="stat-value">${state.alarm} / 3</span>
+            <span class="alarm-track">${alarm}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Inventory</span>
+            <span class="stat-value">${state.inventory.artifact ? "artifact" : "—"} · smoke ${state.inventory.smoke}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Security door</span>
+            <span class="stat-value">${state.security.doorLocked ? "locked" : "unlocked"}</span>
+          </div>
+        `;
+      }
+
+      function renderMachineSummary() {
+        const allowed = ClockworkHeist.allowedEvents(state);
+        machineSummary.innerHTML = `
+          <div class="machine-card">
+            <h3>Mission actor</h3>
+            <span class="phase">${state.phase}</span>
+            <p>${state.result ? `Terminal result: ${state.result}` : `Guard actor active · facing ${state.guard.facing}`}</p>
+          </div>
+          <div class="machine-card">
+            <h3>Accepted now</h3>
+            <div class="accepted-events">
+              ${allowed.length ? allowed.map((event) => `<span class="event-chip">${event}</span>`).join("") : '<span class="event-chip">none</span>'}
+            </div>
+          </div>
+          <div class="machine-card">
+            <h3>Lockpick child</h3>
+            <span class="stat-value">${state.phase === "hacking" ? "running" : state.security.doorLocked ? "idle" : "completed"}</span>
+            <p>attempt ${state.security.hackAttempts} · retry ${state.security.retryScheduled ? "scheduled" : "clear"}</p>
+          </div>
+          <div class="machine-card">
+            <h3>State position</h3>
+            <span class="stat-value">player (${state.player.x}, ${state.player.y})</span>
+            <p>guard (${state.guard.x}, ${state.guard.y}) · sequence ${state.sequence}</p>
+          </div>
+        `;
+      }
+
+      function renderHistory() {
+        if (state.history.length === 0) {
+          history.innerHTML = '<p class="history-empty">Dispatch an action to begin the semantic history.</p>';
+          return;
+        }
+        history.innerHTML = state.history
+          .slice()
+          .reverse()
+          .map(
+            (entry) => `
+              <div class="history-row ${entry.status === "rejected" ? "rejected" : ""}">
+                <span class="history-sequence">#${String(entry.sequence).padStart(2, "0")}</span>
+                <span class="event-name">${entry.event}</span>
+                <span class="history-copy">
+                  <strong>${entry.actor} · ${entry.from} → ${entry.to}</strong>
+                  <span>${entry.summary}</span>
+                </span>
+              </div>
+            `,
+          )
+          .join("");
+      }
+
+      function renderControls() {
+        const allowed = new Set(ClockworkHeist.allowedEvents(state));
+        document.querySelectorAll("[data-event]").forEach((button) => {
+          const event = button.dataset.event;
+          button.setAttribute("aria-disabled", event === "RESET" || allowed.has(event) ? "false" : "true");
+        });
+      }
+
+      function renderScenario() {
+        const scenario = scenarios[activeScenario];
+        scenarioTabs.innerHTML = scenarios
+          .map(
+            (item, index) => `
+              <button class="scenario-tab" type="button" role="tab" aria-selected="${index === activeScenario}" data-scenario="${index}">
+                ${item.label}
+              </button>
+            `,
+          )
+          .join("");
+        scenarioDescription.innerHTML = `<h3>${scenario.title}</h3><p>${scenario.description}</p>`;
+        scenarioSteps.innerHTML = scenario.steps
+          .map(
+            (event, index) => `
+              <button
+                type="button"
+                class="scenario-step ${index < scenarioStep ? "done" : ""} ${index === scenarioStep ? "current" : ""}"
+                data-scenario-event="${event}"
+                data-scenario-index="${index}"
+                data-step="${index + 1}"
+                ${index === scenarioStep ? "" : "disabled"}
+              >${labels[event]}</button>
+            `,
+          )
+          .join("");
+      }
+
+      function render() {
+        renderBoard();
+        renderFacts();
+        renderMachineSummary();
+        renderHistory();
+        renderControls();
+        renderScenario();
+        gameStatus.textContent = phaseLabels[state.phase];
+        machinePhase.textContent = state.phase;
+        changeBanner.innerHTML = `<strong>Latest:</strong> ${state.lastChange}`;
+        stateJson.textContent = JSON.stringify({ ...state, history: `[${state.history.length} semantic records]` }, null, 2);
+      }
+
+      function send(event, fromScenario = false) {
+        state = ClockworkHeist.dispatch(state, event);
+        if (fromScenario) scenarioStep += 1;
+        render();
+      }
+
+      document.addEventListener("click", (click) => {
+        const eventButton = click.target.closest("[data-event]");
+        if (eventButton) {
+          send(eventButton.dataset.event);
+          return;
+        }
+
+        const tab = click.target.closest("[data-scenario]");
+        if (tab) {
+          activeScenario = Number(tab.dataset.scenario);
+          scenarioStep = 0;
+          state = ClockworkHeist.initialState();
+          render();
+          return;
+        }
+
+        const step = click.target.closest("[data-scenario-event]");
+        if (step && Number(step.dataset.scenarioIndex) === scenarioStep) {
+          send(step.dataset.scenarioEvent, true);
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
