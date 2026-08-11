@@ -1,0 +1,60 @@
+{
+  "name": "@effect-state-machine/studio-react",
+  "version": "0.1.0",
+  "description": "Self-contained React Studio for effect-state-machine.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && vite build && tsc -p tsconfig.build.json",
+    "dev": "vite build --watch",
+    "dev:example": "vite --config vite.example.config.ts",
+    "check": "pnpm typecheck && pnpm test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-state-machine/studio-client": "workspace:*",
+    "@effect/atom-react": "4.0.0-beta.106",
+    "@xyflow/react": "^12.11.2",
+    "elkjs": "^0.12.0"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.106",
+    "effect-state-machine": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.106",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "jsdom": "^27.0.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  }
+}

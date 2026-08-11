@@ -253,13 +253,14 @@ describe("History", () => {
     const childPosition = History.positionAt(model, "actor:1", childRunning.sequence)
     assert.deepStrictEqual(childPosition?.state, { _tag: "ChildRunning", count: 1 })
     assert.deepStrictEqual(
-      childPosition === undefined ? undefined : History.previousPosition(model, childPosition)?.state,
+      childPosition === undefined
+        ? undefined
+        : History.previousPosition(model, childPosition)?.state,
       { _tag: "ChildIdle", count: 0 },
     )
-    assert.deepStrictEqual(
-      History.positionAt(model, "actor:0", childRunning.sequence)?.state,
-      { _tag: "RootRunning" },
-    )
+    assert.deepStrictEqual(History.positionAt(model, "actor:0", childRunning.sequence)?.state, {
+      _tag: "RootRunning",
+    })
   })
 
   it("reduces incrementally to the same model as a bulk fold", () => {

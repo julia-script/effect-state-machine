@@ -6,14 +6,20 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:dependencies": "pnpm --filter effect-state-machine build && pnpm --filter @effect-state-machine/studio-client build && pnpm --filter @effect-state-machine/studio-react build",
+    "prebuild": "pnpm build:dependencies",
     "build": "next build",
     "check": "pnpm typecheck",
+    "predev": "pnpm build:dependencies",
     "dev": "next dev",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@effect-state-machine/studio-react": "workspace:*",
     "cnfast": "^0.1.0",
+    "effect": "4.0.0-beta.106",
+    "effect-state-machine": "workspace:*",
     "fumadocs-core": "16.14.3",
     "fumadocs-mdx": "15.2.3",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.14.3",

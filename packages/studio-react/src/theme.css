@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+@source "./**/*.{ts,tsx}";
+
+/* One token set drives both themes: the dark block swaps the same variables
+   (deliberately re-slotting pear to deep indigo per the design handoff). */
+@theme {
+  --color-*: initial;
+  --color-paper: oklch(96% 0.025 92);
+  --color-paper-2: oklch(92% 0.04 95);
+  --color-surface: oklch(99% 0.012 92);
+  --color-ink: oklch(22% 0.035 284);
+  --color-ink-soft: oklch(34% 0.035 284);
+  --color-muted: oklch(45% 0.035 284);
+  --color-rule: oklch(76% 0.045 92);
+  --color-rule-strong: oklch(54% 0.055 92);
+  --color-accent: oklch(67% 0.2 34);
+  --color-accent-ink: oklch(20% 0.045 284);
+  --color-accent-soft: oklch(91% 0.07 34);
+  --color-pear: oklch(89% 0.17 112);
+  --color-pear-ink: oklch(24% 0.055 112);
+  --color-cyan: oklch(86% 0.12 205);
+  --color-cyan-ink: oklch(24% 0.055 220);
+  --color-danger: oklch(41% 0.17 25);
+  --color-danger-soft: oklch(92% 0.055 25);
+  --color-success: oklch(43% 0.13 154);
+  --color-success-soft: oklch(92% 0.06 154);
+  --color-focus: oklch(38% 0.17 285);
+  --color-dot: oklch(85% 0.035 92);
+
+  --font-display: ui-rounded, "Arial Rounded MT Bold", ui-sans-serif, sans-serif;
+  --font-body: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  --shadow-hard-sm: 0 2px 0 var(--color-ink);
+  --shadow-hard: 0 3px 0 var(--color-ink);
+  --radius-pill: 999px;
+}
+
+[data-theme="dark"] {
+  --color-paper: oklch(24% 0.02 284);
+  --color-paper-2: oklch(29% 0.025 284);
+  --color-surface: oklch(20% 0.02 284);
+  --color-ink: oklch(92% 0.02 92);
+  --color-ink-soft: oklch(82% 0.02 92);
+  --color-muted: oklch(68% 0.025 284);
+  --color-rule: oklch(38% 0.03 284);
+  --color-rule-strong: oklch(52% 0.03 284);
+  --color-pear: oklch(34% 0.07 285);
+  --color-pear-ink: oklch(90% 0.05 112);
+  --color-cyan: oklch(36% 0.06 220);
+  --color-cyan-ink: oklch(80% 0.08 205);
+  --color-danger: oklch(72% 0.17 25);
+  --color-danger-soft: oklch(32% 0.07 25);
+  --color-success: oklch(70% 0.13 154);
+  --color-success-soft: oklch(32% 0.06 154);
+  --color-focus: oklch(72% 0.15 285);
+  --color-dot: oklch(32% 0.03 284);
+}
+
+.studio-surface {
+  box-sizing: border-box;
+  height: 100%;
+  font-family: var(--font-body);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.studio-surface *,
+.studio-surface *::before,
+.studio-surface *::after {
+  box-sizing: border-box;
+}
+
+.studio-surface :focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.dot-grid {
+  background-image: radial-gradient(var(--color-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.edge-traversed {
+  stroke-dasharray: 9 7;
+  animation: edge-flow 1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-traversed {
+    animation: none;
+  }
+  .studio-surface *,
+  .studio-surface *::before,
+  .studio-surface *::after {
+    transition-duration: 0ms;
+  }
+}

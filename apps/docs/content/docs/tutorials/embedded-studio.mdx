@@ -1,0 +1,50 @@
+---
+title: Explore an embedded Studio
+description: Run a machine and inspect it through the self-contained React Studio component.
+---
+
+In this tutorial, we will use the embedded Studio to inspect and control a running machine directly
+inside a React page. The example needs no Studio server, WebSocket connection, or stylesheet import.
+
+## Try the finished embed
+
+The machine starts in `Idle`. Select **Start at 7** in the Events panel and notice three changes:
+the active state becomes `Running`, the state value gains `"speed": 7`, and the History panel records
+the `Start` transition. Select **Stop** to return to `Idle` and add another history entry.
+
+<EmbeddedStudioDemo />
+
+The theme, panel toggle, graph controls, history cursor, and custom-event form are all part of the
+component. They remain isolated from this documentation page inside the component's shadow root.
+
+## Render the same component
+
+Install the React package beside the core library and their peer dependencies:
+
+```sh
+pnpm add @effect-state-machine/studio-react effect-state-machine effect react react-dom
+```
+
+Pass Studio the same definition and already-running handle that your application owns:
+
+```tsx
+import { Studio } from "@effect-state-machine/studio-react"
+
+export function MachineDemo({ definition, handle }) {
+  return (
+    <Studio
+      machine={{
+        definition,
+        handle,
+        quickEvents: [
+          { id: "start", label: "Start", event: { _tag: "Start", speed: 7 } },
+        ],
+      }}
+      style={{ height: 620 }}
+    />
+  )
+}
+```
+
+Do not import a Studio CSS file. The component installs its compiled styles inside its shadow root.
+Unmounting it closes only the inspection attachment; the supplied machine continues running.

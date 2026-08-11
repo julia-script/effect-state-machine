@@ -83,6 +83,7 @@ describe("WebSocketTransport", () => {
         yield* send({
           _tag: "Dispatch",
           sessionId: hello.sessionId,
+          actorId: hello.rootActorId,
           correlationId: "ws-1",
           command: { _tag: "Quick", id: "start" },
         })

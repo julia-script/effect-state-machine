@@ -176,6 +176,9 @@ const updateActorFold = (
   actorFolds: new Map(model.actorFolds).set(actorId, update(actorFold(model, actorId))),
 })
 
+const updateRootStatus = (model: Model, actorId: string, status: Status): Model =>
+  actorId === model.rootActorId ? { ...model, status } : model
+
 const latestActorPosition = (model: Model, actorId: string): number => {
   const indices = model.actors.get(actorId)?.positions ?? []
   return indices[indices.length - 1] ?? 0
@@ -408,15 +411,19 @@ const foldInspection = (
         status: "completed",
         raw: [factIndex],
       })
-      return withStep
+      return updateRootStatus(withStep, fact.actorId, "completed")
     }
     case "MachineDefected": {
       if (fold.activeEventStep !== undefined) {
         const updated = attachRaw(model, fold.activeEventStep, factIndex, { status: "defected" })
-        return updateActorFold(updated, fact.actorId, (current) => ({
-          ...current,
-          activeEventStep: undefined,
-        }))
+        return updateRootStatus(
+          updateActorFold(updated, fact.actorId, (current) => ({
+            ...current,
+            activeEventStep: undefined,
+          })),
+          fact.actorId,
+          "defected",
+        )
       }
       const [withStep] = appendStep(model, fact, {
         kind: "defect",
@@ -427,7 +434,7 @@ const foldInspection = (
         status: "defected",
         raw: [factIndex],
       })
-      return withStep
+      return updateRootStatus(withStep, fact.actorId, "defected")
     }
   }
 
@@ -467,11 +474,7 @@ const foldActorStarted = (
   }
 }
 
-const foldState = (
-  model: Model,
-  fact: Protocol.FactMessage,
-  state: unknown,
-): Model => {
+const foldState = (model: Model, fact: Protocol.FactMessage, state: unknown): Model => {
   const actor = model.actors.get(fact.actorId)
   if (actor === undefined) return model
   const index = model.positions.length
@@ -543,7 +546,7 @@ const foldActorTerminated = (
 /** Folds one actor-qualified fact into an existing history model. */
 export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
   const factIndex = model.facts.length
-  let next = ensureActor({ ...model, facts: [...model.facts, fact] }, fact)
+  const next = ensureActor({ ...model, facts: [...model.facts, fact] }, fact)
   const body = fact.body
 
   switch (body._tag) {
@@ -592,7 +595,8 @@ export const fromFacts = (facts: Iterable<Protocol.FactMessage>): Model => {
 /** Returns actors that exist at a global session sequence. */
 export const actorsAt = (model: Model, sequence: number): ReadonlyArray<Actor> =>
   Array.from(model.actors.values()).filter(
-    (actor) => actor.startedAt <= sequence && (actor.endedAt === undefined || sequence < actor.endedAt),
+    (actor) =>
+      actor.startedAt <= sequence && (actor.endedAt === undefined || sequence < actor.endedAt),
   )
 
 /** Returns an actor's latest state at or before a global session sequence. */

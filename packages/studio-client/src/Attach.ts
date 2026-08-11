@@ -46,9 +46,7 @@ export interface AttachOptions<State extends Tagged, Event extends Tagged> {
   readonly definition: Machine.DefinitionMetadata
   readonly handle: Machine.MachineHandle<State, Event, State>
   readonly quickEvents?: ReadonlyArray<QuickEvent<NoInfer<Event>>>
-  readonly quickEventsByDefinition?: Readonly<
-    Record<string, ReadonlyArray<QuickEvent<Tagged>>>
-  >
+  readonly quickEventsByDefinition?: Readonly<Record<string, ReadonlyArray<QuickEvent<Tagged>>>>
   /**
    * Name shown in Studio's session picker; defaults to the machine identifier.
    */
@@ -105,17 +103,11 @@ export const attach = <State extends Tagged, Event extends Tagged>(
 ): Effect.Effect<Attachment, never, Scope.Scope | StudioTransport> =>
   Effect.gen(function* () {
     const transport = yield* StudioTransport
-    const quickEventsByDefinition = new Map<
-      string,
-      ReadonlyArray<QuickEvent<Tagged>>
-    >([
+    const quickEventsByDefinition = new Map<string, ReadonlyArray<QuickEvent<Tagged>>>([
       [Machine.DefinitionPath.root, options.quickEvents ?? []],
       ...Object.entries(options.quickEventsByDefinition ?? {}),
     ])
-    const controlsByDefinition = new Map<
-      string,
-      ReadonlyArray<Protocol.QuickEventControlMessage>
-    >()
+    const controlsByDefinition = new Map<string, ReadonlyArray<Protocol.QuickEventControlMessage>>()
     for (const [definitionPath, quickEvents] of quickEventsByDefinition) {
       const ids = new Set<string>()
       const controls = quickEvents.map((quickEvent): Protocol.QuickEventControlMessage => {
@@ -216,7 +208,10 @@ export const attach = <State extends Tagged, Event extends Tagged>(
           }
           let details: unknown
           try {
-            details = Schema.encodeUnknownSync(definition.schemas.event)(record.body.event)
+            // Definition metadata erases codec services at the devtools serialization boundary.
+            details = Schema.encodeUnknownSync(
+              definition.schemas.event as unknown as Schema.Codec<unknown>,
+            )(record.body.event)
           } catch {
             details = undefined
           }
@@ -225,16 +220,20 @@ export const attach = <State extends Tagged, Event extends Tagged>(
             event: { ...metadata, ...(details === undefined ? {} : { details }) },
           })
         }
-        case "StateSnapshot":
-          return Schema.encodeUnknownEffect(definition.schemas.state)(record.body.state).pipe(
+        case "StateSnapshot": {
+          const stateSnapshot = record.body.state
+          // Definition metadata erases codec services at the devtools serialization boundary.
+          return Schema.encodeUnknownEffect(
+            definition.schemas.state as unknown as Schema.Codec<unknown>,
+          )(stateSnapshot).pipe(
             Effect.match({
               onFailure: (cause): Protocol.FactBodyMessage => ({
                 _tag: "StateEncodingFailed",
                 stateTag:
-                  typeof record.body.state === "object" &&
-                  record.body.state !== null &&
-                  "_tag" in record.body.state
-                    ? String(record.body.state._tag)
+                  typeof stateSnapshot === "object" &&
+                  stateSnapshot !== null &&
+                  "_tag" in stateSnapshot
+                    ? String(stateSnapshot._tag)
                     : "unknown",
                 message: String(cause),
               }),
@@ -244,11 +243,14 @@ export const attach = <State extends Tagged, Event extends Tagged>(
               }),
             }),
           )
+        }
       }
     }
 
     yield* options.handle.tree.records.pipe(
-      Stream.runForEach((record) => project(record).pipe(Effect.flatMap((body) => emit(record, body)))),
+      Stream.runForEach((record) =>
+        project(record).pipe(Effect.flatMap((body) => emit(record, body))),
+      ),
       Effect.forkScoped,
     )
 
@@ -288,28 +290,33 @@ export const attach = <State extends Tagged, Event extends Tagged>(
         if (definition === undefined) return rejectedOutcome("unknown-actor")
         const actor = Machine.ActorId.make(actorId)
         const quickEvents = quickEventsByDefinition.get(definitionPath) ?? []
-      switch (command._tag) {
-        case "Quick": {
-          const quickEvent = quickEvents.find((candidate) => candidate.id === command.id)
-          if (quickEvent === undefined) {
-            return rejectedOutcome("not-found")
+        switch (command._tag) {
+          case "Quick": {
+            const quickEvent = quickEvents.find((candidate) => candidate.id === command.id)
+            if (quickEvent === undefined) {
+              return rejectedOutcome("not-found")
+            }
+            const event =
+              "make" in quickEvent
+                ? Effect.try({ try: quickEvent.make, catch: (cause) => String(cause) })
+                : Effect.succeed(quickEvent.event)
+            return yield* event.pipe(
+              Effect.flatMap((value) => dispatchEvent(actor, value)),
+              Effect.catch((message) => Effect.succeed(rejectedOutcome("factory-threw", message))),
+            )
           }
-          const event =
-            "make" in quickEvent
-              ? Effect.try({ try: quickEvent.make, catch: (cause) => String(cause) })
-              : Effect.succeed(quickEvent.event)
-          return yield* event.pipe(
-            Effect.flatMap((value) => dispatchEvent(actor, value)),
-            Effect.catch((message) => Effect.succeed(rejectedOutcome("factory-threw", message))),
-          )
+          case "Custom": {
+            // Tree metadata deliberately erases the concrete event union for heterogeneous actors.
+            const decoded = Machine.decodeEvent(definition, command.event) as Effect.Effect<
+              Tagged,
+              unknown
+            >
+            return yield* decoded.pipe(
+              Effect.flatMap((event) => dispatchEvent(actor, event)),
+              Effect.catch((cause) => Effect.succeed(rejectedOutcome("invalid", String(cause)))),
+            )
+          }
         }
-        case "Custom": {
-          return yield* Machine.decodeEvent(definition, command.event).pipe(
-            Effect.flatMap((event) => dispatchEvent(actor, event)),
-            Effect.catch((cause) => Effect.succeed(rejectedOutcome("invalid", String(cause)))),
-          )
-        }
-      }
       })
 
     const onMessage = (
