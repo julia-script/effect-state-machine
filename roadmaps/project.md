@@ -2,7 +2,7 @@
 
 > Direction, not commitment — Now is committed; Next is planned; Later is exploration.
 > Only Now items may be promised to anyone. This document changes as we learn.
-> Last reviewed: 2026-08-10 · Review cadence: after each milestone
+> Last reviewed: 2026-08-11 · Review cadence: after each milestone
 > Scope: whole project
 
 ## Vision
@@ -23,6 +23,20 @@ application and learn where the public API creates real friction.
 - **Later** — problem worth solving, no solution chosen. Options, not a queue.
 
 ## Completed
+
+### Post-milestone Studio extensions
+
+- **Problem:** Root-only Studio sessions split parent and child behavior into disconnected views,
+  while playgrounds and examples required a separate Studio server and consumer-managed setup.
+- **Outcome:** A Studio session now represents one root execution tree with stable actor identities,
+  a globally ordered journal, actor-targeted dispatch, nested behavior maps, and tree-aware history.
+  React consumers can also embed the shared Studio UI beside an already-running machine through an
+  in-memory protocol connection, without a server, WebSocket, or stylesheet import.
+- **Status:** complete — machine-tree inspection shipped in `4c70210`; the embeddable React Studio
+  shipped in `c9f6e42`; their OpenSpec contracts were synced and archived in `fc2e72b`.
+- **Links:** [`machine-tree-inspection`](../openspec/specs/machine-tree-inspection/spec.md) ·
+  [`react-studio-embed`](../openspec/specs/react-studio-embed/spec.md) ·
+  [`packages/studio-react`](../packages/studio-react)
 
 ### Milestone 2 — Interactive developer exploration
 
@@ -91,8 +105,9 @@ application and learn where the public API creates real friction.
 
 ## Later
 
-- Make complex topology easier to navigate — why it matters: partial graphs must remain useful as
-  machines and child graphs grow.
+- Keep large machine trees navigable — why it matters: Studio now renders nested child definitions
+  as one expanded graph, but automatic collapse, activation-driven expansion, and actor-focused
+  navigation remain unproven as trees grow.
 - Correlate semantic history with Effect telemetry — why it matters: an optional development
   adapter could enrich each causal step with its OpenTelemetry spans, span annotations, and logs,
   letting developers connect modeled behavior to the work actually performed without making the
@@ -125,8 +140,9 @@ Reserve roughly 20% of each milestone for compatibility and interpreter legibili
   prototype did not prove named paths useful, and selecting history is inspection rather than undo.
 - Failure, latency, dependency, or network simulation controls in Milestone 2 — they are promising
   future environment controls, not part of the first session contract.
-- Child-machine expansion, actor topology, hierarchy, parallel regions, or dynamic spawning in
-  Milestone 2 — composition visualization receives its own later proof.
+- Automatic child-machine collapsing, actor-focused navigation, shared hierarchy, parallel regions,
+  or dynamic spawning — the shipped tree view covers static child ownership and expanded nested
+  graphs, while richer composition and navigation still require application evidence.
 - Effect OpenTelemetry span, annotation, or log correlation in Milestone 2 — telemetry enrichment
   remains an optional future adapter.
 - Cross-context browser transport, Node transport, persistence, or remote devtools connections in
@@ -144,6 +160,12 @@ Reserve roughly 20% of each milestone for compatibility and interpreter legibili
 - What permanent package and project name should replace the working name?
 
 ## Changelog
+
+- 2026-08-11: Recorded two completed post-milestone extensions. Machine-tree inspection replaced
+  disconnected root-only views with one actor-addressed causal session (`4c70210`), and the React
+  package made the same Studio experience directly embeddable for playgrounds and demos
+  (`c9f6e42`). Synced and archived both contracts (`fc2e72b`). Narrowed the remaining topology work
+  to navigation at larger tree sizes; external application use remains the current objective.
 
 - 2026-08-10: Completed Milestone 2 with an Effect-native one-root devtools session, generic compact
   viewer, semantic/raw history, observational cursor, quick-event factories, focused graphs,
