@@ -264,6 +264,12 @@ const inspectionSummary = (event: Machine.InspectionEvent): string => {
       return `${event.previousStateTag} → ${event.nextStateTag}`
     case "InvocationRetryScheduled":
       return `${event.policy} · attempt ${event.attempt} · ${event.delayMillis / 1_000}s`
+    case "TimerStarted":
+    case "TimerFired":
+    case "TimerCancelled":
+      return `${event.timer} · ${event.stateTag} · generation ${event.generation}`
+    case "StaleOutcomeIgnored":
+      return `${event.outcome} ignored for stale ${event.ownerPath}`
     case "InvocationStarted":
     case "InvocationSucceeded":
     case "InvocationFailed":

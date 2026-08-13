@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema"
-import type * as Machine from "./Machine.js"
+import * as Machine from "./Machine.js"
 import * as SourceLocation from "./SourceLocation.js"
 
 /**
@@ -12,15 +12,27 @@ export interface Node {
   readonly id: string
   readonly title: string
   readonly description?: string
-  readonly kind: "state" | "invoke" | "child" | "final"
+  readonly kind: "state" | "invoke" | "child" | "regions" | "final"
   readonly location?: SourceLocation.Location
   readonly invocation?: Readonly<{
     name: string
+    kind?: "effect" | "all" | "race"
+    lanes?: ReadonlyArray<string>
+    concurrency?: number | "unbounded"
     description?: string
     retry?: Readonly<{
       name: string
       description?: string
     }>
+  }>
+  readonly timer?: Readonly<{
+    duration: unknown
+    target: string
+  }>
+  readonly region?: Readonly<{
+    parent: string
+    slot: string
+    tag: string
   }>
   readonly child?: Readonly<{
     name: string
@@ -42,6 +54,20 @@ export interface Node {
   }>
 }
 
+/** Structural path of a state nested below a top-level region owner. */
+export type RegionStatePath<
+  Parent extends string = string,
+  Slot extends string = string,
+  Tag extends string = string,
+> = `${Parent}/${Slot}/${Tag}`
+
+/** Structural identity of declared work, optionally narrowed to one named lane. */
+export type WorkPath<
+  Owner extends string = string,
+  Name extends string = string,
+  Lane extends string | undefined = undefined,
+> = Lane extends string ? `${Owner}/work/${Name}/${Lane}` : `${Owner}/work/${Name}`
+
 /**
  * Directed transition between two graph nodes.
  *
@@ -58,7 +84,7 @@ export interface Edge {
     description?: string
   }>
   readonly outcome?: Readonly<{
-    kind: "success" | "failure" | "completion"
+    kind: "success" | "failure" | "completion" | "timer"
   }>
   readonly description?: string
   readonly branch?:
@@ -235,9 +261,14 @@ export const fromDefinition = (
   definition: Machine.DefinitionMetadata,
   options?: Readonly<{ mapSource?: SourceLocation.Mapper }>,
 ): Graph => {
-  const nodes = definition.nodes.map((node): Node => {
+  const definitionNodes = Machine.definitionNodes(definition)
+  const nodes = definitionNodes.map((node): Node => {
     const schema = definition.schemas.state.cases[node.tag]
-    const description = descriptionOf(schema)
+    const description =
+      descriptionOf(schema) ??
+      (node.kind === "state" || node.kind === "regions" || node.kind === "final"
+        ? node.description
+        : undefined)
     const location = SourceLocation.resolve(node.source, { map: options?.mapSource })
     return {
       id: node.tag,
@@ -249,6 +280,9 @@ export const fromDefinition = (
         ? {
             invocation: {
               name: node.name,
+              ...(node.workKind === undefined ? {} : { kind: node.workKind }),
+              ...(node.tasks === undefined ? {} : { lanes: Object.keys(node.tasks) }),
+              ...(node.concurrency === undefined ? {} : { concurrency: node.concurrency }),
               ...(node.description === undefined ? {} : { description: node.description }),
               ...(node.retry === undefined
                 ? {}
@@ -262,6 +296,11 @@ export const fromDefinition = (
                   }),
             },
           }
+        : {}),
+      ...(node.kind === "state" || node.kind === "invoke"
+        ? node.after === undefined
+          ? {}
+          : { timer: { duration: node.after.duration, target: node.after.target } }
         : {}),
       ...(node.kind === "child"
         ? {
@@ -301,9 +340,73 @@ export const fromDefinition = (
     }
   })
 
+  const regionNodes: Array<Node> = definitionNodes.flatMap((parent) => {
+    if (parent.kind !== "regions") return []
+    const regions = parent.regions as Readonly<
+      Record<
+        string,
+        Readonly<{
+          states: Readonly<
+            Record<
+              string,
+              Readonly<{
+                source?: unknown
+                description?: string
+                final?: true
+                invoke?: Readonly<{
+                  kind: "effect"
+                  name: string
+                  description?: string
+                  retry?: Readonly<{ name: string; description?: string }>
+                }>
+                after?: Readonly<{ duration: unknown; target: string }>
+              }>
+            >
+          >
+        }>
+      >
+    >
+    return Object.entries(regions).flatMap(([slot, region]) =>
+      Object.entries(region.states).map(([tag, child]): Node => {
+        const id = `${parent.tag}/${slot}/${tag}`
+        const fallback = SourceLocation.resolve(parent.source, { map: options?.mapSource })
+        const location = fallback
+        return {
+          id,
+          title: tag,
+          kind: child.final === true ? "final" : child.invoke === undefined ? "state" : "invoke",
+          region: { parent: parent.tag, slot, tag },
+          ...(child.description === undefined ? {} : { description: child.description }),
+          ...(location === undefined ? {} : { location }),
+          ...(child.invoke === undefined
+            ? {}
+            : {
+                invocation: {
+                  name: child.invoke.name,
+                  kind: child.invoke.kind,
+                  ...(child.invoke.description === undefined
+                    ? {}
+                    : { description: child.invoke.description }),
+                  ...(child.invoke.retry === undefined ? {} : { retry: child.invoke.retry }),
+                },
+              }),
+          ...(child.after === undefined
+            ? {}
+            : {
+                timer: {
+                  duration: child.after.duration,
+                  target: `${parent.tag}/${slot}/${child.after.target}`,
+                },
+              }),
+        }
+      }),
+    )
+  })
+  nodes.push(...regionNodes)
+
   const edges: Array<Omit<Edge, "id">> = []
   const ignores: Array<Ignore> = []
-  for (const node of definition.nodes) {
+  for (const node of definitionNodes) {
     if (node.kind === "final") continue
     for (const [eventTag, handler] of Object.entries(node.on)) {
       if (handler === undefined) continue
@@ -321,6 +424,10 @@ export const fromDefinition = (
             ? {}
             : { description: handler.ignore.description }),
         })
+        continue
+      }
+
+      if ("stay" in handler) {
         continue
       }
 
@@ -395,6 +502,15 @@ export const fromDefinition = (
       }
     }
 
+    if ((node.kind === "state" || node.kind === "invoke") && node.after !== undefined) {
+      edges.push({
+        source: node.tag,
+        target: node.after.target,
+        outcome: { kind: "timer" },
+        ...(node.after.description === undefined ? {} : { description: node.after.description }),
+      })
+    }
+
     if (node.kind === "child") {
       const outcomeHandler = node.onComplete
       if (!("branches" in outcomeHandler)) {
@@ -429,10 +545,85 @@ export const fromDefinition = (
         }
       }
     }
+
+    if (node.kind === "regions") {
+      const regions = node.regions as Readonly<
+        Record<
+          string,
+          Readonly<{
+            states: Readonly<
+              Record<
+                string,
+                Readonly<{
+                  on?: Readonly<Record<string, unknown>>
+                  invoke?: Readonly<{
+                    onSuccess: Readonly<{ target: string; description?: string }>
+                    onFailure: Readonly<{ target: string; description?: string }>
+                  }>
+                  after?: Readonly<{ target: string; description?: string }>
+                }>
+              >
+            >
+          }>
+        >
+      >
+      for (const [slot, region] of Object.entries(regions)) {
+        for (const [tag, child] of Object.entries(region.states)) {
+          const source = `${node.tag}/${slot}/${tag}`
+          for (const [eventTag, rawHandler] of Object.entries(child.on ?? {})) {
+            if (typeof rawHandler !== "object" || rawHandler === null) continue
+            const handler = rawHandler as Readonly<Record<string, unknown>>
+            if ("ignore" in handler || "stay" in handler || typeof handler.target !== "string") {
+              continue
+            }
+            edges.push({
+              source,
+              target: `${node.tag}/${slot}/${handler.target}`,
+              event: { tag: eventTag },
+              ...(typeof handler.description === "string"
+                ? { description: handler.description }
+                : {}),
+            })
+          }
+          if (child.invoke !== undefined) {
+            edges.push({
+              source,
+              target: `${node.tag}/${slot}/${child.invoke.onSuccess.target}`,
+              outcome: { kind: "success" },
+            })
+            edges.push({
+              source,
+              target: `${node.tag}/${slot}/${child.invoke.onFailure.target}`,
+              outcome: { kind: "failure" },
+            })
+          }
+          if (child.after !== undefined) {
+            edges.push({
+              source,
+              target: `${node.tag}/${slot}/${child.after.target}`,
+              outcome: { kind: "timer" },
+              ...(child.after.description === undefined
+                ? {}
+                : { description: child.after.description }),
+            })
+          }
+        }
+      }
+      if (node.onComplete !== undefined) {
+        edges.push({
+          source: node.tag,
+          target: node.onComplete.target,
+          outcome: { kind: "completion" },
+          ...(node.onComplete.description === undefined
+            ? {}
+            : { description: node.onComplete.description }),
+        })
+      }
+    }
   }
 
   const identifiedEdges = edges.map((edge, index): Edge => {
-    const authoredNode = definition.nodes.find((node) => node.tag === edge.source)
+    const authoredNode = definitionNodes.find((node) => node.tag === edge.source)
     let location = nodes.find((node) => node.id === edge.source)?.location
     if (authoredNode !== undefined && edge.branch?.kind === "guard") {
       const handler =

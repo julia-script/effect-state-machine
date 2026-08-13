@@ -23,75 +23,71 @@ const Ping = Schema.TaggedStruct("Ping", {}).annotate({
 const Event = Schema.Union([Decide, Ping]).pipe(Schema.toTaggedUnion("_tag"))
 
 const classifier = Machine.builder({ input: Input, state: State, event: Event })
-const definition = classifier.make({
-  id: "classifier",
-  initial: () => ({ _tag: "Ready" }),
-  nodes: [
-    classifier.state("Ready", {
-      on: {
-        Decide: {
-          branches: [
-            {
-              when: {
-                name: "is-positive",
-                description: "Positive values take precedence over even values.",
-                guard: ({ event }) => event.value > 0,
-              },
-              target: "Positive",
-              reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
+const definition = classifier.define(
+  { id: "classifier", initial: () => ({ _tag: "Ready" }) },
+  {
+    Ready: classifier.state({
+      Decide: {
+        branches: [
+          {
+            when: {
+              name: "is-positive",
+              description: "Positive values take precedence over even values.",
+              guard: ({ event }) => event.value > 0,
             },
-            {
-              when: {
-                name: "is-even",
-                guard: ({ event }) => event.value % 2 === 0,
-              },
-              target: "Even",
-              reduce: ({ event }) => ({ _tag: "Even", value: event.value }),
-            },
-            {
-              otherwise: true,
-              target: "Other",
-              description: "Classify every remaining value.",
-              reduce: ({ event }) => ({ _tag: "Other", value: event.value }),
-            },
-          ],
-        },
-        Ping: {
-          ignore: {
-            description: "Heartbeats do not affect classification.",
+            target: "Positive",
+            reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
           },
-        },
-      },
-    }),
-    classifier.final("Positive"),
-    classifier.final("Even"),
-    classifier.final("Other"),
-  ],
-})
-
-const withoutFallback = classifier.make({
-  id: "classifier-without-fallback",
-  initial: () => ({ _tag: "Ready" }),
-  nodes: [
-    classifier.state("Ready", {
-      on: {
-        Decide: {
-          branches: [
-            {
-              when: {
-                name: "is-positive",
-                guard: ({ event }) => event.value > 0,
-              },
-              target: "Positive",
-              reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
+          {
+            when: {
+              name: "is-even",
+              guard: ({ event }) => event.value % 2 === 0,
             },
-          ],
+            target: "Even",
+            reduce: ({ event }) => ({ _tag: "Even", value: event.value }),
+          },
+          {
+            otherwise: true,
+            target: "Other",
+            description: "Classify every remaining value.",
+            reduce: ({ event }) => ({ _tag: "Other", value: event.value }),
+          },
+        ],
+      },
+      Ping: {
+        ignore: {
+          description: "Heartbeats do not affect classification.",
         },
       },
     }),
-    classifier.final("Positive"),
-  ],
-})
+    Positive: classifier.final(),
+    Even: classifier.final(),
+    Other: classifier.final(),
+  },
+)
+
+const withoutFallback = classifier.define(
+  { id: "classifier-without-fallback", initial: () => ({ _tag: "Ready" }) },
+  {
+    Ready: classifier.state({
+      Decide: {
+        branches: [
+          {
+            when: {
+              name: "is-positive",
+              guard: ({ event }) => event.value > 0,
+            },
+            target: "Positive",
+            reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
+          },
+        ],
+      },
+    }),
+    Positive: classifier.final(),
+    Even: classifier.final(),
+    Other: classifier.final(),
+  },
+)
 
 describe("guarded transitions", () => {
   it.effect("selects the first matching named guard and inspects that branch", () =>

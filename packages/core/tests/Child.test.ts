@@ -34,19 +34,19 @@ const Choose = Schema.TaggedStruct("Choose", { text: Schema.String })
 const ChildEvent = Schema.Union([Choose]).pipe(Schema.toTaggedUnion("_tag"))
 
 const conflict = Machine.builder({ input: ChildInput, state: ChildState, event: ChildEvent })
-const conflictDefinition = conflict.make({
-  id: "conflict-resolution",
-  initial: (input) => ({ _tag: "Choosing", documentId: input.documentId }),
-  nodes: [
-    conflict.state("Choosing", {
-      on: {
-        Choose: {
-          target: "Saving",
-          reduce: ({ event }) => ({ _tag: "Saving", text: event.text }),
-        },
+const conflictDefinition = conflict.define(
+  {
+    id: "conflict-resolution",
+    initial: (input) => ({ _tag: "Choosing", documentId: input.documentId }),
+  },
+  {
+    Choosing: conflict.state({
+      Choose: {
+        target: "Saving",
+        reduce: ({ event }) => ({ _tag: "Saving", text: event.text }),
       },
     }),
-    conflict.invoke("Saving", {
+    Saving: conflict.invoke({
       name: "ConflictStore.save",
       effect: (state) => Effect.flatMap(ConflictStore, ({ save }) => save(state.text)),
       onSuccess: {
@@ -58,10 +58,10 @@ const conflictDefinition = conflict.make({
         reduce: ({ error }) => ({ _tag: "ChildFailed", message: error.message }),
       },
     }),
-    conflict.final("Chosen"),
-    conflict.final("ChildFailed"),
-  ],
-})
+    Chosen: conflict.final(),
+    ChildFailed: conflict.final(),
+  },
+)
 
 const ParentInput = Schema.Struct({ documentId: Schema.String })
 const Resolving = Schema.TaggedStruct("Resolving", { documentId: Schema.String })
@@ -80,56 +80,60 @@ const document = Machine.builder({
   state: ParentState,
   event: ParentEvent,
 })
-const definition = document.make({
-  id: "document-session",
-  initial: (input) => ({ _tag: "Resolving", documentId: input.documentId }),
-  nodes: [
-    document.child("Resolving", {
-      name: "resolve-conflict",
-      description: "Own the interactive conflict-resolution protocol.",
-      definition: conflictDefinition,
-      input: (state) => ({ documentId: state.documentId }),
-      forward: {
-        Resolve: {
-          target: "Choose",
-          map: ({ event }) => ({ _tag: "Choose", text: event.text }),
+const definition = document.define(
+  {
+    id: "document-session",
+    initial: (input) => ({ _tag: "Resolving", documentId: input.documentId }),
+  },
+  {
+    Resolving: document.child(
+      {
+        name: "resolve-conflict",
+        description: "Own the interactive conflict-resolution protocol.",
+        definition: conflictDefinition,
+        input: (state) => ({ documentId: state.documentId }),
+        forward: {
+          Resolve: {
+            target: "Choose",
+            map: ({ event }) => ({ _tag: "Choose", text: event.text }),
+          },
+        },
+        onComplete: {
+          branches: [
+            {
+              when: {
+                name: "resolution-succeeded",
+                guard: ({ value }) => value._tag === "Chosen",
+              },
+              target: "Resolved",
+              reduce: ({ value }) => ({
+                _tag: "Resolved",
+                text: value._tag === "Chosen" ? value.text : "",
+              }),
+            },
+            {
+              otherwise: true,
+              target: "ResolutionFailed",
+              reduce: ({ value }) => ({
+                _tag: "ResolutionFailed",
+                message: value._tag === "ChildFailed" ? value.message : "unknown",
+              }),
+            },
+          ],
         },
       },
-      onComplete: {
-        branches: [
-          {
-            when: {
-              name: "resolution-succeeded",
-              guard: ({ value }) => value._tag === "Chosen",
-            },
-            target: "Resolved",
-            reduce: ({ value }) => ({
-              _tag: "Resolved",
-              text: value._tag === "Chosen" ? value.text : "",
-            }),
-          },
-          {
-            otherwise: true,
-            target: "ResolutionFailed",
-            reduce: ({ value }) => ({
-              _tag: "ResolutionFailed",
-              message: value._tag === "ChildFailed" ? value.message : "unknown",
-            }),
-          },
-        ],
-      },
-      on: {
+      {
         Cancel: {
           target: "Cancelled",
           reduce: () => ({ _tag: "Cancelled" }),
         },
       },
-    }),
-    document.final("Resolved"),
-    document.final("ResolutionFailed"),
-    document.final("Cancelled"),
-  ],
-})
+    ),
+    Resolved: document.final(),
+    ResolutionFailed: document.final(),
+    Cancelled: document.final(),
+  },
+)
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -357,38 +361,40 @@ describe("scoped child machines", () => {
         state: SessionState,
         event: SessionEvent,
       })
-      const repeatedDefinition = session.make({
-        id: "repeated-child-session",
-        initial: (input) => ({ _tag: "SessionResolving", documentId: input.documentId }),
-        nodes: [
-          session.state("Idle", {
-            on: {
-              Begin: {
-                target: "SessionResolving",
-                reduce: ({ state }) => ({
-                  _tag: "SessionResolving",
-                  documentId: state.documentId,
-                }),
-              },
+      const repeatedDefinition = session.define(
+        {
+          id: "repeated-child-session",
+          initial: (input) => ({ _tag: "SessionResolving", documentId: input.documentId }),
+        },
+        {
+          Idle: session.state({
+            Begin: {
+              target: "SessionResolving",
+              reduce: ({ state }) => ({
+                _tag: "SessionResolving",
+                documentId: state.documentId,
+              }),
             },
           }),
-          session.child("SessionResolving", {
-            name: "resolve-conflict",
-            definition: conflictDefinition,
-            input: (state) => ({ documentId: state.documentId }),
-            onComplete: {
-              target: "Idle",
-              reduce: ({ state }) => ({ _tag: "Idle", documentId: state.documentId }),
+          SessionResolving: session.child(
+            {
+              name: "resolve-conflict",
+              definition: conflictDefinition,
+              input: (state) => ({ documentId: state.documentId }),
+              onComplete: {
+                target: "Idle",
+                reduce: ({ state }) => ({ _tag: "Idle", documentId: state.documentId }),
+              },
             },
-            on: {
+            {
               Stop: {
                 target: "Idle",
                 reduce: ({ state }) => ({ _tag: "Idle", documentId: state.documentId }),
               },
             },
-          }),
-        ],
-      })
+          ),
+        },
+      )
       const handle = yield* Machine.run(repeatedDefinition, { documentId: "one" }).pipe(
         Effect.provide(successStore),
       )
@@ -407,8 +413,7 @@ describe("scoped child machines", () => {
       const actors = yield* Stream.runCollect(
         handle.tree.records.pipe(
           Stream.filter(
-            (record) =>
-              record.actorId !== handle.actorId && record.body._tag === "ActorStarted",
+            (record) => record.actorId !== handle.actorId && record.body._tag === "ActorStarted",
           ),
           Stream.take(2),
         ),

@@ -83,31 +83,31 @@ const conflict = Machine.builder({
   event: ConflictEvent,
 })
 
-export const ConflictResolution = conflict.make({
-  id: "local-first-conflict-resolution",
-  description: "An interactive, state-owned conflict-resolution protocol.",
-  initial: (input) => ({
-    _tag: "ChoosingResolution",
-    localText: input.localText,
-    remoteText: input.remoteText,
-  }),
-  nodes: [
-    conflict.state("ChoosingResolution", {
-      on: {
-        ChooseResolution: {
-          target: "ConflictResolved",
-          reduce: ({ event }) => ({ _tag: "ConflictResolved", text: event.text }),
-        },
-        AbortResolution: {
-          target: "ConflictAborted",
-          reduce: () => ({ _tag: "ConflictAborted" }),
-        },
+export const ConflictResolution = conflict.define(
+  {
+    id: "local-first-conflict-resolution",
+    description: "An interactive, state-owned conflict-resolution protocol.",
+    initial: (input) => ({
+      _tag: "ChoosingResolution",
+      localText: input.localText,
+      remoteText: input.remoteText,
+    }),
+  },
+  {
+    ChoosingResolution: conflict.state({
+      ChooseResolution: {
+        target: "ConflictResolved",
+        reduce: ({ event }) => ({ _tag: "ConflictResolved", text: event.text }),
+      },
+      AbortResolution: {
+        target: "ConflictAborted",
+        reduce: () => ({ _tag: "ConflictAborted" }),
       },
     }),
-    conflict.final("ConflictResolved"),
-    conflict.final("ConflictAborted"),
-  ],
-})
+    ConflictResolved: conflict.final(),
+    ConflictAborted: conflict.final(),
+  },
+)
 
 const Input = Schema.Struct({ documentId: Schema.String }).annotate({
   description: "Select the one document owned by this session.",
@@ -226,119 +226,123 @@ const syncRetry = Schedule.recurs(2).pipe(
 
 const document = Machine.builder({ input: Input, state: State, event: Event })
 
-export const definition = document.make({
-  id: "local-first-document",
-  description: "A headless single-document local-first editing and synchronization session.",
-  initial: (input) => ({ _tag: "Opening", documentId: input.documentId }),
-  nodes: [
-    document.invoke("Opening", {
-      name: "Documents.open",
-      description: "Load the local snapshot using the application-provided Documents service.",
-      effect: (state) => Effect.flatMap(Documents, ({ open }) => open(state.documentId)),
-      onSuccess: {
-        target: "Editing",
-        reduce: ({ value }) => ({
-          _tag: "Editing",
-          documentId: value.id,
-          text: value.text,
-          revision: value.revision,
-          dirty: false,
-        }),
-      },
-      onFailure: {
-        target: "OpeningFailed",
-        reduce: ({ state, error }) => ({
-          _tag: "OpeningFailed",
-          documentId: state.documentId,
-          message: error.message,
-        }),
-      },
-      on: {
-        Close: {
-          target: "Closed",
-          reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
-        },
-      },
-    }),
-    document.state("Editing", {
-      on: {
-        Edit: {
+export const definition = document.define(
+  {
+    id: "local-first-document",
+    description: "A headless single-document local-first editing and synchronization session.",
+    initial: (input) => ({ _tag: "Opening", documentId: input.documentId }),
+  },
+  {
+    Opening: document.invoke(
+      {
+        name: "Documents.open",
+        description: "Load the local snapshot using the application-provided Documents service.",
+        effect: (state) => Effect.flatMap(Documents, ({ open }) => open(state.documentId)),
+        onSuccess: {
           target: "Editing",
-          reduce: ({ state, event }) => ({ ...state, text: event.text, dirty: true }),
-        },
-        Save: {
-          target: "Saving",
-          reduce: ({ state }) => ({
-            _tag: "Saving",
-            documentId: state.documentId,
-            text: state.text,
-            revision: state.revision,
-            online: true,
+          reduce: ({ value }) => ({
+            _tag: "Editing",
+            documentId: value.id,
+            text: value.text,
+            revision: value.revision,
+            dirty: false,
           }),
         },
-        GoOffline: {
-          target: "Offline",
-          reduce: ({ state }) => ({
-            _tag: "Offline",
+        onFailure: {
+          target: "OpeningFailed",
+          reduce: ({ state, error }) => ({
+            _tag: "OpeningFailed",
             documentId: state.documentId,
-            text: state.text,
-            revision: state.revision,
-            dirty: state.dirty,
-            pendingSync: false,
+            message: error.message,
           }),
         },
+      },
+      {
         Close: {
           target: "Closed",
           reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
         },
       },
-    }),
-    document.invoke("Saving", {
-      name: "Documents.save",
-      description: "Persist the current text locally before any remote synchronization.",
-      effect: (state) =>
-        Effect.flatMap(Documents, ({ save }) =>
-          save({ id: state.documentId, text: state.text, revision: state.revision }),
-        ),
-      onSuccess: {
-        branches: [
-          {
-            when: {
-              name: "still-online",
-              description: "Continue into remote synchronization only while online.",
-              guard: ({ state }) => state.online,
-            },
-            target: "Syncing",
-            reduce: ({ state, value }) => ({
-              _tag: "Syncing",
-              documentId: state.documentId,
-              text: state.text,
-              revision: value,
-            }),
-          },
-          {
-            otherwise: true,
-            target: "Offline",
-            reduce: ({ state, value }) => ({
-              _tag: "Offline",
-              documentId: state.documentId,
-              text: state.text,
-              revision: value,
-              dirty: false,
-              pendingSync: true,
-            }),
-          },
-        ],
+    ),
+    Editing: document.state({
+      Edit: {
+        target: "Editing",
+        reduce: ({ state, event }) => ({ ...state, text: event.text, dirty: true }),
       },
-      onFailure: {
-        target: "SavingFailed",
-        reduce: ({ state, error }) => ({
-          _tag: "SavingFailed",
+      Save: {
+        target: "Saving",
+        reduce: ({ state }) => ({
+          _tag: "Saving",
           documentId: state.documentId,
-          message: error.message,
+          text: state.text,
+          revision: state.revision,
+          online: true,
         }),
       },
-      on: {
+      GoOffline: {
+        target: "Offline",
+        reduce: ({ state }) => ({
+          _tag: "Offline",
+          documentId: state.documentId,
+          text: state.text,
+          revision: state.revision,
+          dirty: state.dirty,
+          pendingSync: false,
+        }),
+      },
+      Close: {
+        target: "Closed",
+        reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
+      },
+    }),
+    Saving: document.invoke(
+      {
+        name: "Documents.save",
+        description: "Persist the current text locally before any remote synchronization.",
+        effect: (state) =>
+          Effect.flatMap(Documents, ({ save }) =>
+            save({ id: state.documentId, text: state.text, revision: state.revision }),
+          ),
+        onSuccess: {
+          branches: [
+            {
+              when: {
+                name: "still-online",
+                description: "Continue into remote synchronization only while online.",
+                guard: ({ state }) => state.online,
+              },
+              target: "Syncing",
+              reduce: ({ state, value }) => ({
+                _tag: "Syncing",
+                documentId: state.documentId,
+                text: state.text,
+                revision: value,
+              }),
+            },
+            {
+              otherwise: true,
+              target: "Offline",
+              reduce: ({ state, value }) => ({
+                _tag: "Offline",
+                documentId: state.documentId,
+                text: state.text,
+                revision: value,
+                dirty: false,
+                pendingSync: true,
+              }),
+            },
+          ],
+        },
+        onFailure: {
+          target: "SavingFailed",
+          reduce: ({ state, error }) => ({
+            _tag: "SavingFailed",
+            documentId: state.documentId,
+            message: error.message,
+          }),
+        },
+      },
+      {
         GoOffline: {
           target: "Offline",
           reduce: ({ state }) => ({
@@ -365,61 +369,64 @@ export const definition = document.make({
           reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
         },
       },
-    }),
-    document.invoke("Syncing", {
-      name: "Synchronizer.sync",
-      description: "Push the locally saved revision through the injected remote service.",
-      effect: (state) =>
-        Effect.flatMap(Synchronizer, ({ sync }) =>
-          sync({ id: state.documentId, text: state.text, revision: state.revision }),
-        ),
-      retry: {
-        name: "retry-while-offline",
-        description: "Retry offline failures twice at one-minute intervals; never retry conflicts.",
-        schedule: syncRetry,
-      },
-      onSuccess: {
-        target: "Editing",
-        reduce: ({ state, value }) => ({
-          _tag: "Editing",
-          documentId: state.documentId,
-          text: state.text,
-          revision: value,
-          dirty: false,
-        }),
-      },
-      onFailure: {
-        branches: [
-          {
-            when: {
-              name: "remote-conflict",
-              description: "Open the interactive conflict child for remote conflicts.",
-              guard: ({ error }) => error._tag === "SyncConflict",
+    ),
+    Syncing: document.invoke(
+      {
+        name: "Synchronizer.sync",
+        description: "Push the locally saved revision through the injected remote service.",
+        effect: (state) =>
+          Effect.flatMap(Synchronizer, ({ sync }) =>
+            sync({ id: state.documentId, text: state.text, revision: state.revision }),
+          ),
+        retry: {
+          name: "retry-while-offline",
+          description:
+            "Retry offline failures twice at one-minute intervals; never retry conflicts.",
+          schedule: syncRetry,
+        },
+        onSuccess: {
+          target: "Editing",
+          reduce: ({ state, value }) => ({
+            _tag: "Editing",
+            documentId: state.documentId,
+            text: state.text,
+            revision: value,
+            dirty: false,
+          }),
+        },
+        onFailure: {
+          branches: [
+            {
+              when: {
+                name: "remote-conflict",
+                description: "Open the interactive conflict child for remote conflicts.",
+                guard: ({ error }) => error._tag === "SyncConflict",
+              },
+              target: "ResolvingConflict",
+              reduce: ({ state, error }) => ({
+                _tag: "ResolvingConflict",
+                documentId: state.documentId,
+                localText: state.text,
+                remoteText: error._tag === "SyncConflict" ? error.remoteText : "",
+                revision: state.revision,
+              }),
             },
-            target: "ResolvingConflict",
-            reduce: ({ state, error }) => ({
-              _tag: "ResolvingConflict",
-              documentId: state.documentId,
-              localText: state.text,
-              remoteText: error._tag === "SyncConflict" ? error.remoteText : "",
-              revision: state.revision,
-            }),
-          },
-          {
-            otherwise: true,
-            target: "Offline",
-            reduce: ({ state }) => ({
-              _tag: "Offline",
-              documentId: state.documentId,
-              text: state.text,
-              revision: state.revision,
-              dirty: false,
-              pendingSync: true,
-            }),
-          },
-        ],
+            {
+              otherwise: true,
+              target: "Offline",
+              reduce: ({ state }) => ({
+                _tag: "Offline",
+                documentId: state.documentId,
+                text: state.text,
+                revision: state.revision,
+                dirty: false,
+                pendingSync: true,
+              }),
+            },
+          ],
+        },
       },
-      on: {
+      {
         GoOffline: {
           target: "Offline",
           reduce: ({ state }) => ({
@@ -446,88 +453,35 @@ export const definition = document.make({
           reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
         },
       },
-    }),
-    document.state("Offline", {
-      on: {
-        Edit: {
-          target: "Offline",
-          reduce: ({ state, event }) => ({ ...state, text: event.text, dirty: true }),
-        },
-        Save: {
-          target: "Saving",
-          reduce: ({ state }) => ({
-            _tag: "Saving",
-            documentId: state.documentId,
-            text: state.text,
-            revision: state.revision,
-            online: false,
-          }),
-        },
-        GoOnline: {
-          branches: [
-            {
-              when: {
-                name: "has-pending-sync",
-                guard: ({ state }) => state.pendingSync,
-              },
-              target: "Syncing",
-              reduce: ({ state }) => ({
-                _tag: "Syncing",
-                documentId: state.documentId,
-                text: state.text,
-                revision: state.revision,
-              }),
-            },
-            {
-              otherwise: true,
-              target: "Editing",
-              reduce: ({ state }) => ({
-                _tag: "Editing",
-                documentId: state.documentId,
-                text: state.text,
-                revision: state.revision,
-                dirty: state.dirty,
-              }),
-            },
-          ],
-        },
-        Close: {
-          target: "Closed",
-          reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
-        },
+    ),
+    Offline: document.state({
+      Edit: {
+        target: "Offline",
+        reduce: ({ state, event }) => ({ ...state, text: event.text, dirty: true }),
       },
-    }),
-    document.child("ResolvingConflict", {
-      name: "resolve-conflict",
-      description: "Run the interactive conflict protocol only while conflict state is visible.",
-      definition: ConflictResolution,
-      input: (state) => ({ localText: state.localText, remoteText: state.remoteText }),
-      forward: {
-        ResolveConflict: {
-          target: "ChooseResolution",
-          description: "Forward the chosen merged text to the child.",
-          map: ({ event }) => ({ _tag: "ChooseResolution", text: event.text }),
-        },
-        AbortConflict: {
-          target: "AbortResolution",
-          description: "Forward the decision to keep the local version.",
-          map: (): { readonly _tag: "AbortResolution" } => ({ _tag: "AbortResolution" }),
-        },
+      Save: {
+        target: "Saving",
+        reduce: ({ state }) => ({
+          _tag: "Saving",
+          documentId: state.documentId,
+          text: state.text,
+          revision: state.revision,
+          online: false,
+        }),
       },
-      onComplete: {
+      GoOnline: {
         branches: [
           {
             when: {
-              name: "merge-selected",
-              guard: ({ value }) => value._tag === "ConflictResolved",
+              name: "has-pending-sync",
+              guard: ({ state }) => state.pendingSync,
             },
-            target: "Saving",
-            reduce: ({ state, value }) => ({
-              _tag: "Saving",
+            target: "Syncing",
+            reduce: ({ state }) => ({
+              _tag: "Syncing",
               documentId: state.documentId,
-              text: value._tag === "ConflictResolved" ? value.text : state.localText,
+              text: state.text,
               revision: state.revision,
-              online: true,
             }),
           },
           {
@@ -536,14 +490,67 @@ export const definition = document.make({
             reduce: ({ state }) => ({
               _tag: "Editing",
               documentId: state.documentId,
-              text: state.localText,
+              text: state.text,
               revision: state.revision,
-              dirty: false,
+              dirty: state.dirty,
             }),
           },
         ],
       },
-      on: {
+      Close: {
+        target: "Closed",
+        reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
+      },
+    }),
+    ResolvingConflict: document.child(
+      {
+        name: "resolve-conflict",
+        description: "Run the interactive conflict protocol only while conflict state is visible.",
+        definition: ConflictResolution,
+        input: (state) => ({ localText: state.localText, remoteText: state.remoteText }),
+        forward: {
+          ResolveConflict: {
+            target: "ChooseResolution",
+            description: "Forward the chosen merged text to the child.",
+            map: ({ event }) => ({ _tag: "ChooseResolution", text: event.text }),
+          },
+          AbortConflict: {
+            target: "AbortResolution",
+            description: "Forward the decision to keep the local version.",
+            map: (): { readonly _tag: "AbortResolution" } => ({ _tag: "AbortResolution" }),
+          },
+        },
+        onComplete: {
+          branches: [
+            {
+              when: {
+                name: "merge-selected",
+                guard: ({ value }) => value._tag === "ConflictResolved",
+              },
+              target: "Saving",
+              reduce: ({ state, value }) => ({
+                _tag: "Saving",
+                documentId: state.documentId,
+                text: value._tag === "ConflictResolved" ? value.text : state.localText,
+                revision: state.revision,
+                online: true,
+              }),
+            },
+            {
+              otherwise: true,
+              target: "Editing",
+              reduce: ({ state }) => ({
+                _tag: "Editing",
+                documentId: state.documentId,
+                text: state.localText,
+                revision: state.revision,
+                dirty: false,
+              }),
+            },
+          ],
+        },
+      },
+      {
         Cancel: {
           target: "Editing",
           reduce: ({ state }) => ({
@@ -559,12 +566,12 @@ export const definition = document.make({
           reduce: ({ state }) => ({ _tag: "Closed", documentId: state.documentId }),
         },
       },
-    }),
-    document.final("OpeningFailed"),
-    document.final("SavingFailed"),
-    document.final("Closed"),
-  ],
-})
+    ),
+    OpeningFailed: document.final(),
+    SavingFailed: document.final(),
+    Closed: document.final(),
+  },
+)
 
 export const LocalFirstDocument = {
   Input,

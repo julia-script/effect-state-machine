@@ -39,49 +39,50 @@ const Cancel = Schema.TaggedStruct("Cancel", {})
 const Event = Schema.Union([Cancel]).pipe(Schema.toTaggedUnion("_tag"))
 
 const document = Machine.builder({ input: Input, state: State, event: Event })
-const definition = document.make({
-  id: "load-document",
-  initial: (input) => ({ _tag: "Loading", id: input.id }),
-  nodes: [
-    document.invoke("Loading", {
-      name: "Documents.load",
-      description: "Load the requested document through an application-provided service.",
-      effect: (state) => Effect.flatMap(Documents, ({ load }) => load(state.id)),
-      onSuccess: {
-        target: "Loaded",
-        reduce: ({ value }) => ({ _tag: "Loaded", text: value }),
-      },
-      onFailure: {
-        branches: [
-          {
-            when: {
-              name: "document-not-found",
-              description: "Give missing documents a distinct modeled outcome.",
-              guard: ({ error }) => error._tag === "NotFound",
+const definition = document.define(
+  { id: "load-document", initial: (input) => ({ _tag: "Loading", id: input.id }) },
+  {
+    Loading: document.invoke(
+      {
+        name: "Documents.load",
+        description: "Load the requested document through an application-provided service.",
+        effect: (state) => Effect.flatMap(Documents, ({ load }) => load(state.id)),
+        onSuccess: {
+          target: "Loaded",
+          reduce: ({ value }) => ({ _tag: "Loaded", text: value }),
+        },
+        onFailure: {
+          branches: [
+            {
+              when: {
+                name: "document-not-found",
+                description: "Give missing documents a distinct modeled outcome.",
+                guard: ({ error }) => error._tag === "NotFound",
+              },
+              target: "Missing",
+              reduce: ({ error }) => ({ _tag: "Missing", message: error.message }),
             },
-            target: "Missing",
-            reduce: ({ error }) => ({ _tag: "Missing", message: error.message }),
-          },
-          {
-            otherwise: true,
-            target: "Failed",
-            reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
-          },
-        ],
+            {
+              otherwise: true,
+              target: "Failed",
+              reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+            },
+          ],
+        },
       },
-      on: {
+      {
         Cancel: {
           target: "Cancelled",
           reduce: () => ({ _tag: "Cancelled" }),
         },
       },
-    }),
-    document.final("Loaded"),
-    document.final("Missing"),
-    document.final("Failed"),
-    document.final("Cancelled"),
-  ],
-})
+    ),
+    Loaded: document.final(),
+    Missing: document.final(),
+    Failed: document.final(),
+    Cancelled: document.final(),
+  },
+)
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -139,6 +140,8 @@ describe("invoked Effects", () => {
         stateTag: "Loading",
         invocation: "Documents.load",
         generation: 0,
+        ownerPath: "Loading",
+        workKind: "effect",
         branch: {
           kind: "guard",
           index: 0,
@@ -252,6 +255,7 @@ describe("invoked Effects", () => {
       kind: "invoke",
       invocation: {
         name: "Documents.load",
+        kind: "effect",
         description: "Load the requested document through an application-provided service.",
       },
     })

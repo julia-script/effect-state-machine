@@ -33,33 +33,31 @@ const Event = Schema.Union([Pause, Resume])
 const counter = Machine.builder({ input: Input, state: State, event: Event })
 let initializerCalls = 0
 
-const definition = counter.make({
-  id: "counter",
-  description: "A graphable counter protocol.",
-  initial: (input) => {
-    initializerCalls += 1
-    return { _tag: "Active", count: input.count }
+const definition = counter.define(
+  {
+    id: "counter",
+    description: "A graphable counter protocol.",
+    initial: (input) => {
+      initializerCalls += 1
+      return { _tag: "Active", count: input.count }
+    },
   },
-  nodes: [
-    counter.state("Active", {
-      on: {
-        Pause: {
-          target: "Paused",
-          description: "Preserve the count while pausing.",
-          reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
-        },
+  {
+    Active: counter.state({
+      Pause: {
+        target: "Paused",
+        description: "Preserve the count while pausing.",
+        reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
       },
     }),
-    counter.state("Paused", {
-      on: {
-        Resume: {
-          target: "Active",
-          reduce: ({ state }) => ({ _tag: "Active", count: state.count }),
-        },
+    Paused: counter.state({
+      Resume: {
+        target: "Active",
+        reduce: ({ state }) => ({ _tag: "Active", count: state.count }),
       },
     }),
-  ],
-})
+  },
+)
 
 describe("Graph", () => {
   it("derives renderer-independent topology and descriptions without running the machine", () => {

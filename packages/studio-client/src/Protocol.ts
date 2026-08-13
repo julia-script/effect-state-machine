@@ -8,7 +8,7 @@ import type { Graph } from "effect-state-machine/devtools"
  * @category constants
  * @since 0.1.0
  */
-export const VERSION = 2
+export const VERSION = 3
 
 /**
  * Default TCP port used by the local Studio server.
@@ -80,7 +80,7 @@ const GraphEdge = Schema.Struct({
   location: Schema.optionalKey(SourceLocation),
   event: Schema.optionalKey(EventReference),
   outcome: Schema.optionalKey(
-    Schema.Struct({ kind: Schema.Literals(["success", "failure", "completion"]) }),
+    Schema.Struct({ kind: Schema.Literals(["success", "failure", "completion", "timer"]) }),
   ),
   description: Schema.optionalKey(Schema.String),
   branch: Schema.optionalKey(GraphEdgeBranch),
@@ -96,13 +96,18 @@ interface GraphNodeEncoded {
   readonly id: string
   readonly title: string
   readonly description?: string
-  readonly kind: "state" | "invoke" | "child" | "final"
+  readonly kind: "state" | "invoke" | "child" | "regions" | "final"
   readonly location?: Schema.Schema.Type<typeof SourceLocation>
   readonly invocation?: {
     readonly name: string
+    readonly kind?: "effect" | "all" | "race"
+    readonly lanes?: ReadonlyArray<string>
+    readonly concurrency?: number | "unbounded"
     readonly description?: string
     readonly retry?: { readonly name: string; readonly description?: string }
   }
+  readonly timer?: { readonly duration: unknown; readonly target: string }
+  readonly region?: { readonly parent: string; readonly slot: string; readonly tag: string }
   readonly child?: {
     readonly name: string
     readonly description?: string
@@ -127,11 +132,16 @@ const GraphNode: Schema.Codec<GraphNodeEncoded> = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   description: Schema.optionalKey(Schema.String),
-  kind: Schema.Literals(["state", "invoke", "child", "final"]),
+  kind: Schema.Literals(["state", "invoke", "child", "regions", "final"]),
   location: Schema.optionalKey(SourceLocation),
   invocation: Schema.optionalKey(
     Schema.Struct({
       name: Schema.String,
+      kind: Schema.optionalKey(Schema.Literals(["effect", "all", "race"])),
+      lanes: Schema.optionalKey(Schema.Array(Schema.String)),
+      concurrency: Schema.optionalKey(
+        Schema.Union([Schema.Number, Schema.Literals(["unbounded"])]),
+      ),
       description: Schema.optionalKey(Schema.String),
       retry: Schema.optionalKey(
         Schema.Struct({
@@ -139,6 +149,19 @@ const GraphNode: Schema.Codec<GraphNodeEncoded> = Schema.Struct({
           description: Schema.optionalKey(Schema.String),
         }),
       ),
+    }),
+  ),
+  timer: Schema.optionalKey(
+    Schema.Struct({
+      duration: Json,
+      target: Schema.String,
+    }),
+  ),
+  region: Schema.optionalKey(
+    Schema.Struct({
+      parent: Schema.String,
+      slot: Schema.String,
+      tag: Schema.String,
     }),
   ),
   child: Schema.optionalKey(
@@ -198,6 +221,9 @@ const invocationLifecycleFields = {
   invocation: Schema.String,
   generation: Schema.Number,
   branch: Schema.optionalKey(SelectedBranch),
+  ownerPath: Schema.optionalKey(Schema.String),
+  workKind: Schema.optionalKey(Schema.Literals(["effect", "all", "race"])),
+  lanes: Schema.optionalKey(Schema.Array(Schema.String)),
 } as const
 
 const childLifecycleFields = {
@@ -234,6 +260,8 @@ export const InspectionEvent = Schema.Union([
     targetStateTag: Schema.String,
     eventTag: Schema.String,
     branch: Schema.optionalKey(SelectedBranch),
+    ownerPath: Schema.optionalKey(Schema.String),
+    macrostep: Schema.optionalKey(Schema.Number),
   }),
   Schema.TaggedStruct("EventIgnored", {
     machineId: Schema.String,
@@ -258,6 +286,47 @@ export const InspectionEvent = Schema.Union([
     policy: Schema.String,
     attempt: Schema.Number,
     delayMillis: Schema.Number,
+    ownerPath: Schema.optionalKey(Schema.String),
+    workKind: Schema.optionalKey(Schema.Literals(["effect", "all", "race"])),
+    lanes: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
+  Schema.TaggedStruct("TimerStarted", {
+    machineId: Schema.String,
+    stateTag: Schema.String,
+    timer: Schema.String,
+    generation: Schema.Number,
+    ownerPath: Schema.String,
+    durationMillis: Schema.Number,
+  }),
+  Schema.TaggedStruct("TimerFired", {
+    machineId: Schema.String,
+    stateTag: Schema.String,
+    timer: Schema.String,
+    generation: Schema.Number,
+    ownerPath: Schema.String,
+    durationMillis: Schema.Number,
+  }),
+  Schema.TaggedStruct("TimerCancelled", {
+    machineId: Schema.String,
+    stateTag: Schema.String,
+    timer: Schema.String,
+    generation: Schema.Number,
+    ownerPath: Schema.String,
+    durationMillis: Schema.Number,
+  }),
+  Schema.TaggedStruct("StaleOutcomeIgnored", {
+    machineId: Schema.String,
+    stateTag: Schema.String,
+    ownerPath: Schema.String,
+    generation: Schema.Number,
+    currentGeneration: Schema.Number,
+    outcome: Schema.Literals([
+      "work-success",
+      "work-failure",
+      "work-defect",
+      "timer",
+      "completion",
+    ]),
   }),
   Schema.TaggedStruct("ChildStarted", {
     ...childLifecycleFields,

@@ -40,48 +40,49 @@ const makeOperationalDefinition = (options: {
   readonly schedule: Schedule.Schedule<number, TransientFailure>
 }) => {
   const machine = Machine.builder({ input: Input, state: State, event: Event })
-  return machine.make({
-    id: options.id,
-    initial: () => ({ _tag: "Attempting" }),
-    nodes: [
-      machine.invoke("Attempting", {
-        name: "unstable-operation",
-        effect: () =>
-          Ref.updateAndGet(options.attempts, (attempt) => attempt + 1).pipe(
-            Effect.flatMap((attempt) =>
-              attempt < options.succeedAt
-                ? Effect.fail(new TransientFailure({ attempt }))
-                : Effect.succeed(attempt),
+  return machine.define(
+    { id: options.id, initial: () => ({ _tag: "Attempting" }) },
+    {
+      Attempting: machine.invoke(
+        {
+          name: "unstable-operation",
+          effect: () =>
+            Ref.updateAndGet(options.attempts, (attempt) => attempt + 1).pipe(
+              Effect.flatMap((attempt) =>
+                attempt < options.succeedAt
+                  ? Effect.fail(new TransientFailure({ attempt }))
+                  : Effect.succeed(attempt),
+              ),
             ),
-          ),
-        retry: {
-          name: "retry-transient-failures",
-          description: "Retry transient failures without leaving Attempting.",
-          schedule: options.schedule,
+          retry: {
+            name: "retry-transient-failures",
+            description: "Retry transient failures without leaving Attempting.",
+            schedule: options.schedule,
+          },
+          onSuccess: {
+            target: "Succeeded",
+            reduce: ({ value }) => ({ _tag: "Succeeded", attempts: value }),
+          },
+          onFailure: {
+            target: "Failed",
+            reduce: ({ error }) => ({
+              _tag: "Failed",
+              attempts: error instanceof TransientFailure ? error.attempt : -1,
+            }),
+          },
         },
-        onSuccess: {
-          target: "Succeeded",
-          reduce: ({ value }) => ({ _tag: "Succeeded", attempts: value }),
-        },
-        onFailure: {
-          target: "Failed",
-          reduce: ({ error }) => ({
-            _tag: "Failed",
-            attempts: error instanceof TransientFailure ? error.attempt : -1,
-          }),
-        },
-        on: {
+        {
           Cancel: {
             target: "Cancelled",
             reduce: () => ({ _tag: "Cancelled" }),
           },
         },
-      }),
-      machine.final("Succeeded"),
-      machine.final("Failed"),
-      machine.final("Cancelled"),
-    ],
-  })
+      ),
+      Succeeded: machine.final(),
+      Failed: machine.final(),
+      Cancelled: machine.final(),
+    },
+  )
 }
 
 describe("invocation retry", () => {
@@ -183,11 +184,10 @@ describe("invocation retry", () => {
         state: ModeledState,
         event: ModeledEvent,
       })
-      const definition = machine.make({
-        id: "modeled-retry",
-        initial: () => ({ _tag: "ModeledAttempting", attempt: 1 }),
-        nodes: [
-          machine.invoke("ModeledAttempting", {
+      const definition = machine.define(
+        { id: "modeled-retry", initial: () => ({ _tag: "ModeledAttempting", attempt: 1 }) },
+        {
+          ModeledAttempting: machine.invoke({
             name: "save-attempt",
             effect: (state) =>
               state.attempt < 2
@@ -202,20 +202,18 @@ describe("invocation retry", () => {
               reduce: ({ error }) => ({ _tag: "ModeledWaiting", attempt: error.attempt }),
             },
           }),
-          machine.state("ModeledWaiting", {
-            on: {
-              Retry: {
-                target: "ModeledAttempting",
-                reduce: ({ state }) => ({
-                  _tag: "ModeledAttempting",
-                  attempt: state.attempt + 1,
-                }),
-              },
+          ModeledWaiting: machine.state({
+            Retry: {
+              target: "ModeledAttempting",
+              reduce: ({ state }) => ({
+                _tag: "ModeledAttempting",
+                attempt: state.attempt + 1,
+              }),
             },
           }),
-          machine.final("ModeledSucceeded"),
-        ],
-      })
+          ModeledSucceeded: machine.final(),
+        },
+      )
 
       const handle = yield* Machine.run(definition, undefined)
       const waiting = yield* Stream.runHead(

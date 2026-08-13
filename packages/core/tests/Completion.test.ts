@@ -20,21 +20,18 @@ const Finish = Schema.TaggedStruct("Finish", {})
 const Event = Schema.Union([Finish]).pipe(Schema.toTaggedUnion("_tag"))
 
 const workflow = Machine.builder({ input: Input, state: State, event: Event })
-const definition = workflow.make({
-  id: "completing-workflow",
-  initial: (input) => ({ _tag: "Running", value: input.value }),
-  nodes: [
-    workflow.state("Running", {
-      on: {
-        Finish: {
-          target: "Done",
-          reduce: ({ state }) => ({ _tag: "Done", value: state.value }),
-        },
+const definition = workflow.define(
+  { id: "completing-workflow", initial: (input) => ({ _tag: "Running", value: input.value }) },
+  {
+    Running: workflow.state({
+      Finish: {
+        target: "Done",
+        reduce: ({ state }) => ({ _tag: "Done", value: state.value }),
       },
     }),
-    workflow.final("Done"),
-  ],
-})
+    Done: workflow.final(),
+  },
+)
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2
@@ -117,20 +114,17 @@ const codecMachine = Machine.builder({
   state: CodecState,
   event: CodecEvent,
 })
-const codecDefinition = codecMachine.make({
-  id: "codec-boundaries",
-  initial: (input) => ({ _tag: "Ready", value: input.value }),
-  nodes: [
-    codecMachine.state("Ready", {
-      on: {
-        Set: {
-          target: "Ready",
-          reduce: ({ event }) => ({ _tag: "Ready", value: event.value }),
-        },
+const codecDefinition = codecMachine.define(
+  { id: "codec-boundaries", initial: (input) => ({ _tag: "Ready", value: input.value }) },
+  {
+    Ready: codecMachine.state({
+      Set: {
+        target: "Ready",
+        reduce: ({ event }) => ({ _tag: "Ready", value: event.value }),
       },
     }),
-  ],
-})
+  },
+)
 type NonTerminatingCompletionIsNever = Assert<
   Equal<Machine.MachineCompletion<typeof codecDefinition>, never>
 >

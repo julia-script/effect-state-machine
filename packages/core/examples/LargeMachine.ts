@@ -15,20 +15,23 @@ const Event = Machine.taggedUnion({
 const large = Machine.builder({ input: Schema.Struct({}), state: State, event: Event })
 const target = (index: number) => tags[(index + size) % size]
 
-export const definition = large.make({
-  id: "large-synthetic-machine",
-  description: "A deterministic 100-state graph with branching, cycles, and self-transitions.",
-  initial: () => ({ _tag: tags[0] }),
-  nodes: tags.map((tag, index) =>
-    large.state(tag, {
-      on: {
+export const definition = large.define(
+  {
+    id: "large-synthetic-machine",
+    description: "A deterministic 100-state graph with branching, cycles, and self-transitions.",
+    initial: () => ({ _tag: tags[0] }),
+  },
+  Object.fromEntries(
+    tags.map((tag, index) => [
+      tag,
+      large.state({
         Next: { target: target(index + 1), reduce: () => ({ _tag: target(index + 1) }) },
         Skip: { target: target(index + 7), reduce: () => ({ _tag: target(index + 7) }) },
         Reset: { target: tags[0], reduce: () => ({ _tag: tags[0] }) },
         Stay: { target: tag, reduce: () => ({ _tag: tag }) },
-      },
-    }),
+      }),
+    ]),
   ),
-})
+)
 
 export const LargeMachine = { State, Event, definition, size } as const

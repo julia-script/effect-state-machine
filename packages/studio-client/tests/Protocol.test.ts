@@ -16,24 +16,21 @@ const Event = Machine.taggedUnion({
   Stop: { fields: {} },
 })
 const runner = Machine.builder({ input: Input, state: State, event: Event })
-const definition = runner.make({
-  id: "protocol-test",
-  initial: () => ({ _tag: "Idle" }),
-  nodes: [
-    runner.state("Idle", {
-      on: {
-        Start: {
-          target: "Running",
-          reduce: ({ event }) => ({ _tag: "Running", speed: event.speed }),
-        },
+const definition = runner.define(
+  { id: "protocol-test", initial: () => ({ _tag: "Idle" }) },
+  {
+    Idle: runner.state({
+      Start: {
+        target: "Running",
+        reduce: ({ event }) => ({ speed: event.speed }),
       },
     }),
-    runner.state("Running", {
-      on: { Stop: { target: "Done", reduce: () => ({ _tag: "Done" }) } },
+    Running: runner.state({
+      Stop: { target: "Done", reduce: () => ({}) },
     }),
-    runner.final("Done"),
-  ],
-})
+    Done: runner.final(),
+  },
+)
 
 const hello = Announcement.make({
   definition,
@@ -77,7 +74,45 @@ describe("Protocol", () => {
         {
           _tag: "Fact",
           sessionId: "session-1",
-          sequence: 0,
+          sequence: 1,
+          actorId: "actor:0",
+          definitionPath: "root",
+          body: {
+            _tag: "Inspection",
+            event: {
+              _tag: "TimerStarted",
+              machineId: "protocol-test",
+              stateTag: "Running",
+              timer: "after",
+              generation: 1,
+              ownerPath: "Running",
+              durationMillis: 1000,
+            },
+          },
+        },
+        {
+          _tag: "Fact",
+          sessionId: "session-1",
+          sequence: 2,
+          actorId: "actor:0",
+          definitionPath: "root",
+          body: {
+            _tag: "Inspection",
+            event: {
+              _tag: "StaleOutcomeIgnored",
+              machineId: "protocol-test",
+              stateTag: "Done",
+              ownerPath: "Running",
+              generation: 1,
+              currentGeneration: 2,
+              outcome: "timer",
+            },
+          },
+        },
+        {
+          _tag: "Fact",
+          sessionId: "session-1",
+          sequence: 3,
           actorId: "actor:0",
           definitionPath: "root",
           body: { _tag: "StateCommitted", state: { _tag: "Idle" } },

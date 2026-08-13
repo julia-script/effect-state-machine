@@ -18,30 +18,28 @@ const CounterEvent = Schema.Union([Increment, Pause, Resume])
 
 const counter = Machine.builder({ input: CounterInput, state: CounterState, event: CounterEvent })
 
-export const counterDefinition = counter.make({
-  id: "counter",
-  description: "A minimal serialized counter protocol.",
-  initial: (input) => ({ _tag: "Active", count: input.count }),
-  nodes: [
-    counter.state("Active", {
-      on: {
-        Increment: {
-          target: "Active",
-          reduce: ({ state, event }) => ({ _tag: "Active", count: state.count + event.amount }),
-        },
-        Pause: {
-          target: "Paused",
-          reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
-        },
+export const counterDefinition = counter.define(
+  {
+    id: "counter",
+    description: "A minimal serialized counter protocol.",
+    initial: (input) => ({ _tag: "Active", count: input.count }),
+  },
+  {
+    Active: counter.state({
+      Increment: {
+        target: "Active",
+        reduce: ({ state, event }) => ({ _tag: "Active", count: state.count + event.amount }),
+      },
+      Pause: {
+        target: "Paused",
+        reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
       },
     }),
-    counter.state("Paused", {
-      on: {
-        Resume: {
-          target: "Active",
-          reduce: ({ state }) => ({ _tag: "Active", count: state.count }),
-        },
+    Paused: counter.state({
+      Resume: {
+        target: "Active",
+        reduce: ({ state }) => ({ _tag: "Active", count: state.count }),
       },
     }),
-  ],
-})
+  },
+)

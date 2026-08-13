@@ -32,36 +32,34 @@ const Event = Machine.taggedUnion({
 })
 const checkout = Machine.builder({ input: Input, state: State, event: Event })
 
-export const definition = checkout.make({
-  id: "checkout",
-  description: "A checkout flow with expected payment failure and retry.",
-  initial: () => ({ _tag: "Browsing", items: 0 }),
-  nodes: [
-    checkout.state("Browsing", {
-      on: {
-        AddItem: {
-          target: "Browsing",
-          reduce: ({ state, event }) => ({ ...state, items: state.items + event.amount }),
-        },
-        BeginCheckout: {
-          target: "Checkout",
-          reduce: ({ state }) => ({ _tag: "Checkout", items: state.items }),
-        },
+export const definition = checkout.define(
+  {
+    id: "checkout",
+    description: "A checkout flow with expected payment failure and retry.",
+    initial: () => ({ _tag: "Browsing", items: 0 }),
+  },
+  {
+    Browsing: checkout.state({
+      AddItem: {
+        target: "Browsing",
+        reduce: ({ state, event }) => ({ ...state, items: state.items + event.amount }),
+      },
+      BeginCheckout: {
+        target: "Checkout",
+        reduce: ({ state }) => ({ _tag: "Checkout", items: state.items }),
       },
     }),
-    checkout.state("Checkout", {
-      on: {
-        SubmitOrder: {
-          target: "PlacingOrder",
-          reduce: ({ state }) => ({ _tag: "PlacingOrder", items: state.items }),
-        },
-        BackToShop: {
-          target: "Browsing",
-          reduce: ({ state }) => ({ _tag: "Browsing", items: state.items }),
-        },
+    Checkout: checkout.state({
+      SubmitOrder: {
+        target: "PlacingOrder",
+        reduce: ({ state }) => ({ _tag: "PlacingOrder", items: state.items }),
+      },
+      BackToShop: {
+        target: "Browsing",
+        reduce: ({ state }) => ({ _tag: "Browsing", items: state.items }),
       },
     }),
-    checkout.invoke("PlacingOrder", {
+    PlacingOrder: checkout.invoke({
       name: "Orders.place",
       effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.items)),
       onSuccess: {
@@ -77,20 +75,18 @@ export const definition = checkout.make({
         }),
       },
     }),
-    checkout.state("PaymentFailed", {
-      on: {
-        RetryPayment: {
-          target: "PlacingOrder",
-          reduce: ({ state }) => ({ _tag: "PlacingOrder", items: state.items }),
-        },
-        BackToShop: {
-          target: "Browsing",
-          reduce: ({ state }) => ({ _tag: "Browsing", items: state.items }),
-        },
+    PaymentFailed: checkout.state({
+      RetryPayment: {
+        target: "PlacingOrder",
+        reduce: ({ state }) => ({ _tag: "PlacingOrder", items: state.items }),
+      },
+      BackToShop: {
+        target: "Browsing",
+        reduce: ({ state }) => ({ _tag: "Browsing", items: state.items }),
       },
     }),
-    checkout.final("Ordered"),
-  ],
-})
+    Ordered: checkout.final(),
+  },
+)
 
 export const Checkout = { Input, State, Event, definition } as const

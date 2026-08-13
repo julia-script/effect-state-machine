@@ -24,6 +24,7 @@ export const render = (graph: Graph.Graph): string => {
   for (const node of graph.nodes) {
     const details = [
       node.title,
+      ...(node.region === undefined ? [] : [`path: ${node.id}`]),
       ...(node.invocation === undefined ? [] : [`invoke: ${node.invocation.name}`]),
       ...(node.invocation?.retry === undefined ? [] : [`retry: ${node.invocation.retry.name}`]),
       ...(node.child === undefined
