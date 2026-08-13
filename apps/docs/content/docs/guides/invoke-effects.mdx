@@ -45,31 +45,34 @@ const Event = Machine.taggedUnion({
 
 const profile = Machine.builder({ input: Input, state: State, event: Event })
 
-const definition = profile.make({
-  id: "profile",
-  initial: ({ id }) => ({ _tag: "Loading", id }),
-  nodes: [
-    profile.invoke("Loading", {
+const definition = profile.define(
+  { id: "profile", initial: ({ id }) => ({ _tag: "Loading", id }) },
+  {
+    Loading: profile.invoke({
       name: "Profiles.load",
       effect: (state) => Effect.flatMap(Profiles, ({ load }) => load(state.id)),
       onSuccess: {
         target: "Loaded",
-        reduce: ({ value }) => ({ _tag: "Loaded", name: value }),
+        reduce: ({ value }) => ({ name: value }),
       },
       onFailure: {
         target: "Failed",
-        reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+        reduce: ({ error }) => ({ message: error.message }),
       },
     }),
-    profile.final("Loaded"),
-    profile.final("Failed"),
-  ],
-})
+    Loaded: profile.final(),
+    Failed: profile.final(),
+  },
+)
 ```
 
 The `name` is stable metadata for inspection and graph tooling. The `effect` callback receives the
 narrowed `Loading` state. Its output and typed error determine the values available to
 `onSuccess.reduce` and `onFailure.reduce`.
+
+For several named operations, use `profile.invoke.all(...)` to join every lane or
+`profile.invoke.race(...)` to select the first successful lane. `all` accepts an optional
+`concurrency` limit. A race success reducer receives correlated `winner` and `value` fields.
 
 ## Provide the service when the machine runs
 
@@ -91,6 +94,14 @@ const program = Effect.scoped(
 const result = await Effect.runPromise(program)
 // result: { _tag: "Loaded", name: "profile-42" }
 ```
+
+## Inspect the invocation
+
+The live example starts `Profiles.load` on entry. Wait for it to reach `Loaded`, then select
+**Load again** to watch the invocation lifecycle repeat. Select **Cancel load** while `Loading` is
+active to see state-owned work interrupted before the cancellation transition commits.
+
+<MachineStudioDemo example="invoke" />
 
 The goal is complete when the invocation reaches either declared final state. Leaving `Loading`
 through an event would interrupt the Effect owned by that state. Defects are not sent through

@@ -85,3 +85,12 @@ Without `onComplete`, the completed region configuration remains stable.
 See the compile-checked player, editor, and importer definitions in
 `packages/core/examples/Statecharts.ts` and the permanent inference contract in
 `packages/core/tests/Statechart.types.ts`.
+
+## Studio inspection
+
+Studio renders each region slot as a labeled boundary and derives its active child directly from the
+schema-encoded parent state. When one event selects transitions in several parallel slots, history
+keeps them together as one macrostep and highlights every traversed edge. Invoked nodes expose their
+work kind, lanes, concurrency, and retry policy; timer lifecycles and stale outcomes remain visible
+as semantic history rows. The same metadata is available in the versioned Studio protocol and raw
+JSON view.

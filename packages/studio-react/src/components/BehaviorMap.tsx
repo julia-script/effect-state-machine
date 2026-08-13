@@ -18,7 +18,7 @@ import {
   layout,
   startId,
 } from "../lib/elkLayout.js"
-import { edgeForStep, focus, nodeSize } from "../lib/layout.js"
+import { activeStateNodeIds, edgesForStep, focusMany, nodeSize } from "../lib/layout.js"
 import {
   depthAtom,
   displayedSequenceAtom,
@@ -33,6 +33,7 @@ import { ElkEdge } from "./flow/ElkEdge.js"
 import { MachineRegion } from "./flow/MachineRegion.js"
 import { StartNode } from "./flow/StartNode.js"
 import { StateNode } from "./flow/StateNode.js"
+import { StateRegion } from "./flow/StateRegion.js"
 import { TransitionNode } from "./flow/TransitionNode.js"
 
 const nodeTypes = {
@@ -40,6 +41,7 @@ const nodeTypes = {
   transition: TransitionNode,
   start: StartNode,
   machine: MachineRegion,
+  region: StateRegion,
 }
 const edgeTypes = { elk: ElkEdge }
 
@@ -71,8 +73,12 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   for (const liveActor of activeActors) {
     const position = History.positionAt(history, liveActor.actorId, sequence)
     if (position === undefined) continue
-    const id = nodeId(liveActor.definitionPath, position.stateTag)
-    activeByNode.set(id, [...(activeByNode.get(id) ?? []), liveActor.actorId])
+    const definition = composed.definitions.get(liveActor.definitionPath)
+    if (definition === undefined) continue
+    for (const localId of activeStateNodeIds(definition.graph as Graph.Graph, position.state)) {
+      const id = nodeId(liveActor.definitionPath, localId)
+      activeByNode.set(id, [...(activeByNode.get(id) ?? []), liveActor.actorId])
+    }
   }
 
   const selectedPosition =
@@ -83,7 +89,8 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       : selectedPosition === undefined
         ? undefined
         : nodeId(selectedPosition.definitionPath, selectedPosition.stateTag)
-  const visible = focus(composed.graph, center, center === undefined ? "all" : depth)
+  const centers = center === undefined ? Array.from(activeByNode.keys()) : [center]
+  const visible = focusMany(composed.graph, centers, centers.length === 0 ? "all" : depth)
 
   const explicitlySelectedStep =
     selectedStepIndex === undefined ? undefined : history.steps[selectedStepIndex]
@@ -95,14 +102,15 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
           .find((step) => step.actorId === actorId && step.sequence <= sequence)
   const selectedDefinition =
     selectedStep === undefined ? undefined : composed.definitions.get(selectedStep.definitionPath)
-  const traversedLocalEdge =
+  const traversedLocalEdges =
     selectedStep === undefined || selectedDefinition === undefined
-      ? undefined
-      : edgeForStep(selectedDefinition.graph as Graph.Graph, selectedStep)
-  const traversedEdgeId =
-    traversedLocalEdge === undefined || selectedStep === undefined
-      ? undefined
-      : edgeId(selectedStep.definitionPath, traversedLocalEdge.id)
+      ? []
+      : edgesForStep(selectedDefinition.graph as Graph.Graph, selectedStep)
+  const traversedEdgeIds = new Set(
+    selectedStep === undefined
+      ? []
+      : traversedLocalEdges.map((edge) => edgeId(selectedStep.definitionPath, edge.id)),
+  )
 
   const layoutSignature = `${session.sessionId}:${session.hello.definitions
     .map((definition) => definition.definitionPath)
@@ -177,7 +185,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
           label: placement.label,
           width: placement.width,
           height: placement.height,
-          traversed: traversedEdgeId === edge.id,
+          traversed: traversedEdgeIds.has(edge.id),
           highlight: highlighted.has(edge.id),
           selected: selectedQualifiedId === edge.id,
         },
@@ -207,6 +215,58 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       })
     }
   }
+
+  const regionKeys = new Map<
+    string,
+    Readonly<{ definitionPath: string; parent: string; slot: string }>
+  >()
+  for (const node of visible.nodes) {
+    const metadata = composed.nodes.get(node.id)
+    const region = metadata?.node.region
+    if (metadata === undefined || region === undefined) continue
+    const key = `${metadata.definitionPath}:${region.parent}:${region.slot}`
+    regionKeys.set(key, {
+      definitionPath: metadata.definitionPath,
+      parent: region.parent,
+      slot: region.slot,
+    })
+  }
+  const regionNodes: Array<Node> = Array.from(regionKeys).flatMap(([key, region]) => {
+    const members = visible.nodes.filter((node) => {
+      const metadata = composed.nodes.get(node.id)
+      return (
+        metadata?.definitionPath === region.definitionPath &&
+        metadata.node.region?.parent === region.parent &&
+        metadata.node.region.slot === region.slot
+      )
+    })
+    const children = members.flatMap((node) => {
+      const metadata = composed.nodes.get(node.id)
+      if (metadata === undefined) return []
+      const point = placed?.positions.get(node.id)
+      return point === undefined ? [] : [{ ...point, ...nodeSize(metadata.node) }]
+    })
+    if (children.length === 0) return []
+    const minX = Math.min(...children.map((point) => point.x)) - 18
+    const minY = Math.min(...children.map((point) => point.y)) - 34
+    const maxX = Math.max(...children.map((point) => point.x + point.width)) + 18
+    const maxY = Math.max(...children.map((point) => point.y + point.height)) + 18
+    const active = members.some((node) => activeByNode.has(node.id))
+    return [
+      {
+        id: `region:${key}`,
+        type: "region",
+        position: { x: minX, y: minY },
+        data: { parent: region.parent, slot: region.slot, active },
+        style: { width: maxX - minX, height: maxY - minY },
+        draggable: false,
+        connectable: false,
+        selectable: false,
+        focusable: false,
+        zIndex: 0,
+      },
+    ]
+  })
 
   const machineNodes: Array<Node> = composed.regions.flatMap((region) => {
     const bounds = visible.nodes.flatMap((node) => {
@@ -246,7 +306,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   const edges: Array<Edge> = visible.edges.flatMap((edge) => {
     const inbound = placed?.segments.get(`${edge.id}:in`)
     const outbound = placed?.segments.get(`${edge.id}:out`)
-    const traversed = traversedEdgeId === edge.id
+    const traversed = traversedEdgeIds.has(edge.id)
     const edgeSelected = selectedQualifiedId === edge.id
     const segment = (
       suffix: "in" | "out",
@@ -300,7 +360,13 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       ) : (
         <div className="dot-grid h-full bg-surface">
           <ReactFlow
-            nodes={[...machineNodes, ...startNodes, ...stateNodes, ...transitionNodes]}
+            nodes={[
+              ...machineNodes,
+              ...regionNodes,
+              ...startNodes,
+              ...stateNodes,
+              ...transitionNodes,
+            ]}
             edges={[...startEdges, ...edges]}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}

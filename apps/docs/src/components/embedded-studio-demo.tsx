@@ -1,69 +1,73 @@
 "use client"
 
-import { Studio } from "@effect-state-machine/studio-react"
+import { Studio, type StudioMachine } from "@effect-state-machine/studio-react"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
-import * as Machine from "effect-state-machine/Machine"
+import type * as Machine from "effect-state-machine/Machine"
 import * as React from "react"
+import {
+  childDefinition,
+  childQuickEvents,
+  childStart,
+  classifierDefinition,
+  classifierQuickEvents,
+  classifierStart,
+  counterDefinition,
+  counterQuickEvents,
+  counterStart,
+  parallelDefinition,
+  parallelQuickEvents,
+  parallelStart,
+  profileDefinition,
+  profileQuickEvents,
+  profileStart,
+  retryDefinition,
+  retryQuickEvents,
+  retryStart,
+  runnerDefinition,
+  runnerQuickEvents,
+  runnerStart,
+} from "./studio-example-machines"
 
-const Input = Schema.Struct({})
-const State = Machine.taggedUnion({
-  Idle: { fields: {} },
-  Running: { fields: { speed: Schema.Number } },
-})
-const Event = Machine.taggedUnion({
-  Start: { fields: { speed: Schema.Number } },
-  Stop: { fields: {} },
-})
-const runner = Machine.builder({ input: Input, state: State, event: Event })
+interface Tagged {
+  readonly _tag: string
+}
 
-const definition = runner.make({
-  id: "docs-studio-demo",
-  description: "A small repeatable machine for the embedded Studio demo.",
-  initial: () => ({ _tag: "Idle" }),
-  nodes: [
-    runner.state("Idle", {
-      on: {
-        Start: {
-          target: "Running",
-          reduce: ({ event }) => ({ _tag: "Running", speed: event.speed }),
-        },
-      },
-    }),
-    runner.state("Running", {
-      on: {
-        Stop: { target: "Idle", reduce: () => ({ _tag: "Idle" }) },
-      },
-    }),
-  ],
-})
+interface ScopedStudioProps<
+  State extends Tagged,
+  Event extends Tagged,
+  Completion extends State,
+> {
+  readonly start: Effect.Effect<Machine.MachineHandle<State, Event, Completion>, never, Scope.Scope>
+  readonly machine: Omit<StudioMachine<State, Event>, "handle">
+  readonly loadingLabel: string
+}
 
-type DemoHandle = Machine.MachineHandle<
-  Machine.MachineState<typeof definition>,
-  Machine.MachineEvent<typeof definition>,
-  Machine.MachineCompletion<typeof definition>
->
-
-export function EmbeddedStudioDemo() {
-  const [handle, setHandle] = React.useState<DemoHandle | undefined>(undefined)
+function ScopedStudio<State extends Tagged, Event extends Tagged, Completion extends State>({
+  start,
+  machine,
+  loadingLabel,
+}: ScopedStudioProps<State, Event, Completion>) {
+  const [handle, setHandle] = React.useState<
+    Machine.MachineHandle<State, Event, Completion> | undefined
+  >(undefined)
 
   React.useEffect(() => {
     const scope = Effect.runSync(Scope.make())
     const nextHandle = Effect.runSync(
-      Machine.run(definition, {}).pipe(Effect.provideService(Scope.Scope, scope)),
+      start.pipe(Effect.provideService(Scope.Scope, scope)),
     )
     setHandle(nextHandle)
     return () => {
       Effect.runFork(Scope.close(scope, Exit.void))
     }
-  }, [])
+  }, [start])
 
   if (handle === undefined) {
     return (
       <div className="my-6 flex h-40 items-center justify-center rounded-lg border bg-fd-card text-sm text-fd-muted-foreground">
-        Starting the demo machine…
+        {loadingLabel}
       </div>
     )
   }
@@ -72,20 +76,113 @@ export function EmbeddedStudioDemo() {
     <div className="my-6 overflow-hidden rounded-lg border bg-fd-card p-2 shadow-sm">
       <Studio
         machine={{
-          definition,
+          ...machine,
           handle,
-          appName: "Documentation playground",
-          quickEvents: [
-            {
-              id: "start",
-              label: "Start at 7",
-              event: { _tag: "Start", speed: 7 },
-            },
-            { id: "stop", label: "Stop", event: { _tag: "Stop" } },
-          ],
         }}
         style={{ height: 620 }}
       />
     </div>
   )
+}
+
+export type StudioExample =
+  | "runner"
+  | "counter"
+  | "guards"
+  | "invoke"
+  | "retry"
+  | "child"
+  | "parallel"
+
+export function MachineStudioDemo({ example }: { readonly example: StudioExample }) {
+  switch (example) {
+    case "runner":
+      return (
+        <ScopedStudio
+          start={runnerStart}
+          machine={{
+            definition: runnerDefinition,
+            appName: "Embedded Studio tutorial",
+            quickEvents: runnerQuickEvents,
+          }}
+          loadingLabel="Starting the runner machine…"
+        />
+      )
+    case "counter":
+      return (
+        <ScopedStudio
+          start={counterStart}
+          machine={{
+            definition: counterDefinition,
+            appName: "Counter tutorial",
+            quickEvents: counterQuickEvents,
+          }}
+          loadingLabel="Starting the counter machine…"
+        />
+      )
+    case "guards":
+      return (
+        <ScopedStudio
+          start={classifierStart}
+          machine={{
+            definition: classifierDefinition,
+            appName: "Guarded classifier guide",
+            quickEvents: classifierQuickEvents,
+          }}
+          loadingLabel="Starting the classifier machine…"
+        />
+      )
+    case "invoke":
+      return (
+        <ScopedStudio
+          start={profileStart}
+          machine={{
+            definition: profileDefinition,
+            appName: "Invoked Effect guide",
+            quickEvents: profileQuickEvents,
+          }}
+          loadingLabel="Starting the profile machine…"
+        />
+      )
+    case "retry":
+      return (
+        <ScopedStudio
+          start={retryStart}
+          machine={{
+            definition: retryDefinition,
+            appName: "Retry guide",
+            quickEvents: retryQuickEvents,
+          }}
+          loadingLabel="Starting the retry machine…"
+        />
+      )
+    case "child":
+      return (
+        <ScopedStudio
+          start={childStart}
+          machine={{
+            definition: childDefinition,
+            appName: "Child machine guide",
+            quickEvents: childQuickEvents,
+          }}
+          loadingLabel="Starting the parent and child machines…"
+        />
+      )
+    case "parallel":
+      return (
+        <ScopedStudio
+          start={parallelStart}
+          machine={{
+            definition: parallelDefinition,
+            appName: "Parallel regions guide",
+            quickEvents: parallelQuickEvents,
+          }}
+          loadingLabel="Starting the parallel player machine…"
+        />
+      )
+  }
+}
+
+export function EmbeddedStudioDemo() {
+  return <MachineStudioDemo example="runner" />
 }

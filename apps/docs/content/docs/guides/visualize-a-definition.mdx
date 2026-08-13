@@ -35,12 +35,20 @@ NodeRuntime.runMain(program.pipe(Effect.orDie))
 ```
 
 The resulting file starts with `stateDiagram-v2` and includes nodes, event transitions, outcome
-transitions, guard order, ignored events, invoked operation names, retry names, and child links
-present in the definition.
+transitions, guard order, ignored events, region paths, timers, work kinds and lanes, retry names,
+and child links present in the definition.
 
 No machine instance is started and no Effect is executed. If source maps are part of your build
 pipeline, pass a `mapSource` function to `Graph.fromDefinition` to translate generated locations
 before exposing editor links.
+
+## Inspect the graph interactively
+
+Studio projects the same immutable definition into an interactive graph and adds runtime activity
+when a handle is present. Select **Play track-42**, then **Toggle both regions** to compare the
+static topology with its active nodes and selected edges.
+
+<MachineStudioDemo example="parallel" />
 
 The goal is complete when `checkout.mmd` contains a diagram derived from the executable definition.
 See the [devtools reference](/docs/reference/devtools) for focused graphs and activity overlays.

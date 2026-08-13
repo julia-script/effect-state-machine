@@ -110,10 +110,25 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
       <ol ref={listRef} className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {history.steps.map((step) => {
           const selected = selectedStep === step.index
+          const transitionMeta = step.transitions
+            ?.map(({ sourceStateTag, targetStateTag }) => `${sourceStateTag} → ${targetStateTag}`)
+            .join(" · ")
+          const lifecycleMeta =
+            step.kind === "invocation"
+              ? [step.workKind, step.lanes?.join(", "), step.ownerPath]
+                  .filter((value) => value !== undefined)
+                  .join(" · ")
+              : step.kind === "timer"
+                ? `${step.durationMillis ?? 0}ms · ${step.ownerPath ?? ""}`
+                : step.kind === "stale"
+                  ? step.ownerPath
+                  : undefined
           const meta =
-            step.sourceStateTag !== undefined && step.targetStateTag !== undefined
+            transitionMeta ??
+            lifecycleMeta ??
+            (step.sourceStateTag !== undefined && step.targetStateTag !== undefined
               ? `${step.sourceStateTag} → ${step.targetStateTag}`
-              : (step.status ?? "")
+              : (step.status ?? ""))
           return (
             <li key={step.index}>
               <button
@@ -129,7 +144,9 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
                     {step.title}
                     {step.kind === "invocation" && step.status !== undefined
                       ? ` → ${step.status}`
-                      : ""}
+                      : step.kind === "timer" && step.status !== undefined
+                        ? ` → ${step.status}`
+                        : ""}
                   </span>
                   {meta === "" ? null : (
                     <span className="block truncate font-mono text-[9.5px] text-muted">{meta}</span>

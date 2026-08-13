@@ -11,47 +11,47 @@ protocol.
 Given an existing `conflictDefinition`, make the parent's `Resolving` state a child node:
 
 ```ts
-const resolving = document.child("Resolving", {
-  name: "resolve-conflict",
-  description: "Own the conflict-resolution protocol.",
-  definition: conflictDefinition,
-  input: (state) => ({ documentId: state.documentId }),
-  forward: {
-    Resolve: {
-      target: "Choose",
-      map: ({ event }) => ({ _tag: "Choose", text: event.text }),
+const resolving = document.child(
+  {
+    name: "resolve-conflict",
+    description: "Own the conflict-resolution protocol.",
+    definition: conflictDefinition,
+    input: (state) => ({ documentId: state.documentId }),
+    forward: {
+      Resolve: {
+        target: "Choose",
+        map: ({ event }) => ({ _tag: "Choose", text: event.text }),
+      },
+    },
+    onComplete: {
+      branches: [
+        {
+          when: {
+            name: "resolution-succeeded",
+            guard: ({ value }) => value._tag === "Chosen",
+          },
+          target: "Resolved",
+          reduce: ({ value }) => ({
+            text: value._tag === "Chosen" ? value.text : "",
+          }),
+        },
+        {
+          otherwise: true,
+          target: "ResolutionFailed",
+          reduce: ({ value }) => ({
+            message: value._tag === "ChildFailed" ? value.message : "unknown",
+          }),
+        },
+      ],
     },
   },
-  onComplete: {
-    branches: [
-      {
-        when: {
-          name: "resolution-succeeded",
-          guard: ({ value }) => value._tag === "Chosen",
-        },
-        target: "Resolved",
-        reduce: ({ value }) => ({
-          _tag: "Resolved",
-          text: value._tag === "Chosen" ? value.text : "",
-        }),
-      },
-      {
-        otherwise: true,
-        target: "ResolutionFailed",
-        reduce: ({ value }) => ({
-          _tag: "ResolutionFailed",
-          message: value._tag === "ChildFailed" ? value.message : "unknown",
-        }),
-      },
-    ],
-  },
-  on: {
+  {
     Cancel: {
       target: "Cancelled",
-      reduce: () => ({ _tag: "Cancelled" }),
+      reduce: () => ({}),
     },
   },
-})
+)
 ```
 
 `input` converts the narrowed parent state into the child's input. Each `forward` entry converts a
@@ -66,20 +66,30 @@ guarded outcome shape as an invocation.
 Place the child node beside every target node referenced by `onComplete` or `on`:
 
 ```ts
-const definition = document.make({
-  id: "document-session",
-  initial: ({ documentId }) => ({ _tag: "Resolving", documentId }),
-  nodes: [
-    resolving,
-    document.final("Resolved"),
-    document.final("ResolutionFailed"),
-    document.final("Cancelled"),
-  ],
-})
+const definition = document.define(
+  {
+    id: "document-session",
+    initial: ({ documentId }) => ({ _tag: "Resolving", documentId }),
+  },
+  {
+    Resolving: resolving,
+    Resolved: document.final(),
+    ResolutionFailed: document.final(),
+    Cancelled: document.final(),
+  },
+)
 ```
 
 The child's Effect requirements become requirements of the parent definition. Provide them once
 when the parent runs.
+
+## Inspect the parent and child
+
+Select **Resolve with local text** to forward a parent event into the child. Studio exposes the
+child session while it moves through `Choosing`, `Saving`, and `Chosen`; the parent then completes
+in `Resolved`. Select **Cancel** instead to see the parent interrupt its active child.
+
+<MachineStudioDemo example="child" />
 
 The goal is complete when the parent can map input into the child, forward only the required events,
 and route every relevant child completion. Leaving `Resolving` interrupts the child before a stale

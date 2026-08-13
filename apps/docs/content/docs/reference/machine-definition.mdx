@@ -58,7 +58,7 @@ Returns a `NamedGuard<Args>` and captures its declaration source for development
 Machine.builder({ input, state, event })
 ```
 
-Binds the machine's three schemas and returns schema-narrowed node constructors.
+Binds the machine's three schemas and returns schema-narrowed definition constructors.
 
 | Field | Constraint |
 | --- | --- |
@@ -66,54 +66,82 @@ Binds the machine's three schemas and returns schema-narrowed node constructors.
 | `state` | Tagged union or union of `_tag`-discriminated tagged structs. |
 | `event` | Tagged union or union of `_tag`-discriminated tagged structs. |
 
-The returned object contains `state`, `invoke`, `child`, `final`, `guard`, and `make`.
+The returned object contains `define`, `state`, `invoke`, `regions`, `region.invoke`, `child`,
+`final`, and `guard`. Constructors are tagless: the key passed to `define` supplies the current-state
+tag and inference scope.
 
-### `state(tag, config)`
+### `state(on, options?)`
 
 Creates an ordinary state node.
 
 | Parameter | Description |
 | --- | --- |
-| `tag` | A tag from the state schema. |
-| `config.on` | Optional partial event-handler map. Defaults to no accepted events. |
+| `on` | Partial event-handler record narrowed to the keyed current state. |
+| `options.description` | Optional authored metadata. |
+| `options.after` | Optional entry-owned timer transition. |
 
-### `invoke(tag, config)`
+### `invoke(config, on?, options?)`
 
 Creates a state node that owns one Effect while active.
 
 | Field | Description |
 | --- | --- |
-| `name` | Required stable invocation name. Empty names are rejected by `make`. |
+| `name` | Required stable invocation name. |
 | `description` | Optional authored metadata. |
-| `effect` | Receives the state narrowed by `tag`; returns the invoked Effect. |
+| `effect` | Receives the state narrowed by the definition key and returns the invoked Effect. |
 | `retry` | Optional named `RetryPolicy` containing an Effect `Schedule`. |
 | `onSuccess` | Transition or guarded outcome for the Effect value. |
 | `onFailure` | Transition or guarded outcome for the Effect or Schedule typed error. |
-| `on` | Optional event handlers accepted while work is active. |
+| `on` | Optional second-argument event handlers accepted while work is active. |
+| `options.after` | Optional third-argument entry-owned timer transition. |
 
-### `child(tag, config)`
+### `invoke.all(config, on?, options?)`
+
+Creates an invoked node that joins a keyed `tasks` record. A task is an Effect-producing function or
+an object containing `effect` and optional `description`. `onSuccess` receives a result record keyed
+by every lane. `concurrency` is a positive integer or `"unbounded"` and defaults to `"unbounded"`.
+
+### `invoke.race(config, on?, options?)`
+
+Creates an invoked node that selects the first successful task. `onSuccess` receives correlated
+`winner` and `value` fields. Typed lane failures remain pending while another lane can succeed;
+`onFailure` runs after every lane has failed.
+
+### `regions(trees, on?, options?)`
+
+Creates a region-bearing state. `trees` is keyed by tagged-union fields on the parent state; every
+slot contains exactly one node for every tag in that field's union. One slot is compound and several
+slots are parallel. `on` contains parent fallback handlers. `options.onComplete` is selected when
+every active slot child is final.
+
+Region event reducers receive `state`, `event`, and the read-only narrowed `parent`. Targets are
+restricted to tags in the same slot. `region.invoke(config, on?, options?)` declares one Effect
+owned by a region child; its Effect receives the child state and parent snapshot.
+
+### `child(config, on?)`
 
 Creates a state node that owns one statically declared child machine while active.
 
 | Field | Description |
 | --- | --- |
-| `name` | Required stable child invocation name. Empty names are rejected by `make`. |
+| `name` | Required stable child invocation name. |
 | `description` | Optional authored metadata. |
 | `definition` | Child `MachineDefinition`. |
 | `input` | Maps the narrowed parent state to child input. |
 | `forward` | Optional partial parent-event map. Defaults to no forwarded events. |
 | `onComplete` | Transition or guarded outcome for the child's inferred final-state union. |
-| `on` | Optional parent event handlers while the child is active. |
+| `on` | Optional second-argument parent event handlers while the child is active. |
 
 A parent event cannot appear in both `forward` and `on` for the same child node. A forwarded target
 must exist in the child's event schema.
 
-### `final(tag)`
+### `final(options?)`
 
-Creates a final node. Committing its state completes the machine with that state value. The union of
-all declared final tags determines `MachineCompletion<Definition>`.
+Creates a final node at its definition key. `options.description` supplies optional metadata.
+Committing its state completes the machine with that state value. The union of all final keys
+determines `MachineCompletion<Definition>`.
 
-### `make(config)`
+### `define(config, states)`
 
 Creates the immutable `MachineDefinition`.
 
@@ -122,16 +150,20 @@ Creates the immutable `MachineDefinition`.
 | `id` | Stable machine identifier. |
 | `description` | Optional machine metadata. |
 | `initial` | Pure function from decoded input to a state value. |
-| `nodes` | Readonly array of nodes created by the same schema-bound builder. |
+| `states` | Exhaustive record with exactly one constructor result for every state Schema tag. |
 
-`make` throws `MachineDefinitionDefect` synchronously for duplicate state tags, missing transition
-targets, invalid guard fallback order, empty authored names, invalid child forwarding, and other
-structural inconsistencies checked during construction. An initial state whose tag has no node is
-detected by `Machine.run` because `initial` is evaluated with runtime input.
+`define` throws `MachineDefinitionDefect` synchronously for missing or extra state keys, missing
+targets, invalid guard fallback order, empty authored names, invalid child forwarding, invalid lane
+concurrency, empty region slots, and other structural inconsistencies. TypeScript rejects incomplete
+region trees and cross-slot targets. An initial state whose
+tag has no node is detected by `Machine.run` because `initial` is evaluated with runtime input.
+
+The deprecated `make` and tag-bearing constructor overloads remain compatibility adapters for
+array-based definitions. New definitions use `define` and keyed tagless constructors.
 
 ## Event handlers
 
-An `on` map is keyed by event tag. Each entry has one of three shapes.
+An event-handler record is keyed by event tag. Each entry has one of four shapes.
 
 ### Direct transition
 
@@ -139,19 +171,20 @@ An `on` map is keyed by event tag. Each entry has one of three shapes.
 {
   target: "Active",
   description: "Begin work.",
-  reduce: ({ state, event }) => ({ _tag: "Active", id: event.id }),
+  reduce: ({ event }) => ({ id: event.id }),
 }
 ```
 
-`reduce` is synchronous and returns the state variant identified by `target`.
+`reduce` is synchronous and returns the destination variant's fields without `_tag`. The runtime
+assigns the declared `target` and validates the complete state value.
 
 ### Guarded transition
 
 ```ts
 {
   branches: [
-    { when: namedGuard, target: "Accepted", reduce: ({ event }) => ({ _tag: "Accepted" }) },
-    { otherwise: true, target: "Rejected", reduce: ({ event }) => ({ _tag: "Rejected" }) },
+    { when: namedGuard, target: "Accepted", reduce: () => ({}) },
+    { otherwise: true, target: "Rejected", reduce: () => ({}) },
   ],
 }
 ```
@@ -167,15 +200,24 @@ matching branch is a `ProtocolDefect` at runtime.
 
 An ignored handler accepts the event, commits no state, and emits `EventIgnored`.
 
+### Stay update
+
+```ts
+{ stay: ({ state, event }) => ({ count: state.count + event.amount }) }
+```
+
+A stay merges fields into the active state without exit or entry. State-owned work and timers
+continue. A direct transition targeting the current tag performs exit and re-entry instead.
+
 ## Outcome handlers
 
-`onSuccess`, `onFailure`, and `onComplete` accept a direct transition or guarded `branches`.
+`onSuccess`, `onFailure`, and child `onComplete` accept a direct transition or guarded `branches`.
 Reducers receive the narrowed current `state` plus:
 
 | Handler | Additional field |
 | --- | --- |
-| `onSuccess` | `value`, the invoked Effect output. |
-| `onFailure` | `error`, the invoked Effect or retry Schedule typed error. |
+| `onSuccess` | `value`, the invoked Effect output. `race` supplies `winner` and `value`. |
+| `onFailure` | `error`, the invoked Effect, task lane, or retry Schedule typed error. |
 | `onComplete` | `value`, a child final-state value. |
 
 Outcome guard order and fallback behavior match event guards.
@@ -184,15 +226,15 @@ Outcome guard order and fallback behavior match event guards.
 
 | Type | Description |
 | --- | --- |
-| `MachineDefinition` | Full schema-bound definition returned by `make`. |
+| `MachineDefinition` | Full schema-bound definition returned by `define`. |
 | `DefinitionMetadata` | Erased, synchronously inspectable definition shape consumed by graph tooling. |
 | `MachineInput<D>` | Decoded input type of definition `D`. |
 | `MachineState<D>` | Decoded state union of definition `D`. |
 | `MachineEvent<D>` | Decoded event union of definition `D`. |
 | `MachineCompletion<D>` | State variants whose tags are declared as final nodes. |
-| `MachineRequirements<D>` | Union of Effect requirements inferred from invocations, retry schedules, and child machines. |
+| `MachineRequirements<D>` | Union inferred from top-level work, region work, retry schedules, and child machines. |
 
-The module also exports structural node and transition types used in the signatures above, including
-`StateNode`, `InvokeNode`, `ChildNode`, `FinalNode`, `Transition`, `GuardedTransition`,
-`IgnoredTransition`, `SuccessTransition`, `FailureTransition`, `RetryPolicy`, `NamedGuard`, and
-`ChildForwarders`.
+The module also exports structural node and transition types used in these signatures, including
+`StateNode`, `InvokeNode`, `ChildNode`, `FinalNode`, `Transition`,
+`GuardedTransition`, `IgnoredTransition`, `SuccessTransition`, `FailureTransition`, `RetryPolicy`,
+`NamedGuard`, and `ChildForwarders`.

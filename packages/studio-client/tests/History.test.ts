@@ -89,7 +89,15 @@ describe("History", () => {
   })
 
   it("folds invocation lifecycle including retries into one step", () => {
-    const base = { machineId, stateTag: "Loading", invocation: "Orders.place", generation: 1 }
+    const base = {
+      machineId,
+      stateTag: "Loading",
+      invocation: "Orders.place",
+      generation: 1,
+      ownerPath: "Loading",
+      workKind: "all" as const,
+      lanes: ["reserve", "charge"],
+    }
     const model = History.fromFacts([
       committed({ _tag: "Loading" }),
       inspection({ _tag: "InvocationStarted", ...base }),
@@ -115,8 +123,117 @@ describe("History", () => {
     assert.strictEqual(step.status, "succeeded")
     assert.strictEqual(step.attempt, 1)
     assert.strictEqual(step.delayMillis, 250)
+    assert.strictEqual(step.ownerPath, "Loading")
+    assert.strictEqual(step.workKind, "all")
+    assert.deepStrictEqual(step.lanes, ["reserve", "charge"])
     assert.strictEqual(step.committedPosition, 1)
     assert.strictEqual(step.raw.length, 4)
+  })
+
+  it("keeps parallel region selections together as one macrostep", () => {
+    const model = History.fromFacts([
+      committed({
+        _tag: "Active",
+        playback: { _tag: "Playing" },
+        volume: { _tag: "Audible" },
+      }),
+      inspection({
+        _tag: "EventReceived",
+        machineId,
+        stateTag: "Active",
+        eventTag: "Toggle",
+      }),
+      inspection({
+        _tag: "TransitionSelected",
+        machineId,
+        sourceStateTag: "Active/playback/Playing",
+        targetStateTag: "Active/playback/Paused",
+        eventTag: "Toggle",
+        ownerPath: "Active/playback",
+        macrostep: 4,
+      }),
+      inspection({
+        _tag: "TransitionSelected",
+        machineId,
+        sourceStateTag: "Active/volume/Audible",
+        targetStateTag: "Active/volume/Muted",
+        eventTag: "Toggle",
+        ownerPath: "Active/volume",
+        macrostep: 4,
+      }),
+      inspection({
+        _tag: "StateChanged",
+        machineId,
+        previousStateTag: "Active",
+        nextStateTag: "Active",
+      }),
+      committed({
+        _tag: "Active",
+        playback: { _tag: "Paused" },
+        volume: { _tag: "Muted" },
+      }),
+    ])
+    const step = model.steps[0]
+    assert.strictEqual(step?.kind, "event")
+    assert.strictEqual(step?.macrostep, 4)
+    assert.deepStrictEqual(
+      step?.transitions?.map(({ sourceStateTag, targetStateTag }) => [
+        sourceStateTag,
+        targetStateTag,
+      ]),
+      [
+        ["Active/playback/Playing", "Active/playback/Paused"],
+        ["Active/volume/Audible", "Active/volume/Muted"],
+      ],
+    )
+    assert.strictEqual(step?.committedPosition, 1)
+  })
+
+  it("folds timer lifecycles and stale outcomes into inspectable steps", () => {
+    const timer = {
+      machineId,
+      stateTag: "Active",
+      timer: "after",
+      generation: 2,
+      ownerPath: "Active/playback/Playing",
+      durationMillis: 500,
+    }
+    const model = History.fromFacts([
+      committed({ _tag: "Active", playback: { _tag: "Playing" } }),
+      inspection({ _tag: "TimerStarted", ...timer }),
+      inspection({ _tag: "TimerFired", ...timer }),
+      inspection({
+        _tag: "TransitionSelected",
+        machineId,
+        sourceStateTag: "Active/playback/Playing",
+        targetStateTag: "Active/playback/Paused",
+        eventTag: "@after",
+        ownerPath: "Active/playback",
+        macrostep: 2,
+      }),
+      inspection({
+        _tag: "StateChanged",
+        machineId,
+        previousStateTag: "Active",
+        nextStateTag: "Active",
+      }),
+      committed({ _tag: "Active", playback: { _tag: "Paused" } }),
+      inspection({
+        _tag: "StaleOutcomeIgnored",
+        machineId,
+        stateTag: "Active",
+        ownerPath: "Active/playback/Playing",
+        generation: 1,
+        currentGeneration: 2,
+        outcome: "work-success",
+      }),
+    ])
+    assert.strictEqual(model.steps[0]?.kind, "timer")
+    assert.strictEqual(model.steps[0]?.status, "fired")
+    assert.strictEqual(model.steps[0]?.durationMillis, 500)
+    assert.strictEqual(model.steps[0]?.transitions?.[0]?.eventTag, "@after")
+    assert.strictEqual(model.steps[1]?.kind, "stale")
+    assert.strictEqual(model.steps[1]?.outcome, "work-success")
   })
 
   it("folds child lifecycle onto the owning step", () => {

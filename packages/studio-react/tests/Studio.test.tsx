@@ -6,7 +6,7 @@ import { Machine } from "effect-state-machine"
 import { act, StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { Studio } from "../src/Studio.js"
-import { definition } from "./fixtures/Runner.js"
+import { definition, regionDefinition } from "./fixtures/Runner.js"
 
 class ResizeObserverDouble {
   observe() {}
@@ -45,6 +45,58 @@ const waitFor = <A,>(read: () => A | undefined): Effect.Effect<A> =>
   })
 
 describe("Studio", () => {
+  it.live("observes parallel region state and one atomic macrostep", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* Machine.run(regionDefinition, undefined)
+        const container = document.createElement("div")
+        document.body.append(container)
+        const root = createRoot(container)
+
+        yield* react(() =>
+          root.render(
+            <Studio
+              machine={{
+                definition: regionDefinition,
+                handle,
+                quickEvents: [{ id: "toggle", label: "Toggle", event: { _tag: "Toggle" } }],
+              }}
+            />,
+          ),
+        )
+        const shadow = yield* waitFor(() => container.firstElementChild?.shadowRoot ?? undefined)
+        yield* waitFor(() =>
+          shadow.textContent?.includes('"playback"') === true &&
+          shadow.textContent.includes('"Playing"') &&
+          shadow.textContent.includes('"Audible"')
+            ? true
+            : undefined,
+        )
+
+        yield* handle.send({ _tag: "Toggle" })
+        yield* waitFor(() =>
+          shadow.textContent?.includes('"Paused"') === true &&
+          shadow.textContent.includes('"Muted"')
+            ? true
+            : undefined,
+        )
+        assert.match(
+          shadow.textContent ?? "",
+          /Active\/playback\/Playing → Active\/playback\/Paused/,
+        )
+        assert.match(shadow.textContent ?? "", /Active\/volume\/Audible → Active\/volume\/Muted/)
+        assert.deepStrictEqual(yield* handle.snapshot, {
+          _tag: "Active",
+          playback: { _tag: "Paused" },
+          volume: { _tag: "Muted" },
+        })
+
+        yield* react(() => root.unmount())
+        container.remove()
+      }),
+    ),
+  )
+
   it.live("observes quick and custom dispatches and shows protocol rejections", () =>
     Effect.scoped(
       Effect.gen(function* () {

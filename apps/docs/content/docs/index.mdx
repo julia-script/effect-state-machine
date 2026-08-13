@@ -5,7 +5,7 @@ description: Code-first, Effect-native state machines for explicit application b
 
 `effect-state-machine` is a code-first state-machine library for TypeScript applications built
 with Effect. A machine definition describes valid inputs, states, events, transitions, invoked
-Effects, and child machines as one immutable value. The same value can be run by the interpreter
+Effects, timers, regions, and child machines as one immutable value. The same value can be run by the interpreter
 or projected into a read-only graph for development tooling.
 
 The library is intended for Effect users who want orchestration to remain visible in ordinary
@@ -24,6 +24,7 @@ can inspect and dispatch from directly on the documentation page.
 When you already know the result you need, use the how-to guides:
 
 - [Run an Effect when a state becomes active](/docs/guides/invoke-effects)
+- [Model parallel regions](/docs/guides/model-parallel-regions)
 - [Choose transitions with guards](/docs/guides/guards-and-ignored-events)
 - [Retry invoked work](/docs/guides/retry-invoked-work)
 - [Compose behavior with a child machine](/docs/guides/child-machines)
@@ -54,13 +55,14 @@ graph tooling is also available from the opt-in `effect-state-machine/devtools` 
 
 A machine node has one visible behavior kind:
 
-- an ordinary state with pure transitions;
-- an invoked Effect with typed success and failure routes;
+- an ordinary state with pure transitions and an optional entry-owned timer;
+- invoked work with typed success and failure routes, including named `all` and `race` lanes;
+- a region-bearing state with one compound or several parallel tagged-union slots;
 - an invoked child machine with explicit event forwarding;
 - a final state whose value becomes the machine completion value.
 
 Machine instances serialize external events and asynchronous completions through one queue. Work
 owned by an invoked or child state is interrupted when the machine leaves that state.
 
-V0 does not provide parallel regions, dynamic actors, visual editing, durable execution,
-persistence, replay, or application-framework bindings.
+V0 does not provide nested parent-state hierarchy, dynamic actors, visual editing, durable
+execution, persistence, replay, or application-framework bindings beyond the React Studio.

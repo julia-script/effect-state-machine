@@ -18,7 +18,7 @@ The interface SHALL list connected root-execution sessions in a persistent top b
 - **THEN** the session remains selected and its descendant status updates without adding another top-level session
 
 ### Requirement: Behavior map renders from announcement data
-The interface SHALL compose the root graph and every nested machine graph from the session announcement into one behavior map. Every child graph SHALL initially render expanded at its invocation site, including inactive child definitions, with node identities namespaced by their structural machine path. The map SHALL emphasize the active state of every live actor, highlight the just-traversed edge for the selected history step, show initial-state markers, distinguish node kinds, and retain zoom and fit-to-view. Show-all SHALL be the default; when bounded depth is selected, visibility SHALL be computed around the union of active actor states.
+The interface SHALL compose the root graph and every nested machine graph from the session announcement into one behavior map. Every child graph SHALL initially render expanded at its invocation site, including inactive child definitions, with node identities namespaced by their structural machine path. Statechart region slots SHALL render as labeled boundaries, and their active child nodes SHALL be derived from the committed parent state. The map SHALL emphasize every active top-level and region node, highlight every edge selected by the chosen history step including parallel siblings from one macrostep, show initial-state markers, distinguish node kinds, and retain zoom and fit-to-view. Show-all SHALL be the default; when bounded depth is selected, visibility SHALL be computed around the union of active actor states.
 
 #### Scenario: Unknown nested system is rendered
 - **WHEN** Studio receives a self-describing session with multiple levels of child definitions
@@ -28,8 +28,12 @@ The interface SHALL compose the root graph and every nested machine graph from t
 - **WHEN** a child actor commits state while the complete map is visible
 - **THEN** active-state emphasis moves within that child's graph and the corresponding traversed edge is highlighted without changing the root actor's emphasis
 
+#### Scenario: Parallel regions handle one event
+- **WHEN** one event atomically transitions active children in two region slots
+- **THEN** both region boundaries remain visible, active emphasis moves to both destination children, and selecting the history step highlights both traversed edges
+
 ### Requirement: Nodes and events explain themselves
-Clicking a state node or event edge anywhere in the composed machine tree SHALL open one anchored detail card with its owning machine definition, structural path, title, kind, description, transition relations, source link, and the JSON Schema announced for that definition. Repeated node or event tags in different machines SHALL resolve to the selected machine's metadata.
+Clicking a state node or event edge anywhere in the composed machine tree SHALL open one anchored detail card with its owning machine definition, structural path, title, kind, description, transition relations, source link, and the JSON Schema announced for that definition. Region nodes SHALL identify their parent and slot. Invoked nodes SHALL show their work kind, name, lanes, concurrency, and retry policy when declared; timed nodes SHALL show their duration and target. Repeated node or event tags in different machines SHALL resolve to the selected machine's metadata.
 
 #### Scenario: Inspecting a child event
 - **WHEN** the viewer clicks an event label inside a child graph whose tag also exists in the parent
@@ -58,7 +62,7 @@ Quick events and the custom-event editor SHALL target a selected live actor in t
 - **THEN** the interface shows the failure reason near the control without losing the draft
 
 ### Requirement: History is semantic and time-travelable
-The interface SHALL fold the session's globally sequenced facts into one semantic history containing root and descendant machine starts, events and selected transitions, invocations and retries, child ownership boundaries, state commits, completions, cancellations, and defects. Every step SHALL identify its actor and relationship depth. Selecting a step SHALL move one local session cursor: the map and state panels SHALL reconstruct every actor's existence and latest state at that sequence, a not-live indicator SHALL appear, and new steps SHALL NOT move the cursor. The selected step's raw inspection records SHALL remain accessible.
+The interface SHALL fold the session's globally sequenced facts into one semantic history containing root and descendant machine starts, events and every transition selected in their macrostep, invocations and retries, timer starts/fires/cancellations, stale outcomes, child ownership boundaries, state commits, completions, cancellations, and defects. Every step SHALL identify its actor and relationship depth. Parallel sibling transitions selected for one event SHALL remain one semantic step. Selecting a step SHALL move one local session cursor: the map and state panels SHALL reconstruct every actor's existence and latest state at that sequence, a not-live indicator SHALL appear, and new steps SHALL NOT move the cursor. The selected step's raw inspection records SHALL remain accessible.
 
 #### Scenario: Following parent and child causality
 - **WHEN** a parent starts a child, forwards an event, the child transitions, and the parent handles its completion

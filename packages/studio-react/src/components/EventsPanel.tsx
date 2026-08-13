@@ -10,6 +10,7 @@ import {
   selectedActorIdAtom,
 } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
+import { acceptsEvent } from "../lib/layout.js"
 
 export function EventsPanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const isLive = useAtomValue(isLiveAtom)
@@ -36,11 +37,8 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
 
   const accepts = (eventTag: string | undefined): boolean => {
     if (eventTag === undefined) return true
-    if (activeTag === undefined || graph === undefined) return false
-    return (
-      graph.edges.some((edge) => edge.source === activeTag && edge.event?.tag === eventTag) ||
-      graph.ignores.some((ignore) => ignore.source === activeTag && ignore.event.tag === eventTag)
-    )
+    if (activeTag === undefined || graph === undefined || position === undefined) return false
+    return acceptsEvent(graph, position.state, eventTag)
   }
 
   const quickEvents = definition?.quickEvents ?? []

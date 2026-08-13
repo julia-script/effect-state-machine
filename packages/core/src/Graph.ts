@@ -29,6 +29,9 @@ export interface Node {
     duration: unknown
     target: string
   }>
+  readonly regions?: Readonly<{
+    slots: ReadonlyArray<string>
+  }>
   readonly region?: Readonly<{
     parent: string
     slot: string
@@ -302,6 +305,7 @@ export const fromDefinition = (
           ? {}
           : { timer: { duration: node.after.duration, target: node.after.target } }
         : {}),
+      ...(node.kind === "regions" ? { regions: { slots: Object.keys(node.regions) } } : {}),
       ...(node.kind === "child"
         ? {
             child: {

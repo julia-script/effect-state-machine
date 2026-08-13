@@ -62,6 +62,14 @@ const detailed = handle.inspect((event) => event)
 
 Only `EventReceived` records gain the projected `details` field.
 
+## Inspect the same observation surfaces
+
+The embedded counter exposes its current snapshot, accepted quick events, committed-state history,
+and inspection-derived transition activity together. Select **Start counting** and
+**Increment by 3** to create records, then move the History cursor between them.
+
+<MachineStudioDemo example="counter" />
+
 The goal is complete when consumers use `snapshot` or `changes` for application state and
 `inspection` for interpreter decisions. Refer to the
 [runtime API](/docs/reference/machine-runtime) for every handle member and inspection event.

@@ -20,30 +20,28 @@ const isPositive = classifier.guard<{
   guard: ({ event }) => event.value > 0,
 })
 
-const ready = classifier.state("Ready", {
-  on: {
-    Decide: {
-      branches: [
-        {
-          when: isPositive,
-          target: "Positive",
-          reduce: ({ event }) => ({ _tag: "Positive", value: event.value }),
+const ready = classifier.state({
+  Decide: {
+    branches: [
+      {
+        when: isPositive,
+        target: "Positive",
+        reduce: ({ event }) => ({ value: event.value }),
+      },
+      {
+        when: {
+          name: "is-even",
+          guard: ({ event }) => event.value % 2 === 0,
         },
-        {
-          when: {
-            name: "is-even",
-            guard: ({ event }) => event.value % 2 === 0,
-          },
-          target: "Even",
-          reduce: ({ event }) => ({ _tag: "Even", value: event.value }),
-        },
-        {
-          otherwise: true,
-          target: "Other",
-          reduce: ({ event }) => ({ _tag: "Other", value: event.value }),
-        },
-      ],
-    },
+        target: "Even",
+        reduce: ({ event }) => ({ value: event.value }),
+      },
+      {
+        otherwise: true,
+        target: "Other",
+        reduce: ({ event }) => ({ value: event.value }),
+      },
+    ],
   },
 })
 ```
@@ -59,12 +57,10 @@ terminates the instance with `ProtocolDefect`.
 Declare an ignored event explicitly:
 
 ```ts
-const ready = classifier.state("Ready", {
-  on: {
-    Ping: {
-      ignore: {
-        description: "Heartbeats do not affect classification.",
-      },
+const ready = classifier.state({
+  Ping: {
+    ignore: {
+      description: "Heartbeats do not affect classification.",
     },
   },
 })
@@ -72,6 +68,14 @@ const ready = classifier.state("Ready", {
 
 For an ignored event, `can(event)` returns `true`, `send(event)` succeeds, the snapshot does not
 change, and the inspection stream emits `EventIgnored`.
+
+## Inspect the decisions
+
+Use **Decide 5**, **Reset**, **Decide -4**, and **Reset** to compare the ordered guard branches.
+Select **Ignore Ping** while `Ready` is active to see the ignored event recorded without a state
+change.
+
+<MachineStudioDemo example="guards" />
 
 The goal is complete when every globally known event received by the state is either routed or
 explicitly ignored. See the [definition reference](/docs/reference/machine-definition) for the

@@ -1,0 +1,93 @@
+---
+title: Model parallel regions
+description: Let independent tagged-union fields handle one event and commit atomically.
+---
+
+This guide shows you how to model independent playback and volume modes inside one active player
+state. It assumes you already have a schema-bound machine builder.
+
+## Add the region slots to state
+
+Represent each independently active mode as its own tagged union, then store both values in the
+parent state:
+
+```ts
+const Playback = Schema.TaggedUnion({ Playing: {}, Paused: { position: Schema.Number } })
+const Volume = Schema.TaggedUnion({ Audible: {}, Muted: {} })
+
+const State = Schema.TaggedUnion({
+  Idle: {},
+  Active: {
+    trackId: Schema.String,
+    playback: Playback,
+    volume: Volume,
+  },
+  Stopped: {},
+})
+```
+
+A transition entering `Active` supplies the initial configuration explicitly:
+
+```ts
+Play: {
+  target: "Active",
+  reduce: ({ event }) => ({
+    trackId: event.trackId,
+    playback: { _tag: "Playing" },
+    volume: { _tag: "Audible" },
+  }),
+}
+```
+
+## Declare the live regions
+
+Use `regions` on the `Active` key. Each slot record is exhaustive over that slot's tagged union:
+
+```ts
+Active: player.regions(
+  {
+    playback: {
+      Playing: {
+        Pause: { target: "Paused", reduce: ({ event }) => ({ position: event.position }) },
+      },
+      Paused: {
+        Resume: { target: "Playing", reduce: () => ({}) },
+      },
+    },
+    volume: {
+      Audible: {
+        Mute: { target: "Muted", reduce: () => ({}) },
+      },
+      Muted: {
+        Unmute: { target: "Audible", reduce: () => ({}) },
+      },
+    },
+  },
+  {
+    Stop: { target: "Stopped", reduce: () => ({}) },
+  },
+)
+```
+
+An event is offered to the active child in every slot before the parent handler. If active children
+in several slots handle the same event, their reducers read the same pre-event parent snapshot and
+their destination values commit together. An explicit child ignore also suppresses the parent
+fallback.
+
+## Add child work, timers, or completion
+
+Use `player.region.invoke(...)` for Effect work owned by a region child. Pass `{ after }` as the
+third argument to give that child an entry-owned timer. Use `{ final: true }` for a final child.
+When every slot is final, the parent's optional `onComplete` transition is selected.
+
+## Inspect the parallel macrostep
+
+Select **Play track-42**, then **Toggle both regions**. Studio marks both active children and
+highlights the two sibling edges selected from the same pre-event snapshot. The History panel
+records their atomic commit as one macrostep.
+
+<MachineStudioDemo example="parallel" />
+
+The goal is complete when each region slot is exhaustive, every entry into the parent supplies its
+active child values, and parent-only events remain in the second `regions` argument. Studio displays
+the slots as labeled boundaries and groups sibling transitions into one macrostep.

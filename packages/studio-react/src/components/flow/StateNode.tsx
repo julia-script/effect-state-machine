@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import type { Graph } from "effect-state-machine/devtools"
 import { nodeSize } from "../../lib/layout.js"
+import { nodeFacts, nodeKindLabel } from "../../lib/nodePresentation.js"
 
 export interface StateNodeData {
   readonly node: Graph.Node
@@ -12,14 +13,8 @@ export interface StateNodeData {
 
 export function StateNode(props: NodeProps) {
   const { node, active, activeActors, selected } = props.data as StateNodeData
-  const kind =
-    node.kind === "invoke"
-      ? `invoke · ${node.invocation?.name ?? ""}`
-      : node.kind === "final"
-        ? "final"
-        : node.kind === "child"
-          ? `child · ${node.child?.name ?? ""}`
-          : "state"
+  const kind = nodeKindLabel(node)
+  const facts = nodeFacts(node)
   const size = nodeSize(node)
 
   return (
@@ -43,6 +38,11 @@ export function StateNode(props: NodeProps) {
         <p className="whitespace-normal font-mono text-[9.5px] font-medium leading-[14px] text-muted">
           {node.description ?? "No description provided."}
         </p>
+        {facts.length === 0 ? null : (
+          <p className="mt-1 truncate font-mono text-[8.5px] font-semibold text-cyan-ink">
+            {facts.map(({ label, value }) => `${label}: ${value}`).join(" · ")}
+          </p>
+        )}
       </div>
       {activeActors.length > 1 ? (
         <span className="absolute -right-2 -top-2 rounded-full border border-ink bg-cyan px-1.5 font-mono text-[8px] font-bold">

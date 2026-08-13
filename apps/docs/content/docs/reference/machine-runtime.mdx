@@ -39,7 +39,8 @@ boundaries.
 
 ### Event processing
 
-One unbounded queue serializes external events and asynchronous invocation or child completions.
+One unbounded queue serializes external events, work and timer outcomes, region completions, and
+child completions.
 `send` waits until the selected transition or ignore has been processed. Concurrent senders are
 ordered by queue arrival.
 
@@ -49,12 +50,17 @@ pending and subsequent sends terminate with the machine's terminal outcome.
 
 ### State-owned work
 
-Entering an invocation state starts its Effect. Entering a child state starts the child machine.
-Leaving either state interrupts the work owned by that state before the new state becomes active.
-An asynchronous result from an older state generation cannot commit a transition.
+Entering an invocation state starts its Effect or named task lanes. Entering a timed state starts
+its timer. Entering a region-bearing state starts owned behavior in every active child. Entering a
+child state starts the child machine. Leaving an owner interrupts its work and timers before the
+new owner becomes active. An asynchronous result from an older state or region generation cannot
+commit a transition.
 
 Typed invocation failures follow `onFailure`. Effect defects terminate the machine and remain in
 the Cause of `completion`. A child defect terminates its parent.
+
+Region children receive events before their parent fallback. All responding parallel children are
+selected against the same pre-event parent snapshot and commit together as one macrostep.
 
 ## Encoding and decoding
 
@@ -87,7 +93,7 @@ machine instance or interrupted Effect from encoded state.
 | --- | --- |
 | `MachineStarted` | The initial state was committed. |
 | `EventReceived` | A machine event reached the live state. |
-| `TransitionSelected` | A direct or guarded event transition was selected. |
+| `TransitionSelected` | A direct, guarded, outcome, timer, completion, or region transition was selected. Region selections include owner path and macrostep identity. |
 | `EventIgnored` | An explicitly ignored event was accepted. |
 | `StateChanged` | A new state was committed. |
 | `InvocationStarted` | State-owned Effect execution began. |
@@ -96,6 +102,10 @@ machine instance or interrupted Effect from encoded state.
 | `InvocationFailed` | The invoked Effect's typed failure selected an outcome. |
 | `InvocationCancelled` | The machine left the invocation state before completion. |
 | `InvocationDefected` | The invoked Effect died. |
+| `TimerStarted` | An entry-owned timer began. |
+| `TimerFired` | The active timer elapsed and selected its transition. |
+| `TimerCancelled` | Its owning entry exited before the timer fired. |
+| `StaleOutcomeIgnored` | Work, timer, or completion from an inactive generation was discarded. |
 | `ChildStarted` | A child instance began with a generated instance ID. |
 | `ChildEventForwarded` | A declared parent event was mapped into a child event. |
 | `ChildCompleted` | The child reached a final state and selected a parent outcome. |
@@ -104,9 +114,10 @@ machine instance or interrupted Effect from encoded state.
 | `MachineCompleted` | A declared final state completed the machine. |
 | `MachineDefected` | Event protocol handling terminated the machine. |
 
-Inspection records contain authored names, tags, branch metadata, generated invocation identity,
-and retry timing. They exclude state values, Effect outputs, typed errors, defects, and event
-payloads by default.
+Inspection records contain authored names, tags, branch metadata, owner paths, work kinds and lane
+names, macrostep and generation identity, timer durations, generated child identity, and retry
+timing. They exclude state values, Effect outputs, typed errors, defects, and event payloads by
+default.
 
 ## Defect classes
 

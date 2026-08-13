@@ -8,7 +8,7 @@ import type { Graph } from "effect-state-machine/devtools"
  * @category constants
  * @since 0.1.0
  */
-export const VERSION = 3
+export const VERSION = 4
 
 /**
  * Default TCP port used by the local Studio server.
@@ -107,6 +107,7 @@ interface GraphNodeEncoded {
     readonly retry?: { readonly name: string; readonly description?: string }
   }
   readonly timer?: { readonly duration: unknown; readonly target: string }
+  readonly regions?: { readonly slots: ReadonlyArray<string> }
   readonly region?: { readonly parent: string; readonly slot: string; readonly tag: string }
   readonly child?: {
     readonly name: string
@@ -155,6 +156,11 @@ const GraphNode: Schema.Codec<GraphNodeEncoded> = Schema.Struct({
     Schema.Struct({
       duration: Json,
       target: Schema.String,
+    }),
+  ),
+  regions: Schema.optionalKey(
+    Schema.Struct({
+      slots: Schema.Array(Schema.String),
     }),
   ),
   region: Schema.optionalKey(

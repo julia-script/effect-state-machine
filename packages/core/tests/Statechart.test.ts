@@ -620,6 +620,9 @@ describe("shallow statechart runtime", () => {
 
   it("extracts structural region, timer, lane, and completion metadata without execution", () => {
     const parallelGraph = Graph.fromDefinition(parallelDefinition)
+    assert.deepStrictEqual(parallelGraph.nodes.find(({ id }) => id === "Active")?.regions, {
+      slots: ["left", "right"],
+    })
     assert.deepStrictEqual(
       parallelGraph.nodes.filter(({ region }) => region !== undefined).map(({ id }) => id),
       [

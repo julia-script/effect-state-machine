@@ -11,7 +11,7 @@ Import Effect's `Schedule` module and attach a named retry policy to an invocati
 import * as Effect from "effect/Effect"
 import * as Schedule from "effect/Schedule"
 
-const attempting = machine.invoke("Attempting", {
+const attempting = machine.invoke({
   name: "Orders.place",
   effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.total)),
   retry: {
@@ -21,11 +21,11 @@ const attempting = machine.invoke("Attempting", {
   },
   onSuccess: {
     target: "Succeeded",
-    reduce: ({ value }) => ({ _tag: "Succeeded", orderId: value }),
+    reduce: ({ value }) => ({ orderId: value }),
   },
   onFailure: {
     target: "Failed",
-    reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+    reduce: ({ error }) => ({ message: error.message }),
   },
 })
 ```
@@ -40,6 +40,13 @@ schedule are interrupted with the state's scope.
 Use this form when attempts and delays do not change application behavior. If users must see,
 cancel, or respond to each attempt, model the attempt and waiting phases as ordinary machine states
 instead.
+
+## Inspect retry and exhaustion
+
+Select **Retry, then succeed** to see two retry decisions followed by success. After **Reset**,
+select **Exhaust retries** to route the third typed failure through `onFailure`.
+
+<MachineStudioDemo example="retry" />
 
 The goal is complete when the invocation has a stable retry name, a Schedule for its typed failure,
 and an `onFailure` route that handles schedule exhaustion. Retry inspection events are described in

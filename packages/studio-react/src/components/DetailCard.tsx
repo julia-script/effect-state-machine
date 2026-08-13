@@ -1,3 +1,4 @@
+import { nodeFacts, nodeKindLabel } from "../lib/nodePresentation.js"
 import type { MapSelection } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
 import { SourceLink } from "./SourceLink.js"
@@ -30,17 +31,10 @@ export function DetailCard({
 
   const title = node?.title ?? edge?.event?.tag ?? edge?.outcome?.kind ?? "transition"
   const kind =
-    node !== undefined
-      ? node.kind === "invoke"
-        ? "invoke"
-        : node.kind === "final"
-          ? "final state"
-          : node.kind
-      : edge?.outcome !== undefined
-        ? "outcome"
-        : "event"
+    node !== undefined ? nodeKindLabel(node) : edge?.outcome !== undefined ? "outcome" : "event"
   const description = node?.description ?? edge?.description
   const location = node?.location ?? edge?.location
+  const facts = node === undefined ? [] : nodeFacts(node)
 
   const relations =
     node !== undefined
@@ -80,6 +74,17 @@ export function DetailCard({
       </div>
       {description === undefined ? null : (
         <p className="mt-1 text-[10px] leading-snug text-muted">{description}</p>
+      )}
+      <p className="mt-1 font-mono text-[8.5px] text-muted">{selection.definitionPath}</p>
+      {facts.length === 0 ? null : (
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[9.5px]">
+          {facts.map(({ label, value }) => (
+            <div key={label} className="contents">
+              <dt className="font-bold text-muted">{label}</dt>
+              <dd className="text-cyan-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
       )}
       {relations.length === 0 ? null : (
         <div className="mt-2 space-y-0.5">

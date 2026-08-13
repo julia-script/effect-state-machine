@@ -69,26 +69,28 @@ const Event = Schema.Union([Cancel])
 
 const greeting = Machine.builder({ input: Input, state: State, event: Event })
 
-export const definition = greeting.make({
-  id: "greeting",
-  initial: (input) => ({ _tag: "Loading", name: input.name }),
-  nodes: [
-    greeting.invoke("Loading", {
+export const definition = greeting.define(
+  {
+    id: "greeting",
+    initial: (input) => ({ _tag: "Loading", name: input.name }),
+  },
+  {
+    Loading: greeting.invoke({
       name: "Greeter.greet",
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: {
         target: "Done",
-        reduce: ({ value }) => ({ _tag: "Done", message: value }),
+        reduce: ({ value }) => ({ message: value }),
       },
       onFailure: {
         target: "Failed",
-        reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
+        reduce: ({ error }) => ({ message: error.message }),
       },
     }),
-    greeting.final("Done"),
-    greeting.final("Failed"),
-  ],
-})
+    Done: greeting.final(),
+    Failed: greeting.final(),
+  },
+)
 
 const GreeterLive = Layer.succeed(
   Greeter,
@@ -127,7 +129,8 @@ const mermaid = Mermaid.render(graph)
 ```
 
 `Graph.fromDefinition` produces renderer-independent data. It retains Schema descriptions, ordered
-guard metadata, invocation and retry names, ignored events, and linked child definitions. Mermaid
+guard metadata, region paths, timers, invocation kinds and lanes, retry names, ignored events, and
+linked child definitions. Mermaid
 is the initial compact renderer; it does not attempt to reconstruct opaque Effect or Schedule
 internals. Run `pnpm build` in this repository to regenerate
 `dist/reference-workflow.mmd`, a read-only diagram of the integrated example.
@@ -218,7 +221,8 @@ from invoked Effects, retry Schedules, and child machines. It returns a handle w
 - `send(event)`: enqueue one decoded event and await its processing;
 - `can(event)`: observe whether the current state accepts an event;
 - `completion`: the inferred final-state value, preserving defects as an Effect `Cause`;
-- `inspection`: a metadata-only semantic Stream for transitions, invocations, retries, and children.
+- `inspection`: a metadata-only semantic Stream for transitions, parallel macrosteps, invocations,
+  timers, retries, stale outcomes, and children.
 
 One queue serializes external events and asynchronous completions. Leaving an invoked or child state
 interrupts the work it owns. Typed Effect failures follow declared transitions; defects terminate
@@ -230,15 +234,17 @@ persistence, replay, migration, or resumption of interrupted Effects.
 
 ## Definition model
 
-V0 has four visible node kinds:
+Definitions are exhaustive records keyed by state tag and have five visible node kinds:
 
-- ordinary states with pure reducers and optional ordered named guards;
-- invoked Effects with typed success/failure routes and optional named native Schedules;
+- ordinary states with pure reducers, optional ordered named guards, and entry-owned timers;
+- invoked Effects with typed success/failure routes, single/all/race work, named lanes, concurrency,
+  and optional named native Schedules;
+- region-bearing states with one compound or several parallel tagged-union slots;
 - statically invoked child machines with typed input, explicit forwarding, and inferred completion;
 - final states whose value is the machine's completion output.
 
-Hierarchy, parallel regions, dynamic spawning, a global actor registry, visual editing, application
-framework bindings, and durable execution are deliberately outside v0. See the
+Nested parent-state hierarchy, dynamic spawning, a global actor registry, visual editing, and
+durable execution remain outside v0. See the [statecharts guide](docs/statecharts.md),
 [reference workflow](docs/reference-workflow.md) and [capability matrix](docs/capability-matrix.md)
 for the executable evidence behind the current boundary.
 

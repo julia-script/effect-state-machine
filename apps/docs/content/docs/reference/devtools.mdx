@@ -34,13 +34,13 @@ The result contains:
 | --- | --- | --- |
 | `id` | `string` | Machine definition ID. |
 | `description` | `string | undefined` | Definition description. |
-| `nodes` | `ReadonlyArray<Graph.Node>` | State, invocation, child, and final nodes. |
-| `edges` | `ReadonlyArray<Graph.Edge>` | Event, success, failure, and completion transitions. |
+| `nodes` | `ReadonlyArray<Graph.Node>` | State, invocation, region-parent, region-child, child, and final nodes. |
+| `edges` | `ReadonlyArray<Graph.Edge>` | Event, success, failure, timer, and completion transitions. |
 | `ignores` | `ReadonlyArray<Graph.Ignore>` | Explicit ignored-event declarations. |
 
 Node titles and descriptions come from state Schema annotations. Event descriptions come from event
-Schema annotations. Executable guards, invocations, retry policies, and child invocations contribute
-their authored names and descriptions, not executable bodies or Schedule internals.
+Schema annotations. Executable guards, work, retry policies, regions, timers, and child invocations
+contribute authored structure and metadata, not executable bodies or Schedule internals.
 
 Child definitions are projected recursively.
 
@@ -84,13 +84,15 @@ graph edge IDs.
 ### `Graph.Node`
 
 Contains `id`, `title`, `kind`, optional `description`, optional source `location`, and kind-specific
-invocation or child metadata. `kind` is `"state"`, `"invoke"`, `"child"`, or `"final"`.
+work, timer, region, or child metadata. `kind` is `"state"`, `"invoke"`, `"child"`, `"regions"`, or
+`"final"`. Work metadata can include kind, lanes, concurrency, and retry. Region-child IDs use
+`Parent/slot/Tag` structural paths.
 
 ### `Graph.Edge`
 
 Contains stable `id`, `source`, `target`, optional source `location`, optional `event`, optional
 `outcome`, optional `description`, and optional guard or fallback `branch`. Outcome kinds are
-`"success"`, `"failure"`, and `"completion"`.
+`"success"`, `"failure"`, `"timer"`, and `"completion"`.
 
 ### `Graph.Ignore`
 
@@ -102,8 +104,9 @@ Contains the source node, ignored event tag and description, and optional ignore
 Mermaid.render(graph)
 ```
 
-Returns a Mermaid `stateDiagram-v2` string. It renders nodes, edges, guard order, fallback branches,
-ignored self-loops, invocation and retry names, child links, and final-state terminators.
+Returns a Mermaid `stateDiagram-v2` string. It renders nodes, edges, structural region paths, timer
+outcomes, guard order, fallback branches, ignored self-loops, work and retry names, child links, and
+final-state terminators.
 
 Mermaid rendering does not include descriptions, source locations, nested child graph bodies, or
 activity overlays.

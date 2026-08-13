@@ -18,7 +18,7 @@ Every protocol message SHALL carry a session identifier that is unique per attac
 - **THEN** the child's messages retain the root session identifier and identify the child actor rather than announcing a second session
 
 ### Requirement: Session announcement is self-describing
-The first message of a session SHALL contain everything Studio needs to render the complete machine tree without access to application code: the protocol version, application and root-machine metadata, root actor identity, every statically reachable machine definition, each definition's serialized behavior graph, standard JSON Schema documents for every state and event variant and invocation outcome, and quick-event controls associated with their definition. Definition and graph references SHALL be unambiguous when tags or node identifiers repeat across machines.
+The first message of a session SHALL contain everything Studio needs to render the complete machine tree without access to application code: the protocol version, application and root-machine metadata, root actor identity, every statically reachable machine definition, each definition's serialized behavior graph, standard JSON Schema documents for every state and event variant and invocation outcome, and quick-event controls associated with their definition. Serialized graph metadata SHALL retain region parent/slot paths, region slot names, timer duration and target, and invoked-work kind, lanes, concurrency, and retry policy. Definition and graph references SHALL be unambiguous when tags or node identifiers repeat across machines.
 
 #### Scenario: Studio renders an unknown machine tree
 - **WHEN** Studio receives a session announcement containing root and nested machine definitions it has never seen
@@ -29,7 +29,7 @@ The first message of a session SHALL contain everything Studio needs to render t
 - **THEN** the session is rejected with a message naming both versions, and other sessions are unaffected
 
 ### Requirement: Facts flow from application to Studio
-After announcement, the application side SHALL emit one ordered fact stream for the session. Every fact SHALL carry a strictly increasing session sequence and producing actor identifier. Facts SHALL include actor lifecycle, raw inspection events, state snapshots encoded using the actor's machine definition, and terminal status. Facts SHALL be JSON-serializable, delivered in session sequence order, and never attributed to a different actor.
+After announcement, the application side SHALL emit one ordered fact stream for the session. Every fact SHALL carry a strictly increasing session sequence and producing actor identifier. Facts SHALL include actor lifecycle, raw inspection events, state snapshots encoded using the actor's machine definition, and terminal status. Statechart inspection facts SHALL retain transition owner paths and macrostep identity, work kinds and lanes, timer lifecycle, and stale-outcome identity. Facts SHALL be JSON-serializable, delivered in session sequence order, and never attributed to a different actor.
 
 #### Scenario: Child state snapshot is renderable
 - **WHEN** a child actor commits state

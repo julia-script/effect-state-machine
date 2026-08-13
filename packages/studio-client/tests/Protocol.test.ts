@@ -68,6 +68,61 @@ describe("Protocol", () => {
     assert.strictEqual(idle?.description, "Waiting for a start event.")
   })
 
+  it.effect("round trips statechart graph metadata", () =>
+    Effect.gen(function* () {
+      const graph = {
+        id: "statechart",
+        nodes: [
+          {
+            id: "Active",
+            title: "Active",
+            kind: "regions" as const,
+            regions: { slots: ["playback", "volume"] },
+          },
+          {
+            id: "Joining",
+            title: "Joining",
+            kind: "invoke" as const,
+            invocation: {
+              name: "join",
+              kind: "all" as const,
+              lanes: ["left", "right"],
+              concurrency: 2,
+              retry: { name: "spaced" },
+            },
+            timer: { duration: "1 second", target: "Done" },
+          },
+          {
+            id: "Active/playback/Playing",
+            title: "Playing",
+            kind: "state" as const,
+            region: { parent: "Active", slot: "playback", tag: "Playing" },
+          },
+        ],
+        edges: [
+          {
+            id: "timer",
+            source: "Joining",
+            target: "Done",
+            outcome: { kind: "timer" as const },
+          },
+        ],
+        ignores: [],
+      }
+      const rootDefinition = hello.definitions[0]
+      assert.ok(rootDefinition !== undefined)
+      const message: Protocol.HelloMessage = {
+        ...hello,
+        graph,
+        definitions: [{ ...rootDefinition, graph }],
+      }
+      const decoded = yield* Protocol.decodeMessageString(
+        yield* Protocol.encodeMessageString(message),
+      )
+      assert.deepStrictEqual(decoded, JSON.parse(JSON.stringify(message)))
+    }),
+  )
+
   it.effect("facts and dispatches round trip", () =>
     Effect.gen(function* () {
       const messages: ReadonlyArray<Protocol.Message> = [

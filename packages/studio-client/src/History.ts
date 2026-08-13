@@ -11,9 +11,11 @@ export type StepKind =
   | "machine"
   | "event"
   | "invocation"
+  | "timer"
   | "child"
   | "completion"
   | "defect"
+  | "stale"
   | "activity"
 
 /** @category models @since 0.1.0 */
@@ -23,6 +25,7 @@ export type StepStatus =
   | "ignored"
   | "started"
   | "retrying"
+  | "fired"
   | "succeeded"
   | "failed"
   | "cancelled"
@@ -34,6 +37,16 @@ export interface SelectedBranch {
   readonly kind: "guard" | "otherwise"
   readonly index: number
   readonly name?: string
+}
+
+/** One authored transition selected as part of a semantic step. */
+export interface SelectedTransition {
+  readonly sourceStateTag: string
+  readonly targetStateTag: string
+  readonly eventTag: string
+  readonly ownerPath?: string
+  readonly macrostep?: number
+  readonly branch?: SelectedBranch
 }
 
 /** Developer-sized semantic action derived from one or more actor-qualified facts. */
@@ -58,6 +71,14 @@ export interface Step {
   readonly attempt?: number
   readonly delayMillis?: number
   readonly branch?: SelectedBranch
+  readonly transitions?: ReadonlyArray<SelectedTransition>
+  readonly ownerPath?: string
+  readonly macrostep?: number
+  readonly workKind?: "effect" | "all" | "race"
+  readonly lanes?: ReadonlyArray<string>
+  readonly timer?: string
+  readonly durationMillis?: number
+  readonly outcome?: "work-success" | "work-failure" | "work-defect" | "timer" | "completion"
   readonly raw: ReadonlyArray<number>
 }
 
@@ -93,10 +114,15 @@ interface ActorFold {
   readonly pendingOutcomeStep?: number
   readonly pendingCommitStep?: number
   readonly invocations: ReadonlyMap<string, number>
+  readonly timers: ReadonlyMap<string, number>
   readonly children: ReadonlyMap<string, number>
 }
 
-const emptyActorFold = (): ActorFold => ({ invocations: new Map(), children: new Map() })
+const emptyActorFold = (): ActorFold => ({
+  invocations: new Map(),
+  timers: new Map(),
+  children: new Map(),
+})
 
 /** Pure projection of one root session's ordered fact log. */
 export interface Model {
@@ -184,8 +210,18 @@ const latestActorPosition = (model: Model, actorId: string): number => {
   return indices[indices.length - 1] ?? 0
 }
 
-const invocationKey = (event: Readonly<{ invocation: string; generation: number }>): string =>
-  `${event.invocation}:${event.generation}`
+const invocationKey = (
+  event: Readonly<{
+    invocation: string
+    generation: number
+    ownerPath?: string
+    stateTag: string
+  }>,
+): string => `${event.ownerPath ?? event.stateTag}:${event.invocation}:${event.generation}`
+
+const timerKey = (
+  event: Readonly<{ timer: string; generation: number; ownerPath: string }>,
+): string => `${event.ownerPath}:${event.timer}:${event.generation}`
 
 type StepInput = Omit<Step, "index" | "sequence" | "actorId" | "definitionPath" | "depth">
 
@@ -231,6 +267,38 @@ const attachRaw = (
     ...fields,
     raw: [...step.raw, factIndex],
   }))
+
+const attachTransition = (
+  model: Model,
+  index: number,
+  factIndex: number,
+  event: Extract<Protocol.InspectionEventMessage, { _tag: "TransitionSelected" }>,
+): Model => {
+  const transition: SelectedTransition = {
+    sourceStateTag: event.sourceStateTag,
+    targetStateTag: event.targetStateTag,
+    eventTag: event.eventTag,
+    ...(event.ownerPath === undefined ? {} : { ownerPath: event.ownerPath }),
+    ...(event.macrostep === undefined ? {} : { macrostep: event.macrostep }),
+    ...(event.branch === undefined ? {} : { branch: event.branch }),
+  }
+  return updateStep(model, index, (step) => ({
+    ...step,
+    status: step.kind === "event" ? "selected" : step.status,
+    sourceStateTag: step.transitions?.[0]?.sourceStateTag ?? event.sourceStateTag,
+    targetStateTag: step.transitions?.[0]?.targetStateTag ?? event.targetStateTag,
+    eventTag: step.eventTag ?? event.eventTag,
+    ...(step.ownerPath !== undefined
+      ? { ownerPath: step.ownerPath }
+      : event.ownerPath === undefined
+        ? {}
+        : { ownerPath: event.ownerPath }),
+    ...(event.macrostep === undefined ? {} : { macrostep: event.macrostep }),
+    ...(event.branch === undefined ? {} : { branch: event.branch }),
+    transitions: [...(step.transitions ?? []), transition],
+    raw: [...step.raw, factIndex],
+  }))
+}
 
 const foldInspection = (
   model: Model,
@@ -281,12 +349,9 @@ const foldInspection = (
       }))
     }
     case "TransitionSelected": {
-      if (fold.activeEventStep === undefined) break
-      return attachRaw(model, fold.activeEventStep, factIndex, {
-        targetStateTag: event.targetStateTag,
-        status: "selected",
-        ...(event.branch === undefined ? {} : { branch: event.branch }),
-      })
+      const owner = fold.activeEventStep ?? fold.pendingOutcomeStep
+      if (owner === undefined) break
+      return attachTransition(model, owner, factIndex, event)
     }
     case "EventIgnored": {
       if (fold.activeEventStep === undefined) break
@@ -301,10 +366,17 @@ const foldInspection = (
       const updated =
         owner === undefined
           ? model
-          : attachRaw(model, owner, factIndex, {
-              sourceStateTag: event.previousStateTag,
-              targetStateTag: event.nextStateTag,
-            })
+          : attachRaw(
+              model,
+              owner,
+              factIndex,
+              model.steps[owner]?.transitions === undefined
+                ? {
+                    sourceStateTag: event.previousStateTag,
+                    targetStateTag: event.nextStateTag,
+                  }
+                : {},
+            )
       return updateActorFold(updated, fact.actorId, (current) => ({
         ...current,
         pendingCommitStep: owner,
@@ -320,6 +392,9 @@ const foldInspection = (
         sourceStateTag: event.stateTag,
         invocation: event.invocation,
         generation: event.generation,
+        ...(event.ownerPath === undefined ? {} : { ownerPath: event.ownerPath }),
+        ...(event.workKind === undefined ? {} : { workKind: event.workKind }),
+        ...(event.lanes === undefined ? {} : { lanes: event.lanes }),
         status: "started",
         raw: [factIndex],
       })
@@ -335,6 +410,9 @@ const foldInspection = (
         status: "retrying",
         attempt: event.attempt,
         delayMillis: event.delayMillis,
+        ...(event.ownerPath === undefined ? {} : { ownerPath: event.ownerPath }),
+        ...(event.workKind === undefined ? {} : { workKind: event.workKind }),
+        ...(event.lanes === undefined ? {} : { lanes: event.lanes }),
       })
     }
     case "InvocationSucceeded":
@@ -343,6 +421,9 @@ const foldInspection = (
       if (step === undefined) break
       const updated = attachRaw(model, step, factIndex, {
         status: event._tag === "InvocationSucceeded" ? "succeeded" : "failed",
+        ...(event.ownerPath === undefined ? {} : { ownerPath: event.ownerPath }),
+        ...(event.workKind === undefined ? {} : { workKind: event.workKind }),
+        ...(event.lanes === undefined ? {} : { lanes: event.lanes }),
         ...(event.branch === undefined ? {} : { branch: event.branch }),
       })
       return updateActorFold(updated, fact.actorId, (current) => ({
@@ -356,7 +437,64 @@ const foldInspection = (
       if (step === undefined) break
       return attachRaw(model, step, factIndex, {
         status: event._tag === "InvocationCancelled" ? "cancelled" : "defected",
+        ...(event.ownerPath === undefined ? {} : { ownerPath: event.ownerPath }),
+        ...(event.workKind === undefined ? {} : { workKind: event.workKind }),
+        ...(event.lanes === undefined ? {} : { lanes: event.lanes }),
       })
+    }
+    case "TimerStarted": {
+      const [withStep, step] = appendStep(model, fact, {
+        kind: "timer",
+        title: `${event.timer} · ${event.ownerPath}`,
+        statePosition: at,
+        sourceStateTag: event.ownerPath,
+        generation: event.generation,
+        ownerPath: event.ownerPath,
+        timer: event.timer,
+        durationMillis: event.durationMillis,
+        status: "started",
+        raw: [factIndex],
+      })
+      return updateActorFold(withStep, fact.actorId, (current) => ({
+        ...current,
+        timers: new Map(current.timers).set(timerKey(event), step),
+      }))
+    }
+    case "TimerFired": {
+      const step = fold.timers.get(timerKey(event))
+      if (step === undefined) break
+      const updated = attachRaw(model, step, factIndex, {
+        status: "fired",
+        ownerPath: event.ownerPath,
+        durationMillis: event.durationMillis,
+      })
+      return updateActorFold(updated, fact.actorId, (current) => ({
+        ...current,
+        pendingOutcomeStep: step,
+      }))
+    }
+    case "TimerCancelled": {
+      const step = fold.timers.get(timerKey(event))
+      if (step === undefined) break
+      return attachRaw(model, step, factIndex, {
+        status: "cancelled",
+        ownerPath: event.ownerPath,
+        durationMillis: event.durationMillis,
+      })
+    }
+    case "StaleOutcomeIgnored": {
+      const [withStep] = appendStep(model, fact, {
+        kind: "stale",
+        title: `Ignored stale ${event.outcome}`,
+        statePosition: at,
+        sourceStateTag: event.ownerPath,
+        generation: event.generation,
+        ownerPath: event.ownerPath,
+        outcome: event.outcome,
+        status: "ignored",
+        raw: [factIndex],
+      })
+      return withStep
     }
     case "ChildStarted": {
       const [withStep, step] = appendStep(model, fact, {

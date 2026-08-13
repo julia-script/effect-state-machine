@@ -44,7 +44,20 @@ without pretending that a static graph can reproduce an opaque Effect body.
 
 Some state-machine systems describe entry actions as an open-ended list. That is flexible, but it
 can hide concurrent lifetimes and make cancellation ownership ambiguous. A node in this library has
-one visible behavior kind, and an invocation node owns one named operation.
+one visible behavior kind. An invocation node owns one declared work value, which can be a single
+Effect, a named all-lanes join, or a named race.
+
+## Regions are explicit state data
+
+Compound and parallel region configuration lives in tagged-union fields on the parent state. The
+runtime does not keep a hidden child-state vector beside the schema-encoded state. This makes a
+snapshot sufficient to identify every active region child and makes entry configuration an ordinary
+transition result.
+
+Some statechart systems use nested state trees with implicit initial children and history markers.
+That model is more concise for deeply hierarchical behavior. The shallow model here instead favors
+one inspectable parent record: region fields opt into behavior explicitly, and restoring history is
+ordinary data movement. Nested parent-state inheritance remains outside the current scope.
 
 ## Layers stay at the composition root
 
@@ -96,9 +109,10 @@ operational concerns stay inside the Effect; application behavior stays explicit
 
 ## What this design deliberately leaves out
 
-V0 does not claim durable execution, persisted machine resumption, parallel regions, dynamic actor
-spawning, or framework bindings. Encodable snapshots are useful boundary data, but they are not a
-record of interrupted Effects or enough information to replay them safely.
+V0 does not claim durable execution, persisted machine resumption, nested parent-state hierarchy,
+dynamic actor spawning, or framework bindings beyond the React Studio. Encodable snapshots are
+useful boundary data, but they are not a record of interrupted Effects or enough information to
+replay them safely.
 
 These omissions keep the current contract aligned with Effect's existing facilities: Schema for
 data, Layer for dependencies, Scope and fibers for lifetime, Schedule for operational retry, and

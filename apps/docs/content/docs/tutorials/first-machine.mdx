@@ -63,36 +63,30 @@ const Event = Machine.taggedUnion({
 
 const counter = Machine.builder({ input: Input, state: State, event: Event })
 
-const definition = counter.make({
-  id: "counter",
-  initial: ({ initialCount }) => ({ _tag: "Ready", count: initialCount }),
-  nodes: [
-    counter.state("Ready", {
-      on: {
-        Start: {
-          target: "Counting",
-          reduce: ({ state }) => ({ _tag: "Counting", count: state.count }),
-        },
+const definition = counter.define(
+  {
+    id: "counter",
+    initial: ({ initialCount }) => ({ _tag: "Ready", count: initialCount }),
+  },
+  {
+    Ready: counter.state({
+      Start: {
+        target: "Counting",
+        reduce: ({ state }) => ({ count: state.count }),
       },
     }),
-    counter.state("Counting", {
-      on: {
-        Increment: {
-          target: "Counting",
-          reduce: ({ state, event }) => ({
-            _tag: "Counting",
-            count: state.count + event.amount,
-          }),
-        },
-        Finish: {
-          target: "Done",
-          reduce: ({ state }) => ({ _tag: "Done", count: state.count }),
-        },
+    Counting: counter.state({
+      Increment: {
+        stay: ({ state, event }) => ({ count: state.count + event.amount }),
+      },
+      Finish: {
+        target: "Done",
+        reduce: ({ state }) => ({ count: state.count }),
       },
     }),
-    counter.final("Done"),
-  ],
-})
+    Done: counter.final(),
+  },
+)
 
 const program = Effect.scoped(
   Effect.gen(function* () {
@@ -116,8 +110,8 @@ const program = Effect.scoped(
 await Effect.runPromise(program)
 ```
 
-Notice that the schemas and the behavior share the same state and event tags. The builder uses
-those tags to narrow `state` and `event` inside each reducer.
+Notice that the definition record has exactly one key for every state Schema tag. Each key narrows
+`state` and `event` inside its handlers. `stay` updates `Counting` without exiting and re-entering it.
 
 ## Run the machine
 
@@ -137,6 +131,13 @@ completed: { _tag: 'Done', count: 4 }
 
 The first snapshot comes from `initial`. Each call to `send` waits until its event has been
 processed. Entering the `Done` final state resolves `completion` with that final state value.
+
+## Explore the same machine in Studio
+
+Select **Start counting**, **Increment by 3**, and **Finish** in order. Notice that the active node,
+state value, and History panel follow the three snapshots printed by the program.
+
+<MachineStudioDemo example="counter" />
 
 You can now define and run a machine with ordinary transitions. Continue with
 [Run an Effect when a state becomes active](/docs/guides/invoke-effects) when a state must own

@@ -17,7 +17,11 @@ fixture. “Reference” means [`LocalFirstDocument.test.ts`](../tests/LocalFirs
 | Explicit modeled retry when attempts change application behavior | `Retry.test.ts` |
 | Static child input, forwarded events, inferred output, and transitive requirements | Reference; `Child.test.ts` |
 | Child scope interruption, defects, repeated runtime IDs, and inspection correlation | Reference; `Child.test.ts` |
+| Exhaustive shallow definitions, destination-field reducers, stays, and explicit re-entry | `Statechart.types.ts`; `Statechart.test.ts` |
+| Entry-owned timers, stale-outcome guards, and single/all/race declared work | `Statechart.test.ts`; `Invocation.test.ts` |
+| Compound and parallel regions, parent fallback, atomic macrosteps, and completion | `Statechart.test.ts` |
 | Renderer-independent graph data, descriptions, branch order, retry summaries, and child links | Reference; `Graph.test.ts` |
+| Region paths, timer edges, work lanes/concurrency, and statechart inspection metadata | `Statechart.test.ts`; `Protocol.test.ts` |
 | Compact Mermaid rendering from the graph model | Reference; `Graph.test.ts` |
 | Effect-native handle with no Promise, runtime, or framework binding | All runtime fixtures; API prototype check |
 | Synchronously inspectable definitions that do not execute Effects | `Graph.test.ts`; API prototype check |
@@ -27,7 +31,8 @@ fixture. “Reference” means [`LocalFirstDocument.test.ts`](../tests/LocalFirs
 | Depth-one, depth-two, and full graph projections with stable activity overlays | `Graph.test.ts`; `LargeMachine.test.ts` |
 | Automatic source capture, mapping, and Cursor/VS Code/custom links | `SourceLocation.test.ts` |
 | Generic viewer across document, checkout, and large machines | `Checkout.test.ts`; `LargeMachine.test.ts`; browser smoke pass |
+| Studio region grouping, active child emphasis, atomic edge highlighting, and work/timer history | `History.test.ts`; `Statecharts.test.ts`; `Studio.test.tsx` |
 | Core, renderer-independent devtools, and optional DOM viewer package isolation | packed consumer check |
 
-Hierarchy, parallel regions, dynamic spawning, durable persistence, replay, simulations, transports,
-telemetry correlation, and framework bindings have no v0 capability promise.
+Nested parent-state hierarchy, dynamic spawning, durable persistence, replay, simulations, telemetry
+correlation, and additional framework bindings have no v0 capability promise.
