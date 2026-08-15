@@ -1,3 +1,4 @@
+import * as Fn from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Machine from "./Machine.js"
 import * as SourceLocation from "./SourceLocation.js"
@@ -175,7 +176,10 @@ export interface TransitionActivity {
  * @category filtering
  * @since 0.1.0
  */
-export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph => {
+export const focus: {
+  (center: string, depth: FocusDepth): (graph: Graph) => Graph
+  (graph: Graph, center: string, depth: FocusDepth): Graph
+} = Fn.dual(3, (graph: Graph, center: string, depth: FocusDepth): Graph => {
   if (depth === "full") return graph
   if (!graph.nodes.some((node) => node.id === center)) {
     return { ...graph, nodes: [], edges: [], ignores: [] }
@@ -201,7 +205,7 @@ export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph =>
     edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
     ignores: graph.ignores.filter((ignore) => visible.has(ignore.source)),
   }
-}
+})
 
 /**
  * Matches runtime transition activity to graph edge identifiers without changing topology.
@@ -214,7 +218,17 @@ export const focus = (graph: Graph, center: string, depth: FocusDepth): Graph =>
  * @category transforming
  * @since 0.1.0
  */
-export const activity = (
+export const activity: {
+  (
+    activeNode: string | undefined,
+    transitions: ReadonlyArray<TransitionActivity>,
+  ): (graph: Graph) => ActivityOverlay
+  (
+    graph: Graph,
+    activeNode: string | undefined,
+    transitions: ReadonlyArray<TransitionActivity>,
+  ): ActivityOverlay
+} = Fn.dual(3, (
   graph: Graph,
   activeNode: string | undefined,
   transitions: ReadonlyArray<TransitionActivity>,
@@ -233,7 +247,7 @@ export const activity = (
       ? [edge.id]
       : [],
   ),
-})
+}))
 
 const descriptionOf = (schema: Schema.Top | undefined): string | undefined => {
   if (schema === undefined) return undefined

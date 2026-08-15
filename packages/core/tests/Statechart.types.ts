@@ -1,6 +1,7 @@
 /** Permanent compile-time contract for the shallow statechart authoring API. */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Fn from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Machine from "../src/Machine.js"
 
@@ -111,6 +112,12 @@ const inferred = machine.define(
   },
 )
 
+const dataFirstRun = Machine.run(inferred, { seed: "first" })
+const dataLastRun = Fn.pipe(inferred, Machine.run({ seed: "last" }))
+
+// @ts-expect-error The data-last input must match the definition's input Schema.
+Fn.pipe(inferred, Machine.run({ seed: 1 }))
+
 machine.define(
   { id: "missing-region", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
   {
@@ -202,6 +209,7 @@ type InferenceChecks = [
     >
   >,
   Assert<Equal<Machine.MachineRequirements<typeof inferred>, WorkService>>,
+  Assert<Equal<typeof dataLastRun, typeof dataFirstRun>>,
 ]
 
 export type StatechartInferenceContract = InferenceChecks

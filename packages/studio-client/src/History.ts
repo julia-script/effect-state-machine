@@ -1,3 +1,4 @@
+import * as Fn from "effect/Function"
 import type * as Protocol from "./Protocol.js"
 
 /** @category models @since 0.1.0 */
@@ -681,8 +682,15 @@ const foldActorTerminated = (
   return withStep
 }
 
-/** Folds one actor-qualified fact into an existing history model. */
-export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
+/**
+ * Folds one actor-qualified fact into an existing history model.
+ *
+ * Supports both `reduce(model, fact)` and `pipe(model, reduce(fact))`.
+ */
+export const reduce: {
+  (fact: Protocol.FactMessage): (model: Model) => Model
+  (model: Model, fact: Protocol.FactMessage): Model
+} = Fn.dual(2, (model: Model, fact: Protocol.FactMessage): Model => {
   const factIndex = model.facts.length
   const next = ensureActor({ ...model, facts: [...model.facts, fact] }, fact)
   const body = fact.body
@@ -721,7 +729,7 @@ export const reduce = (model: Model, fact: Protocol.FactMessage): Model => {
         },
       }
   }
-}
+})
 
 /** Folds an already ordered root-session fact log into a new history model. */
 export const fromFacts = (facts: Iterable<Protocol.FactMessage>): Model => {

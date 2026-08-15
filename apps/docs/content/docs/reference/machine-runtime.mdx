@@ -6,10 +6,14 @@ description: Technical reference for running, observing, encoding, and terminati
 ## `Machine.run`
 
 ```ts
+import { pipe } from "effect/Function"
+
 Machine.run(definition, input)
+pipe(definition, Machine.run(input))
 ```
 
-Returns a scoped `Effect` that creates a `MachineHandle`.
+Returns a scoped `Effect` that creates a `MachineHandle`. `run` is dual: the first form is
+data-first, and the second is data-last for an Effect-style pipeline.
 
 | Input | Description |
 | --- | --- |

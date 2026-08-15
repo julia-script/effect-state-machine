@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as Fn from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
@@ -151,6 +152,8 @@ describe("Graph", () => {
     )
 
     const two = Graph.focus(graph, "A", 2)
+    const piped = Fn.pipe(graph, Graph.focus("A", 2))
+    assert.deepStrictEqual(piped, two)
     assert.deepStrictEqual(
       two.nodes.map(({ id }) => id),
       ["A", "B", "C"],
@@ -166,5 +169,12 @@ describe("Graph", () => {
       activeNode: "C",
       traversedEdges: ["a-b"],
     })
+    assert.deepStrictEqual(
+      Fn.pipe(two, Graph.activity("C", [{ source: "A", target: "B" }])),
+      {
+        activeNode: "C",
+        traversedEdges: ["a-b"],
+      },
+    )
   })
 })

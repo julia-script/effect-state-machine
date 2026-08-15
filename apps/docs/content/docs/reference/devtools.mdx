@@ -8,6 +8,7 @@ description: Technical reference for read-only graph projection and rendering.
 ```ts
 import * as Graph from "effect-state-machine/Graph"
 import * as Mermaid from "effect-state-machine/Mermaid"
+import { pipe } from "effect/Function"
 ```
 
 They are also available together from `effect-state-machine/devtools`.
@@ -48,10 +49,11 @@ Child definitions are projected recursively.
 
 ```ts
 Graph.focus(graph, center, depth)
+pipe(graph, Graph.focus(center, depth))
 ```
 
 Returns a graph containing the center node and nodes reachable through outgoing edges up to the
-requested depth.
+requested depth. `focus` supports both data-first and data-last calls.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -66,9 +68,11 @@ requested depth.
 
 ```ts
 Graph.activity(graph, activeNode, transitions)
+pipe(graph, Graph.activity(activeNode, transitions))
 ```
 
-Returns an `ActivityOverlay` without modifying graph topology.
+Returns an `ActivityOverlay` without modifying graph topology. `activity` supports both data-first
+and data-last calls.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

@@ -3,6 +3,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Fn from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Machine from "../src/Machine.js"
@@ -97,6 +98,15 @@ describe("Machine", () => {
         { _tag: "Active", count: 3 },
         { _tag: "Active", count: 7 },
       ])
+    }),
+  )
+
+  it.effect("runs in data-last style", () =>
+    Effect.gen(function* () {
+      const handle = yield* Fn.pipe(counterDefinition, Machine.run({ count: 2 }))
+
+      yield* handle.send({ _tag: "Increment", amount: 3 })
+      assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 5 })
     }),
   )
 

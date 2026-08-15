@@ -5,6 +5,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberMap from "effect/FiberMap"
+import * as Fn from "effect/Function"
 import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
@@ -3149,9 +3150,23 @@ const makeTreeRuntime = (): Effect.Effect<TreeRuntime> =>
     }
   })
 
-// Stays an annotated arrow over Effect.gen instead of Effect.fnUntraced: run is generic and
+// Stays an annotated dual over Effect.gen instead of Effect.fnUntraced: run is generic and
 // self-recursive (startChild runs child definitions), so the generator form cannot carry the
 // pinned public signature without circular inference or new casts.
+type RunEffect<
+  StateSchema extends TaggedSchema,
+  EventSchema extends TaggedSchema,
+  States extends StatesConfig<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
+> = Effect.Effect<
+  MachineHandle<
+    Schema.Schema.Type<StateSchema>,
+    Schema.Schema.Type<EventSchema>,
+    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTags<States> }>
+  >,
+  never,
+  Scope.Scope | Exclude<RequirementsFromStates<States>, undefined>
+>
+
 /**
  * Starts a scoped machine instance and returns its Effect-native handle.
  *
@@ -3160,6 +3175,7 @@ const makeTreeRuntime = (): Effect.Effect<TreeRuntime> =>
  * The initializer runs once, external events and concurrent completions are serialized through a
  * single queue, and invocation requirements remain in the returned Effect environment. Entering a
  * final node resolves `completion`, interrupts owned work, and ends the state-change stream.
+ * Supports both `run(definition, input)` and `pipe(definition, run(input))`.
  *
  * **Gotchas**
  *
@@ -3171,7 +3187,26 @@ const makeTreeRuntime = (): Effect.Effect<TreeRuntime> =>
  * @category running
  * @since 0.1.0
  */
-export const run = <
+export const run: {
+  <const Input>(input: Input): <
+    InputSchema extends Schema.Top,
+    StateSchema extends TaggedSchema,
+    EventSchema extends TaggedSchema,
+    States extends StatesConfig<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
+  >(
+    definition: MachineDefinition<InputSchema, StateSchema, EventSchema, States> &
+      (Input extends Schema.Schema.Type<InputSchema> ? unknown : never),
+  ) => RunEffect<StateSchema, EventSchema, States>
+  <
+    InputSchema extends Schema.Top,
+    StateSchema extends TaggedSchema,
+    EventSchema extends TaggedSchema,
+    States extends StatesConfig<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
+  >(
+    definition: MachineDefinition<InputSchema, StateSchema, EventSchema, States>,
+    input: Schema.Schema.Type<InputSchema>,
+  ): RunEffect<StateSchema, EventSchema, States>
+} = Fn.dual(2, <
   InputSchema extends Schema.Top,
   StateSchema extends TaggedSchema,
   EventSchema extends TaggedSchema,
@@ -3179,15 +3214,7 @@ export const run = <
 >(
   definition: MachineDefinition<InputSchema, StateSchema, EventSchema, States>,
   input: Schema.Schema.Type<InputSchema>,
-): Effect.Effect<
-  MachineHandle<
-    Schema.Schema.Type<StateSchema>,
-    Schema.Schema.Type<EventSchema>,
-    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTags<States> }>
-  >,
-  never,
-  Scope.Scope | Exclude<RequirementsFromStates<States>, undefined>
-> =>
+): RunEffect<StateSchema, EventSchema, States> =>
   Effect.gen(function* () {
     const runtime = yield* makeTreeRuntime()
     return yield* runActor(definition, input, {
@@ -3195,7 +3222,7 @@ export const run = <
       actorId: runtime.handle.rootActorId,
       definitionPath: rootDefinitionPath,
     })
-  })
+  }))
 
 const runActor = <
   InputSchema extends Schema.Top,

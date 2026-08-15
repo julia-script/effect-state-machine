@@ -213,8 +213,9 @@ the scoped conflict child, and inspect both focused and complete graph views. Th
 
 ## Runtime contract
 
-`Machine.run(definition, input)` is a scoped Effect. Its requirements are inferred transitively
-from invoked Effects, retry Schedules, and child machines. It returns a handle with:
+`Machine.run(definition, input)` is a scoped Effect. It is also dual, so
+`pipe(definition, Machine.run(input))` is equivalent. Its requirements are inferred
+transitively from invoked Effects, retry Schedules, and child machines. It returns a handle with:
 
 - `snapshot`: the current tagged state as an Effect;
 - `changes`: a Stream of committed state snapshots;

@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as Fn from "effect/Function"
 import * as History from "../src/History.js"
 import type * as Protocol from "../src/Protocol.js"
 
@@ -397,5 +398,9 @@ describe("History", () => {
     let incremental = History.initial
     for (const entry of facts) incremental = History.reduce(incremental, entry)
     assert.deepStrictEqual(incremental, bulk)
+
+    let piped = History.initial
+    for (const entry of facts) piped = Fn.pipe(piped, History.reduce(entry))
+    assert.deepStrictEqual(piped, bulk)
   })
 })
