@@ -74,6 +74,41 @@
   font-family: var(--font-body);
   background: var(--color-paper);
   color: var(--color-ink);
+  /* The responsive shell is pure CSS: the surface is a container, and the
+     rules below flip the rail without any JS measurement. A JS breakpoint
+     (state + ResizeObserver) flickered here twice; CSS cannot, because the
+     query input (host width) is independent of the layout it controls. */
+  container-type: inline-size;
+}
+
+.studio-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.studio-rail {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+  width: clamp(260px, 28%, 360px);
+  border-left: 2px solid var(--color-ink);
+  background: var(--color-surface);
+}
+
+/* Below ~700px a side-by-side split starves the map: the rail goes under it. */
+@container (max-width: 700px) {
+  .studio-body {
+    flex-direction: column;
+  }
+  .studio-rail {
+    width: auto;
+    min-height: 0;
+    max-height: 55%;
+    border-left: 0;
+    border-top: 2px solid var(--color-ink);
+  }
 }
 
 .studio-surface *,

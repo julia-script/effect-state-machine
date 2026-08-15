@@ -2,7 +2,13 @@ import { assert, describe, it } from "@effect/vitest"
 import type { History } from "@effect-state-machine/studio-client"
 import type { Graph } from "effect-state-machine/devtools"
 import { transitionSize } from "../src/lib/elkLayout.js"
-import { acceptsEvent, activeStateNodeIds, edgesForStep, focusMany, nodeSize } from "../src/lib/layout.js"
+import {
+  acceptsEvent,
+  activeStateNodeIds,
+  edgesForStep,
+  focusMany,
+  nodeSize,
+} from "../src/lib/layout.js"
 import { nodeFacts, nodeKindLabel } from "../src/lib/nodePresentation.js"
 
 const graph: Graph.Graph = {

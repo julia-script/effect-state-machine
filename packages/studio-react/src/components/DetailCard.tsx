@@ -6,7 +6,7 @@ import { SourceLink } from "./SourceLink.js"
 export type Selection = MapSelection
 
 const badge = (text: string) => (
-  <span className="rounded-full bg-pear px-1.5 py-0.5 font-mono text-micro font-bold text-pear-ink">
+  <span className="shrink-0 rounded-full bg-pear px-1.5 py-0.5 font-mono text-micro font-bold whitespace-nowrap text-pear-ink">
     {text}
   </span>
 )
@@ -64,18 +64,32 @@ export function DetailCard({
   return (
     <section className="border-b-2 border-ink bg-paper-2 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-micro font-bold tracking-widest text-muted">DETAILS</span>
-        <span className="font-display text-[13px] font-extrabold">{title}</span>
+        <span className="shrink-0 font-mono text-micro font-bold tracking-widest text-muted">
+          DETAILS
+        </span>
+        <span
+          className="min-w-[6ch] shrink truncate font-display text-[13px] font-extrabold"
+          title={title}
+        >
+          {title}
+        </span>
         {badge(kind)}
-        <span className="flex-1" />
-        <button type="button" className="text-[12px] text-muted" onClick={onClose}>
+        <span className="min-w-0 flex-1" />
+        <button
+          type="button"
+          className="shrink-0 text-[12px] text-muted"
+          title="Close details"
+          onClick={onClose}
+        >
           ×
         </button>
       </div>
       {description === undefined ? null : (
         <p className="mt-1 text-caption text-muted">{description}</p>
       )}
-      <p className="mt-1 font-mono text-micro text-muted">{selection.definitionPath}</p>
+      <p className="mt-1 truncate font-mono text-micro text-muted" title={selection.definitionPath}>
+        {selection.definitionPath}
+      </p>
       {facts.length === 0 ? null : (
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-micro">
           {facts.map(({ label, value }) => (

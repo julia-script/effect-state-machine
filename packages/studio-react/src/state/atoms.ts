@@ -108,6 +108,10 @@ export const graphJsonAtom = Atom.family((_sessionId: string) =>
 export const diffAtom = Atom.make(true).pipe(Atom.keepAlive)
 export const railCollapsedAtom = Atom.make(false).pipe(Atom.keepAlive)
 
+/** Which secondary rail panel is showing. State is pinned above the tabs. */
+export type RailTab = "details" | "events" | "history"
+export const railTabAtom = Atom.make<RailTab>("events").pipe(Atom.keepAlive)
+
 /** The position being inspected: cursor when time-traveling, else the head. */
 export const displayedPositionAtom = Atom.make((get) => {
   const session = get(currentSessionAtom)

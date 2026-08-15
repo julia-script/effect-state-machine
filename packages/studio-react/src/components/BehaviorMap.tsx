@@ -354,7 +354,9 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   return (
     <div className="relative min-w-0 flex-1">
       {showJson ? (
-        <pre className="h-full overflow-auto bg-surface p-4 font-mono text-caption leading-relaxed">
+        // Top padding clears the floating toolbar, which would otherwise cover
+        // the opening lines with no way to scroll them back into view.
+        <pre className="h-full overflow-auto bg-surface p-4 pt-14 font-mono text-caption leading-relaxed">
           {JSON.stringify(session.hello, null, 2)}
         </pre>
       ) : (
@@ -419,34 +421,47 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       )}
 
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
-        <span className="font-mono text-micro font-bold tracking-widest text-muted">DEPTH</span>
+        {/* Depth only means something on the map, so it goes away in JSON mode. */}
+        {showJson ? null : (
+          <>
+            <span className="font-mono text-micro font-bold tracking-widest text-muted">DEPTH</span>
+            <button
+              type="button"
+              className="font-mono text-caption font-bold"
+              title="Show fewer hops"
+              onClick={() => setDepth(depth === "all" ? 2 : Math.max(1, depth - 1))}
+            >
+              −
+            </button>
+            <span className="font-mono text-caption">{depth === "all" ? "·" : depth}</span>
+            <button
+              type="button"
+              className="font-mono text-caption font-bold"
+              title="Show more hops"
+              onClick={() => setDepth(depth === "all" ? 1 : Math.min(9, depth + 1))}
+            >
+              +
+            </button>
+            <span className="text-rule">|</span>
+            <button
+              type="button"
+              aria-pressed={depth === "all"}
+              className={`rounded-full px-1.5 font-mono text-caption font-bold ${
+                depth === "all" ? "bg-ink text-paper" : "text-muted"
+              }`}
+              onClick={() => setDepth("all")}
+            >
+              All
+            </button>
+            <span className="text-rule">|</span>
+          </>
+        )}
         <button
           type="button"
-          className="font-mono text-caption font-bold"
-          onClick={() => setDepth(depth === "all" ? 2 : Math.max(1, depth - 1))}
-        >
-          −
-        </button>
-        <span className="font-mono text-caption">{depth === "all" ? "·" : depth}</span>
-        <button
-          type="button"
-          className="font-mono text-caption font-bold"
-          onClick={() => setDepth(depth === "all" ? 1 : Math.min(9, depth + 1))}
-        >
-          +
-        </button>
-        <span className="text-rule">|</span>
-        <button
-          type="button"
-          className={`font-mono text-caption font-bold ${depth === "all" ? "text-focus underline" : "text-muted"}`}
-          onClick={() => setDepth("all")}
-        >
-          All
-        </button>
-        <span className="text-rule">|</span>
-        <button
-          type="button"
-          className={`font-mono text-caption font-bold ${showJson ? "text-focus underline" : "text-muted"}`}
+          aria-pressed={showJson}
+          className={`rounded-full px-1.5 font-mono text-caption font-bold ${
+            showJson ? "bg-ink text-paper" : "text-muted"
+          }`}
           onClick={() => setShowJson(!showJson)}
         >
           {"{ } JSON"}

@@ -5,6 +5,7 @@ import { diffLines } from "../lib/diff.js"
 import {
   diffAtom,
   displayedSequenceAtom,
+  isLiveAtom,
   selectedActorIdAtom,
   selectedStepAtom,
 } from "../state/atoms.js"
@@ -16,6 +17,7 @@ const pretty = (value: unknown) => JSON.stringify(value, null, 2) ?? "undefined"
 export function StatePanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const sequence = useAtomValue(displayedSequenceAtom) ?? 0
   const [diffEnabled, setDiffEnabled] = useAtom(diffAtom)
+  const isLive = useAtomValue(isLiveAtom)
   const selectedStepIndex = useAtomValue(selectedStepAtom(session.sessionId))
   const selectedActorId = useAtomValue(selectedActorIdAtom(session.sessionId))
 
@@ -43,19 +45,40 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
       : actor.endedAt !== undefined && actor.endedAt <= sequence
         ? actor.status
         : "running"
+  // Actor counts used to sit in the top bar; the rail is where they belong.
+  const liveCount = History.actorsAt(history, sequence).length
 
   return (
     <section className="border-b-2 border-ink px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-micro font-bold tracking-widest text-muted">STATE</span>
-        <span className="font-display text-[14px] font-extrabold">{position?.stateTag ?? "—"}</span>
-        <span className="rounded-full bg-paper px-1.5 py-0.5 font-mono text-micro font-bold text-muted">
+        <span className="shrink-0 font-mono text-micro font-bold tracking-widest text-muted">
+          STATE
+        </span>
+        {/* The state tag is the panel's headline: it never shrinks — the actor
+            pill and source link absorb the width pressure instead. */}
+        <span
+          className="shrink-0 font-display text-[14px] font-extrabold"
+          title={position?.stateTag}
+        >
+          {position?.stateTag ?? "—"}
+        </span>
+        <span
+          className="min-w-0 shrink truncate rounded-full bg-paper px-1.5 py-0.5 font-mono text-micro font-bold whitespace-nowrap text-muted"
+          title={`${actorId} · ${lifecycle}`}
+        >
           {actorId} · {lifecycle}
         </span>
-        <span className="flex-1" />
+        <span className="min-w-0 flex-1" />
+        {/* Time travel disables dispatch, so it has to be visible on the pinned
+            panel rather than only inside the Events tab. */}
+        {isLive ? null : (
+          <span className="shrink-0 rounded-full bg-danger-soft px-2 py-0.5 font-mono text-micro font-bold whitespace-nowrap text-danger">
+            time-traveling
+          </span>
+        )}
         <button
           type="button"
-          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold ${diffEnabled ? "bg-pear text-pear-ink" : "bg-surface text-muted"}`}
+          className={`shrink-0 rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold whitespace-nowrap ${diffEnabled ? "bg-pear text-pear-ink" : "bg-surface text-muted"}`}
           onClick={() => setDiffEnabled(!diffEnabled)}
         >
           ± diff
@@ -63,9 +86,10 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
         {location === undefined ? null : <SourceLink location={location} />}
       </div>
       {actor === undefined ? null : (
-        <p className="mt-1 font-mono text-micro text-muted">
+        <p className="mt-1 truncate font-mono text-micro text-muted" title={actor.definitionPath}>
           {actor.definitionPath} · depth {actor.depth}
-          {actor.parentActorId === undefined ? " · root" : ` · parent ${actor.parentActorId}`}
+          {actor.parentActorId === undefined ? " · root" : ` · parent ${actor.parentActorId}`} ·{" "}
+          {liveCount} live / {history.actors.size} actors
         </p>
       )}
       {position === undefined ? (

@@ -34,6 +34,15 @@ const assertStrongSurfaceContrast = (root: ShadowRoot) => {
   assert.strictEqual(mutedOnStrongSurface.length, 0)
 }
 
+/** Rail tabs carry a count suffix, so match on the leading label. */
+const selectRailTab = (root: ShadowRoot, label: string) => {
+  const tab = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((candidate) =>
+    candidate.textContent?.trim().startsWith(label),
+  )
+  if (tab === undefined) throw new Error(`rail tab ${label} was not rendered`)
+  tab.click()
+}
+
 const selectEvent = (root: ShadowRoot, tag: string) => {
   const select = root.querySelector<HTMLSelectElement>("details select")
   if (select === null) throw new Error("custom event selector was not rendered")
@@ -89,6 +98,8 @@ describe("Studio", () => {
             : undefined,
         )
         assertStrongSurfaceContrast(shadow)
+        // Transitions are listed in History, which sits behind a rail tab.
+        yield* react(() => selectRailTab(shadow, "History"))
         assert.match(
           shadow.textContent ?? "",
           /Active\/playback\/Playing → Active\/playback\/Paused/,
@@ -143,6 +154,44 @@ describe("Studio", () => {
         yield* react(() => selectEvent(shadow, "Stop"))
         yield* react(() => dispatch.click())
         assert.deepStrictEqual(yield* handle.completion, { _tag: "Done" })
+
+        yield* react(() => root.unmount())
+        container.remove()
+      }),
+    ),
+  )
+
+  it.live("settings menu closes on a second press of its own trigger", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* Machine.run(definition, {})
+        const container = document.createElement("div")
+        document.body.append(container)
+        const root = createRoot(container)
+
+        yield* react(() => root.render(<Studio machine={{ definition, handle }} />))
+        const shadow = yield* waitFor(() => container.firstElementChild?.shadowRoot ?? undefined)
+        const trigger = yield* waitFor(() => findButton(shadow, "⋯"))
+
+        // A real pointer interaction is pointerdown followed by click. The
+        // regression: the outside-dismiss handler fired on the trigger's own
+        // pointerdown, so the release click toggled the menu back open and the
+        // button could never close it.
+        const press = (target: HTMLElement) => {
+          target.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }))
+          target.click()
+        }
+
+        yield* react(() => press(trigger))
+        assert.isNotNull(shadow.querySelector('[role="menu"]'))
+        yield* react(() => press(trigger))
+        assert.isNull(shadow.querySelector('[role="menu"]'))
+
+        // An outside press dismisses without needing the trigger.
+        yield* react(() => press(trigger))
+        assert.isNotNull(shadow.querySelector('[role="menu"]'))
+        yield* react(() => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })))
+        assert.isNull(shadow.querySelector('[role="menu"]'))
 
         yield* react(() => root.unmount())
         container.remove()

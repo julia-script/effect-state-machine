@@ -23,7 +23,10 @@ const GUARDED_TRANSITION_DESCRIPTION_LINE_HEIGHT = 16
 export const transitionSize = (edge: Graph.Edge): { width: number; height: number } => {
   const label = edgeLabelText(edge)
   if (edge.branch === undefined) {
-    return { width: label.length * TRANSITION_LABEL_CHARACTER_WIDTH + 24, height: TRANSITION_HEIGHT }
+    return {
+      width: label.length * TRANSITION_LABEL_CHARACTER_WIDTH + 24,
+      height: TRANSITION_HEIGHT,
+    }
   }
   const description = edge.branch.kind === "guard" ? edge.branch.description : edge.description
   const width = Math.max(

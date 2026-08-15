@@ -10,7 +10,8 @@ interface Location {
   readonly column: number
 }
 
-const shortFile = (file: string) => file.split("/").at(-1) ?? file
+// Strip any ?query (dev servers append cache-busting params) before shortening.
+const shortFile = (file: string) => (file.split("?")[0] ?? file).split("/").at(-1) ?? file
 
 export function SourceLink({ location }: { readonly location: Location }) {
   const { sourceAction } = useHostControls()
@@ -26,10 +27,10 @@ export function SourceLink({ location }: { readonly location: Location }) {
   }
 
   return (
-    <span>
+    <span className="flex min-w-0 shrink items-baseline">
       <button
         type="button"
-        className="max-w-full truncate font-mono text-caption text-focus underline"
+        className="min-w-0 truncate font-mono text-caption text-muted underline decoration-rule underline-offset-2 hover:text-ink hover:decoration-ink"
         title={reference}
         onClick={() => {
           if (sourceAction === "open") openEditor(location)

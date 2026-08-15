@@ -3,6 +3,7 @@ import { History } from "@effect-state-machine/studio-client"
 import { AsyncResult } from "effect/unstable/reactivity"
 import type { Graph } from "effect-state-machine/devtools"
 import * as React from "react"
+import { acceptsEvent } from "../lib/layout.js"
 import {
   dispatchAtom,
   displayedSequenceAtom,
@@ -10,7 +11,6 @@ import {
   selectedActorIdAtom,
 } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
-import { acceptsEvent } from "../lib/layout.js"
 
 export function EventsPanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const isLive = useAtomValue(isLiveAtom)
@@ -87,15 +87,16 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
   return (
     <section className="border-b-2 border-ink px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-micro font-bold tracking-widest text-muted">EVENTS</span>
-        <span className="font-mono text-micro text-muted">
+        <span className="shrink-0 font-mono text-micro font-bold tracking-widest text-muted">
+          EVENTS
+        </span>
+        <span
+          className="min-w-0 truncate font-mono text-micro text-muted"
+          title={`${actorId} · ${definitionPath}`}
+        >
           {actorId} · {definitionPath}
         </span>
-        {isLive ? null : (
-          <span className="rounded-full bg-danger-soft px-2 py-0.5 font-mono text-micro font-bold text-danger">
-            time-traveling
-          </span>
-        )}
+        {/* The time-traveling badge lives on the always-visible StatePanel. */}
       </div>
       {[...groups.entries()].map(([group, controls]) => (
         <div key={group} className="mt-2">
@@ -159,8 +160,9 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
         <button
           type="button"
           disabled={!running || draft.trim() === ""}
-          className="mt-1 h-6 rounded bg-ink px-3 font-mono text-caption font-bold text-paper disabled:opacity-35"
+          className="mt-1 h-6 max-w-full truncate rounded bg-ink px-3 font-mono text-caption font-bold text-paper disabled:opacity-35"
           onClick={submitCustom}
+          title={`Dispatch to ${actorId}`}
         >
           Dispatch to {actorId}
         </button>

@@ -51,12 +51,8 @@ export const activeStateNodeIds = (graph: Graph.Graph, state: unknown): Readonly
 export const acceptsEvent = (graph: Graph.Graph, state: unknown, eventTag: string): boolean => {
   const active = new Set(activeStateNodeIds(graph, state))
   return (
-    graph.edges.some(
-      (edge) => active.has(edge.source) && edge.event?.tag === eventTag,
-    ) ||
-    graph.ignores.some(
-      (ignore) => active.has(ignore.source) && ignore.event.tag === eventTag,
-    ) ||
+    graph.edges.some((edge) => active.has(edge.source) && edge.event?.tag === eventTag) ||
+    graph.ignores.some((ignore) => active.has(ignore.source) && ignore.event.tag === eventTag) ||
     graph.nodes.some(
       (node) =>
         active.has(node.id) &&

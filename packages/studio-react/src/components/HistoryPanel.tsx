@@ -77,21 +77,32 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
   return (
     <section className="flex min-h-0 flex-1 flex-col px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-micro font-bold tracking-widest text-muted">HISTORY</span>
-        <span className="font-mono text-micro text-muted">{history.steps.length}</span>
-        <span className="flex-1" />
-        <button type="button" className="font-mono text-caption" onClick={() => move(-1)}>
+        <span className="shrink-0 font-mono text-micro font-bold tracking-widest text-muted">
+          HISTORY
+        </span>
+        <span className="min-w-0 flex-1" />
+        <button
+          type="button"
+          className="shrink-0 font-mono text-caption"
+          title="Previous position"
+          onClick={() => move(-1)}
+        >
           ◀
         </button>
-        <span className="font-mono text-micro text-muted">
+        <span className="shrink-0 font-mono text-micro whitespace-nowrap text-muted">
           {(displayed ?? 0) + (head >= 0 ? 1 : 0)}/{head + 1}
         </span>
-        <button type="button" className="font-mono text-caption" onClick={() => move(1)}>
+        <button
+          type="button"
+          className="shrink-0 font-mono text-caption"
+          title="Next position"
+          onClick={() => move(1)}
+        >
           ▶
         </button>
         <button
           type="button"
-          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold ${
+          className={`shrink-0 rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold whitespace-nowrap ${
             isLive ? "bg-pear text-pear-ink" : "bg-accent text-accent-ink"
           }`}
           onClick={() => {
@@ -138,7 +149,9 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
                 }`}
                 onClick={() => selectStep(step.index)}
               >
-                <span className={`font-mono text-micro ${selected ? "text-cyan-ink" : "text-muted"}`}>
+                <span
+                  className={`font-mono text-micro ${selected ? "text-cyan-ink" : "text-muted"}`}
+                >
                   {step.index}
                 </span>
                 <span className="min-w-0">
@@ -160,9 +173,12 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
                     </span>
                   )}
                 </span>
-                <span className="text-right font-mono text-micro text-cyan-ink">
-                  <span className="block">{step.actorId}</span>
-                  <span className={`block ${selected ? "text-cyan-ink" : "text-muted"}`}>
+                <span
+                  className="min-w-0 max-w-[38%] text-right font-mono text-micro text-cyan-ink"
+                  title={`${step.actorId} · d${step.depth} · ${step.definitionPath}`}
+                >
+                  <span className="block truncate">{step.actorId}</span>
+                  <span className={`block truncate ${selected ? "text-cyan-ink" : "text-muted"}`}>
                     d{step.depth} · {step.definitionPath}
                   </span>
                 </span>

@@ -22,7 +22,10 @@ export function StateNode(props: NodeProps) {
       className={`relative overflow-hidden rounded-[8px] border-ink ${
         active ? "border-[2.5px] bg-pear text-pear-ink shadow-hard" : "border-[1.5px] bg-surface"
       } ${node.kind === "final" ? "border-dashed" : ""} ${
-        selected ? "ring-2 ring-focus ring-offset-1" : ""
+        // outline-solid, not ring or bare outline: utilities backed by
+        // @property-registered vars (ring's shadow chain, outline's default
+        // style var) silently resolve to none inside this shadow root.
+        selected ? "outline-solid outline-[2.5px] outline-offset-2 outline-focus" : ""
       }`}
       style={size}
     >
@@ -32,9 +35,7 @@ export function StateNode(props: NodeProps) {
         }`}
       >
         <span className="font-display text-[13px] font-extrabold leading-tight">{node.title}</span>
-        <span className="font-mono text-micro font-bold uppercase tracking-widest">
-          {kind}
-        </span>
+        <span className="font-mono text-micro font-bold uppercase tracking-widest">{kind}</span>
       </div>
       <div className="px-3 py-2 text-left">
         <p
