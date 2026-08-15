@@ -5,14 +5,22 @@ import { nodeFacts } from "./nodePresentation.js"
 /** Renderer-side graph helpers: node metrics, hop-limited focus, JSON view. */
 
 export const NODE_WIDTH = 260
+const NODE_DESCRIPTION_CHARACTERS_PER_LINE = 36
+const NODE_DESCRIPTION_LINE_HEIGHT = 16
+const NODE_FACTS_HEIGHT = 16
 
 /** State cards grow vertically so their descriptions remain part of the map. */
 export const nodeSize = (node: Graph.Node): { width: number; height: number } => {
   const descriptionLines =
-    node.description === undefined ? 1 : Math.max(1, Math.ceil(node.description.length / 42))
+    node.description === undefined
+      ? 1
+      : Math.max(1, Math.ceil(node.description.length / NODE_DESCRIPTION_CHARACTERS_PER_LINE))
   return {
     width: NODE_WIDTH,
-    height: 58 + descriptionLines * 14 + (nodeFacts(node).length > 0 ? 14 : 0),
+    height:
+      56 +
+      descriptionLines * NODE_DESCRIPTION_LINE_HEIGHT +
+      (nodeFacts(node).length > 0 ? NODE_FACTS_HEIGHT : 0),
   }
 }
 export interface Point {

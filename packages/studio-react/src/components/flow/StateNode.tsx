@@ -27,25 +27,31 @@ export function StateNode(props: NodeProps) {
       style={size}
     >
       <div
-        className={`flex h-[34px] items-center justify-between border-b border-ink px-3 ${active ? "bg-pear" : "bg-accent"}`}
+        className={`flex h-[34px] items-center justify-between border-b border-ink px-3 ${
+          active ? "bg-pear text-pear-ink" : "bg-accent text-accent-ink"
+        }`}
       >
         <span className="font-display text-[13px] font-extrabold leading-tight">{node.title}</span>
-        <span className="font-mono text-[8px] font-bold uppercase tracking-widest text-muted">
+        <span className="font-mono text-micro font-bold uppercase tracking-widest">
           {kind}
         </span>
       </div>
       <div className="px-3 py-2 text-left">
-        <p className="whitespace-normal font-mono text-[9.5px] font-medium leading-[14px] text-muted">
+        <p
+          className={`whitespace-normal font-mono text-caption font-medium ${
+            active ? "text-pear-ink" : "text-muted"
+          }`}
+        >
           {node.description ?? "No description provided."}
         </p>
         {facts.length === 0 ? null : (
-          <p className="mt-1 truncate font-mono text-[8.5px] font-semibold text-cyan-ink">
+          <p className="mt-1 truncate font-mono text-micro font-semibold text-cyan-ink">
             {facts.map(({ label, value }) => `${label}: ${value}`).join(" · ")}
           </p>
         )}
       </div>
       {activeActors.length > 1 ? (
-        <span className="absolute -right-2 -top-2 rounded-full border border-ink bg-cyan px-1.5 font-mono text-[8px] font-bold">
+        <span className="absolute -right-2 -top-2 rounded-full border border-ink bg-cyan px-1.5 font-mono text-micro font-bold">
           {activeActors.length}
         </span>
       ) : null}

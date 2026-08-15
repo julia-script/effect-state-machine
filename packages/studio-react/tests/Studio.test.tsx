@@ -27,6 +27,13 @@ const findEnabledButton = (root: ShadowRoot, label: string): HTMLButtonElement |
   return button?.disabled === false ? button : undefined
 }
 
+const assertStrongSurfaceContrast = (root: ShadowRoot) => {
+  const mutedOnStrongSurface = root.querySelectorAll(
+    ".bg-accent .text-muted, .bg-focus .text-muted, .bg-pear .text-muted, .bg-cyan .text-muted",
+  )
+  assert.strictEqual(mutedOnStrongSurface.length, 0)
+}
+
 const selectEvent = (root: ShadowRoot, tag: string) => {
   const select = root.querySelector<HTMLSelectElement>("details select")
   if (select === null) throw new Error("custom event selector was not rendered")
@@ -72,6 +79,7 @@ describe("Studio", () => {
             ? true
             : undefined,
         )
+        assertStrongSurfaceContrast(shadow)
 
         yield* handle.send({ _tag: "Toggle" })
         yield* waitFor(() =>
@@ -80,6 +88,7 @@ describe("Studio", () => {
             ? true
             : undefined,
         )
+        assertStrongSurfaceContrast(shadow)
         assert.match(
           shadow.textContent ?? "",
           /Active\/playback\/Playing → Active\/playback\/Paused/,

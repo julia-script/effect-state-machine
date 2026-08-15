@@ -10,27 +10,48 @@ import { nodeSize, type Point } from "./layout.js"
  * routes around the pills instead of hanging labels off the lines.
  */
 
-export const TRANSITION_HEIGHT = 24
-export const GUARDED_TRANSITION_HEIGHT = 46
+export const TRANSITION_HEIGHT = 28
+export const GUARDED_TRANSITION_BASE_HEIGHT = 48
 export const START_SIZE = 18
 export const START_ID = "__start"
 export const startId = (definitionPath: string): string => `${START_ID}:${definitionPath}`
 
+const TRANSITION_LABEL_CHARACTER_WIDTH = 7
+const TRANSITION_DESCRIPTION_CHARACTER_WIDTH = 6.6
+const GUARDED_TRANSITION_DESCRIPTION_LINE_HEIGHT = 16
+
 export const transitionSize = (edge: Graph.Edge): { width: number; height: number } => {
   const label = edgeLabelText(edge)
   if (edge.branch === undefined) {
-    return { width: label.length * 6.4 + 22, height: TRANSITION_HEIGHT }
+    return { width: label.length * TRANSITION_LABEL_CHARACTER_WIDTH + 24, height: TRANSITION_HEIGHT }
   }
   const description = edge.branch.kind === "guard" ? edge.branch.description : edge.description
   const width = Math.max(
-    170,
-    Math.min(310, Math.max(label.length, description?.length ?? 0) * 6.2 + 44),
+    190,
+    Math.min(
+      340,
+      Math.max(
+        label.length * TRANSITION_LABEL_CHARACTER_WIDTH,
+        (description?.length ?? 0) * TRANSITION_DESCRIPTION_CHARACTER_WIDTH,
+      ) + 48,
+    ),
   )
   const descriptionLines =
     description === undefined
       ? 0
-      : Math.max(1, Math.ceil(description.length / Math.max(24, Math.floor((width - 28) / 6.2))))
-  return { width, height: GUARDED_TRANSITION_HEIGHT + descriptionLines * 13 }
+      : Math.max(
+          1,
+          Math.ceil(
+            description.length /
+              Math.max(24, Math.floor((width - 32) / TRANSITION_DESCRIPTION_CHARACTER_WIDTH)),
+          ),
+        )
+  return {
+    width,
+    height:
+      GUARDED_TRANSITION_BASE_HEIGHT +
+      descriptionLines * GUARDED_TRANSITION_DESCRIPTION_LINE_HEIGHT,
+  }
 }
 
 export const edgeLabelText = (edge: Graph.Edge): string => {

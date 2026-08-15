@@ -77,21 +77,21 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
   return (
     <section className="flex min-h-0 flex-1 flex-col px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">HISTORY</span>
-        <span className="font-mono text-[9.5px] text-muted">{history.steps.length}</span>
+        <span className="font-mono text-micro font-bold tracking-widest text-muted">HISTORY</span>
+        <span className="font-mono text-micro text-muted">{history.steps.length}</span>
         <span className="flex-1" />
-        <button type="button" className="font-mono text-[11px]" onClick={() => move(-1)}>
+        <button type="button" className="font-mono text-caption" onClick={() => move(-1)}>
           ◀
         </button>
-        <span className="font-mono text-[9.5px] text-muted">
+        <span className="font-mono text-micro text-muted">
           {(displayed ?? 0) + (head >= 0 ? 1 : 0)}/{head + 1}
         </span>
-        <button type="button" className="font-mono text-[11px]" onClick={() => move(1)}>
+        <button type="button" className="font-mono text-caption" onClick={() => move(1)}>
           ▶
         </button>
         <button
           type="button"
-          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-[9px] font-bold ${
+          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold ${
             isLive ? "bg-pear text-pear-ink" : "bg-accent text-accent-ink"
           }`}
           onClick={() => {
@@ -103,7 +103,7 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
         </button>
       </div>
       {history.truncatedFacts === 0 ? null : (
-        <p className="mt-1 font-mono text-[9px] text-danger">
+        <p className="mt-1 font-mono text-micro text-danger">
           {history.truncatedFacts} earlier facts were dropped.
         </p>
       )}
@@ -134,13 +134,15 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
               <button
                 type="button"
                 className={`grid w-full grid-cols-[22px_1fr_auto] items-baseline gap-1 rounded px-1 py-0.5 text-left ${
-                  selected ? "bg-cyan" : "hover:bg-paper"
+                  selected ? "bg-cyan text-cyan-ink" : "hover:bg-paper"
                 }`}
                 onClick={() => selectStep(step.index)}
               >
-                <span className="font-mono text-[10px] text-muted">{step.index}</span>
+                <span className={`font-mono text-micro ${selected ? "text-cyan-ink" : "text-muted"}`}>
+                  {step.index}
+                </span>
                 <span className="min-w-0">
-                  <span className="block truncate text-[11px] font-semibold">
+                  <span className="block truncate text-caption font-semibold">
                     {step.title}
                     {step.kind === "invocation" && step.status !== undefined
                       ? ` → ${step.status}`
@@ -149,12 +151,18 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
                         : ""}
                   </span>
                   {meta === "" ? null : (
-                    <span className="block truncate font-mono text-[9.5px] text-muted">{meta}</span>
+                    <span
+                      className={`block truncate font-mono text-micro ${
+                        selected ? "text-cyan-ink" : "text-muted"
+                      }`}
+                    >
+                      {meta}
+                    </span>
                   )}
                 </span>
-                <span className="text-right font-mono text-[8.5px] text-cyan-ink">
+                <span className="text-right font-mono text-micro text-cyan-ink">
                   <span className="block">{step.actorId}</span>
-                  <span className="block text-muted">
+                  <span className={`block ${selected ? "text-cyan-ink" : "text-muted"}`}>
                     d{step.depth} · {step.definitionPath}
                   </span>
                 </span>
@@ -165,10 +173,10 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
       </ol>
       {raw === undefined || raw.length === 0 ? null : (
         <details className="mt-1.5 shrink-0">
-          <summary className="cursor-pointer font-mono text-[9px] font-bold tracking-widest text-muted">
+          <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             RAW EVENTS · {raw.length}
           </summary>
-          <pre className="mt-1 max-h-36 overflow-auto rounded bg-paper p-2 font-mono text-[9.5px]">
+          <pre className="mt-1 max-h-36 overflow-auto rounded bg-paper p-2 font-mono text-micro">
             {JSON.stringify(
               raw.map((fact) => fact.body),
               null,

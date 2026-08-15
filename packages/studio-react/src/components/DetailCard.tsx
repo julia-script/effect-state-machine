@@ -6,7 +6,7 @@ import { SourceLink } from "./SourceLink.js"
 export type Selection = MapSelection
 
 const badge = (text: string) => (
-  <span className="rounded-full bg-pear px-1.5 py-0.5 font-mono text-[8.5px] font-bold text-pear-ink">
+  <span className="rounded-full bg-pear px-1.5 py-0.5 font-mono text-micro font-bold text-pear-ink">
     {text}
   </span>
 )
@@ -64,7 +64,7 @@ export function DetailCard({
   return (
     <section className="border-b-2 border-ink bg-paper-2 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">DETAILS</span>
+        <span className="font-mono text-micro font-bold tracking-widest text-muted">DETAILS</span>
         <span className="font-display text-[13px] font-extrabold">{title}</span>
         {badge(kind)}
         <span className="flex-1" />
@@ -73,11 +73,11 @@ export function DetailCard({
         </button>
       </div>
       {description === undefined ? null : (
-        <p className="mt-1 text-[10px] leading-snug text-muted">{description}</p>
+        <p className="mt-1 text-caption text-muted">{description}</p>
       )}
-      <p className="mt-1 font-mono text-[8.5px] text-muted">{selection.definitionPath}</p>
+      <p className="mt-1 font-mono text-micro text-muted">{selection.definitionPath}</p>
       {facts.length === 0 ? null : (
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[9.5px]">
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-micro">
           {facts.map(({ label, value }) => (
             <div key={label} className="contents">
               <dt className="font-bold text-muted">{label}</dt>
@@ -89,7 +89,7 @@ export function DetailCard({
       {relations.length === 0 ? null : (
         <div className="mt-2 space-y-0.5">
           {relations.map((relation) => (
-            <div key={relation.id} className="font-mono text-[9.5px] font-semibold text-cyan-ink">
+            <div key={relation.id} className="font-mono text-caption font-semibold text-cyan-ink">
               {relation.text}
             </div>
           ))}
@@ -102,10 +102,10 @@ export function DetailCard({
       )}
       {schema === undefined ? null : (
         <details className="mt-2">
-          <summary className="cursor-pointer font-mono text-[9px] font-bold tracking-widest text-muted">
+          <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             JSON SCHEMA
           </summary>
-          <pre className="mt-1 max-h-44 overflow-auto rounded bg-paper p-2 font-mono text-[9.5px] leading-relaxed">
+          <pre className="mt-1 max-h-44 overflow-auto rounded bg-paper p-2 font-mono text-micro leading-relaxed">
             {JSON.stringify(schema, null, 2)}
           </pre>
         </details>

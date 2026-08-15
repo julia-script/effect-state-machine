@@ -87,12 +87,12 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
   return (
     <section className="border-b-2 border-ink px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">EVENTS</span>
-        <span className="font-mono text-[9px] text-muted">
+        <span className="font-mono text-micro font-bold tracking-widest text-muted">EVENTS</span>
+        <span className="font-mono text-micro text-muted">
           {actorId} · {definitionPath}
         </span>
         {isLive ? null : (
-          <span className="rounded-full bg-danger-soft px-2 py-0.5 font-mono text-[9px] font-bold text-danger">
+          <span className="rounded-full bg-danger-soft px-2 py-0.5 font-mono text-micro font-bold text-danger">
             time-traveling
           </span>
         )}
@@ -100,7 +100,7 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
       {[...groups.entries()].map(([group, controls]) => (
         <div key={group} className="mt-2">
           {group === "" ? null : (
-            <div className="font-mono text-[8.5px] font-bold tracking-widest text-muted">
+            <div className="font-mono text-micro font-bold tracking-widest text-muted">
               {group.toUpperCase()}
             </div>
           )}
@@ -113,7 +113,7 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
                   type="button"
                   disabled={!enabled}
                   title={control.description}
-                  className="h-6 rounded border border-accent-ink bg-accent px-2 font-mono text-[10px] font-bold text-accent-ink disabled:opacity-35"
+                  className="h-6 rounded border border-accent-ink bg-accent px-2 font-mono text-caption font-bold text-accent-ink disabled:opacity-35"
                   onClick={() =>
                     dispatch({
                       sessionId: session.sessionId,
@@ -130,14 +130,14 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
         </div>
       ))}
       {quickEvents.length === 0 ? (
-        <p className="mt-1.5 text-[10px] text-muted">No quick events for this actor definition.</p>
+        <p className="mt-1.5 text-caption text-muted">No quick events for this actor definition.</p>
       ) : null}
       <details className="mt-2">
-        <summary className="cursor-pointer font-mono text-[9px] font-bold tracking-widest text-muted">
+        <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
           CUSTOM EVENT
         </summary>
         <select
-          className="mt-1.5 h-6 w-full rounded border border-ink bg-surface px-1 font-mono text-[10.5px]"
+          className="mt-1.5 h-6 w-full rounded border border-ink bg-surface px-1 font-mono text-caption"
           value={draftTag ?? ""}
           onChange={(event) => selectDraftTag(event.target.value)}
         >
@@ -151,7 +151,7 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
           ))}
         </select>
         <textarea
-          className="mt-1.5 h-24 w-full rounded border border-ink bg-paper p-1.5 font-mono text-[10.5px]"
+          className="mt-1.5 h-24 w-full rounded border border-ink bg-paper p-1.5 font-mono text-caption"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           spellCheck={false}
@@ -159,23 +159,23 @@ export function EventsPanel({ session }: { readonly session: ViewerClient.Sessio
         <button
           type="button"
           disabled={!running || draft.trim() === ""}
-          className="mt-1 h-6 rounded bg-ink px-3 font-mono text-[10px] font-bold text-paper disabled:opacity-35"
+          className="mt-1 h-6 rounded bg-ink px-3 font-mono text-caption font-bold text-paper disabled:opacity-35"
           onClick={submitCustom}
         >
           Dispatch to {actorId}
         </button>
       </details>
       {draftError === undefined ? null : (
-        <p className="mt-1.5 font-mono text-[9.5px] text-danger">{draftError}</p>
+        <p className="mt-1.5 font-mono text-caption text-danger">{draftError}</p>
       )}
       {rejection === undefined ? null : (
-        <p className="mt-1.5 font-mono text-[9.5px] text-danger">
+        <p className="mt-1.5 font-mono text-caption text-danger">
           {actorId} rejected: {rejection.reason}
           {rejection.message === undefined ? "" : ` · ${rejection.message}`}
         </p>
       )}
       {transportFailure === undefined ? null : (
-        <p className="mt-1.5 font-mono text-[9.5px] text-danger">{transportFailure}</p>
+        <p className="mt-1.5 font-mono text-caption text-danger">{transportFailure}</p>
       )}
     </section>
   )

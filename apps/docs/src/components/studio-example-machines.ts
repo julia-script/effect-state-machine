@@ -120,12 +120,20 @@ export const classifierDefinition = classifier.define(
       Decide: {
         branches: [
           {
-            when: { name: "is-positive", guard: ({ event }) => event.value > 0 },
+            when: {
+              name: "is-positive",
+              description: "Positive values take precedence.",
+              guard: ({ event }) => event.value > 0,
+            },
             target: "Positive",
             reduce: ({ event }) => ({ value: event.value }),
           },
           {
-            when: { name: "is-even", guard: ({ event }) => event.value % 2 === 0 },
+            when: {
+              name: "is-even",
+              description: "Non-positive even values use the Even state.",
+              guard: ({ event }) => event.value % 2 === 0,
+            },
             target: "Even",
             reduce: ({ event }) => ({ value: event.value }),
           },

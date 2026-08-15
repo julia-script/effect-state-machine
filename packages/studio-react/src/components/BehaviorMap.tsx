@@ -354,7 +354,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
   return (
     <div className="relative min-w-0 flex-1">
       {showJson ? (
-        <pre className="h-full overflow-auto bg-surface p-4 font-mono text-[11px] leading-relaxed">
+        <pre className="h-full overflow-auto bg-surface p-4 font-mono text-caption leading-relaxed">
           {JSON.stringify(session.hello, null, 2)}
         </pre>
       ) : (
@@ -419,18 +419,18 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
       )}
 
       <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full border border-ink bg-surface px-3 py-1 shadow-hard-sm">
-        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">DEPTH</span>
+        <span className="font-mono text-micro font-bold tracking-widest text-muted">DEPTH</span>
         <button
           type="button"
-          className="font-mono text-[11px] font-bold"
+          className="font-mono text-caption font-bold"
           onClick={() => setDepth(depth === "all" ? 2 : Math.max(1, depth - 1))}
         >
           −
         </button>
-        <span className="font-mono text-[11px]">{depth === "all" ? "·" : depth}</span>
+        <span className="font-mono text-caption">{depth === "all" ? "·" : depth}</span>
         <button
           type="button"
-          className="font-mono text-[11px] font-bold"
+          className="font-mono text-caption font-bold"
           onClick={() => setDepth(depth === "all" ? 1 : Math.min(9, depth + 1))}
         >
           +
@@ -438,7 +438,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         <span className="text-rule">|</span>
         <button
           type="button"
-          className={`font-mono text-[10px] font-bold ${depth === "all" ? "text-focus underline" : "text-muted"}`}
+          className={`font-mono text-caption font-bold ${depth === "all" ? "text-focus underline" : "text-muted"}`}
           onClick={() => setDepth("all")}
         >
           All
@@ -446,7 +446,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
         <span className="text-rule">|</span>
         <button
           type="button"
-          className={`font-mono text-[10px] font-bold ${showJson ? "text-focus underline" : "text-muted"}`}
+          className={`font-mono text-caption font-bold ${showJson ? "text-focus underline" : "text-muted"}`}
           onClick={() => setShowJson(!showJson)}
         >
           {"{ } JSON"}
@@ -462,7 +462,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
           >
             −
           </button>
-          <span className="font-mono text-[10px]">{Math.round(zoom * 100)}%</span>
+          <span className="font-mono text-caption">{Math.round(zoom * 100)}%</span>
           <button
             type="button"
             className="font-mono text-[12px] font-bold"
@@ -472,7 +472,7 @@ function FlowInner({ session }: { readonly session: ViewerClient.SessionView }) 
           </button>
           <button
             type="button"
-            className="font-mono text-[10px] font-bold"
+            className="font-mono text-caption font-bold"
             onClick={() => void flow.fitView({ padding: 0.08, maxZoom: 1.05 })}
           >
             Fit

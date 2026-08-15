@@ -31,6 +31,7 @@ const ready = classifier.state({
       {
         when: {
           name: "is-even",
+          description: "Non-positive even values use the Even state.",
           guard: ({ event }) => event.value % 2 === 0,
         },
         target: "Even",
@@ -73,7 +74,7 @@ change, and the inspection stream emits `EventIgnored`.
 
 Use **Decide 5**, **Reset**, **Decide -4**, and **Reset** to compare the ordered guard branches.
 Select **Ignore Ping** while `Ready` is active to see the ignored event recorded without a state
-change.
+change. Guard descriptions appear beneath their names on the transition cards.
 
 <MachineStudioDemo example="guards" />
 

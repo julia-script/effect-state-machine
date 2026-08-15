@@ -52,7 +52,7 @@ export function TopBar() {
       <span className="font-display text-[13px] font-extrabold">Machine devtools</span>
       {singleSession ? null : (
         <select
-          className="h-6 rounded border border-ink bg-surface px-1 font-mono text-[11px] text-ink"
+          className="h-6 rounded border border-ink bg-surface px-1 font-mono text-caption text-ink"
           value={session?.sessionId ?? ""}
           onChange={(event) => selectSession(event.target.value || undefined)}
         >
@@ -64,7 +64,7 @@ export function TopBar() {
           ))}
         </select>
       )}
-      <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold text-muted">
+      <span className="flex items-center gap-1.5 font-mono text-caption font-semibold">
         <span
           className={`inline-block h-2 w-2 rounded-full border border-ink ${
             world.connected
@@ -77,18 +77,18 @@ export function TopBar() {
           : `${connectionKind} · offline`}
       </span>
       {stateTag === undefined ? null : (
-        <span className="rounded-full bg-surface px-2 py-0.5 font-mono text-[10px] font-semibold text-ink">
+        <span className="rounded-full bg-surface px-2 py-0.5 font-mono text-caption font-semibold text-ink">
           {stateTag}
         </span>
       )}
       {session === undefined ? null : (
-        <span className="rounded-full bg-cyan px-2 py-0.5 font-mono text-[9px] font-semibold text-cyan-ink">
+        <span className="rounded-full bg-cyan px-2 py-0.5 font-mono text-micro font-semibold text-cyan-ink">
           {descendants.length} live descendant{descendants.length === 1 ? "" : "s"} ·{" "}
           {session.history.actors.size} actors
         </span>
       )}
       {selectedActorId === undefined ? null : (
-        <span className="font-mono text-[9px] text-muted">selected {selectedActorId}</span>
+        <span className="font-mono text-micro">selected {selectedActorId}</span>
       )}
       <span className="flex-1" />
       <button
@@ -101,7 +101,7 @@ export function TopBar() {
       </button>
       {canOpenSource ? (
         <select
-          className="h-6 rounded border border-ink bg-surface px-1 font-mono text-[11px] text-ink"
+          className="h-6 rounded border border-ink bg-surface px-1 font-mono text-caption text-ink"
           value={sourceAction}
           onChange={(event) => setSourceAction(event.target.value === "copy" ? "copy" : "open")}
           title="Source link action"
@@ -112,7 +112,7 @@ export function TopBar() {
       ) : null}
       <button
         type="button"
-        className="h-6 rounded border border-ink bg-surface px-2 font-mono text-[10px] font-semibold text-ink"
+        className="h-6 rounded border border-ink bg-surface px-2 font-mono text-caption font-semibold text-ink"
         onClick={() => setRailCollapsed(!railCollapsed)}
       >
         {railCollapsed ? "⟨ Panels" : "Panels ⟩"}

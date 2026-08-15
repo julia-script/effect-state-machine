@@ -16,7 +16,7 @@ export function StateRegion(props: NodeProps) {
         active ? "border-cyan-ink bg-cyan/20" : "border-rule-strong bg-paper/55"
       }`}
     >
-      <div className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[8.5px] font-bold uppercase tracking-widest text-muted">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-micro font-bold uppercase tracking-widest text-muted">
         <span>{slot}</span>
         <span className="font-medium normal-case tracking-normal">region of {parent}</span>
         {active ? <span className="rounded-full bg-cyan px-1.5 text-cyan-ink">active</span> : null}

@@ -29,7 +29,7 @@ export function SourceLink({ location }: { readonly location: Location }) {
     <span>
       <button
         type="button"
-        className="max-w-full truncate font-mono text-[10px] text-focus underline"
+        className="max-w-full truncate font-mono text-caption text-focus underline"
         title={reference}
         onClick={() => {
           if (sourceAction === "open") openEditor(location)
@@ -39,7 +39,7 @@ export function SourceLink({ location }: { readonly location: Location }) {
         {copied ? "Copied" : `${shortFile(location.file)}:${location.line}`}
       </button>
       {AsyncResult.isFailure(openState) ? (
-        <span className="ml-1 font-mono text-[9px] text-danger" role="alert">
+        <span className="ml-1 font-mono text-micro text-danger" role="alert">
           Could not open source location.
         </span>
       ) : null}

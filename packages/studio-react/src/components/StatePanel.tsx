@@ -47,15 +47,15 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
   return (
     <section className="border-b-2 border-ink px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[9px] font-bold tracking-widest text-muted">STATE</span>
+        <span className="font-mono text-micro font-bold tracking-widest text-muted">STATE</span>
         <span className="font-display text-[14px] font-extrabold">{position?.stateTag ?? "—"}</span>
-        <span className="rounded-full bg-paper px-1.5 py-0.5 font-mono text-[8.5px] font-bold text-muted">
+        <span className="rounded-full bg-paper px-1.5 py-0.5 font-mono text-micro font-bold text-muted">
           {actorId} · {lifecycle}
         </span>
         <span className="flex-1" />
         <button
           type="button"
-          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-[9px] font-bold ${diffEnabled ? "bg-pear text-pear-ink" : "bg-surface text-muted"}`}
+          className={`rounded-full border border-ink px-2 py-0.5 font-mono text-micro font-bold ${diffEnabled ? "bg-pear text-pear-ink" : "bg-surface text-muted"}`}
           onClick={() => setDiffEnabled(!diffEnabled)}
         >
           ± diff
@@ -63,17 +63,17 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
         {location === undefined ? null : <SourceLink location={location} />}
       </div>
       {actor === undefined ? null : (
-        <p className="mt-1 font-mono text-[8.5px] text-muted">
+        <p className="mt-1 font-mono text-micro text-muted">
           {actor.definitionPath} · depth {actor.depth}
           {actor.parentActorId === undefined ? " · root" : ` · parent ${actor.parentActorId}`}
         </p>
       )}
       {position === undefined ? (
-        <p className="mt-2 text-[10px] text-muted">
+        <p className="mt-2 text-caption text-muted">
           No committed state for this actor at the cursor.
         </p>
       ) : (
-        <pre className="mt-2 max-h-48 overflow-auto rounded bg-paper p-2 font-mono text-[11px] leading-relaxed">
+        <pre className="mt-2 max-h-48 overflow-auto rounded bg-paper p-2 font-mono text-caption leading-relaxed">
           {diffEnabled && previous !== undefined
             ? diffLines(pretty(previous.state), pretty(position.state)).map((line, index) => (
                 <div
@@ -96,17 +96,17 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
       )}
       {step?.actorId !== actorId || step.eventPayload === undefined ? null : (
         <details className="mt-2">
-          <summary className="cursor-pointer font-mono text-[9px] font-bold tracking-widest text-muted">
+          <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             EVENT PAYLOAD · {step.eventTag}
           </summary>
-          <pre className="mt-1 max-h-32 overflow-auto rounded bg-paper p-2 font-mono text-[10.5px]">
+          <pre className="mt-1 max-h-32 overflow-auto rounded bg-paper p-2 font-mono text-caption">
             {pretty(step.eventPayload)}
           </pre>
         </details>
       )}
       {history.encodingFailures.filter((failure) => failure.actorId === actorId).length ===
       0 ? null : (
-        <p className="mt-2 font-mono text-[9.5px] text-danger">
+        <p className="mt-2 font-mono text-caption text-danger">
           State snapshots for this actor could not be encoded.
         </p>
       )}

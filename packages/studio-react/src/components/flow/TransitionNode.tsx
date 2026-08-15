@@ -32,19 +32,19 @@ export function TransitionNode(props: NodeProps) {
         style={{ width, height }}
       >
         <div className="flex items-center gap-2 whitespace-nowrap">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border border-current text-[9px] font-extrabold">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border border-current text-micro font-extrabold">
             {branch.index + 1}
           </span>
-          <span className="text-[10px] font-extrabold">{event}</span>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-muted">
+          <span className="text-caption font-extrabold">{event}</span>
+          <span className="text-micro font-bold uppercase tracking-wider">
             {branch.kind === "guard" ? "if" : "else"}
           </span>
           {branch.kind === "guard" ? (
-            <span className="min-w-0 truncate text-[10px] font-semibold">{branch.name}</span>
+            <span className="min-w-0 truncate text-caption font-semibold">{branch.name}</span>
           ) : null}
         </div>
         {description === undefined ? null : (
-          <p className="mt-1 whitespace-normal text-[8.5px] font-medium leading-[12px] text-muted">
+          <p className="mt-1 whitespace-normal text-caption font-medium">
             {description}
           </p>
         )}
@@ -56,7 +56,7 @@ export function TransitionNode(props: NodeProps) {
 
   return (
     <div
-      className={`flex h-[24px] items-center rounded-full border px-2.5 font-mono text-[10px] font-bold ${
+      className={`flex h-[28px] items-center rounded-full border px-2.5 font-mono text-caption font-bold ${
         active
           ? "border-accent-ink bg-focus text-surface"
           : "border-accent-ink bg-accent text-accent-ink"

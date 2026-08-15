@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { History } from "@effect-state-machine/studio-client"
 import type { Graph } from "effect-state-machine/devtools"
-import { acceptsEvent, activeStateNodeIds, edgesForStep, focusMany } from "../src/lib/layout.js"
+import { transitionSize } from "../src/lib/elkLayout.js"
+import { acceptsEvent, activeStateNodeIds, edgesForStep, focusMany, nodeSize } from "../src/lib/layout.js"
 import { nodeFacts, nodeKindLabel } from "../src/lib/nodePresentation.js"
 
 const graph: Graph.Graph = {
@@ -192,5 +193,29 @@ describe("Studio statechart presentation", () => {
       { label: "Concurrency", value: "2" },
       { label: "Retry", value: "spaced" },
     ])
+  })
+
+  it("reserves space for the readable graph typography", () => {
+    const state = {
+      id: "Readable",
+      title: "Readable",
+      kind: "state",
+      description: "A description long enough to wrap onto a second readable line.",
+    } satisfies Graph.Node
+    const guarded = {
+      id: "guarded",
+      source: "Ready",
+      target: "Even",
+      event: { tag: "Decide" },
+      branch: {
+        kind: "guard",
+        index: 1,
+        name: "is-even",
+        description: "Non-positive even values use the Even state.",
+      },
+    } satisfies Graph.Edge
+
+    assert.deepStrictEqual(nodeSize(state), { width: 260, height: 88 })
+    assert.deepStrictEqual(transitionSize(guarded), { width: 338.4, height: 64 })
   })
 })

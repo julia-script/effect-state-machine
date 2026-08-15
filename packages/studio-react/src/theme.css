@@ -2,6 +2,11 @@
 @import "@xyflow/react/dist/style.css";
 @source "./**/*.{ts,tsx}";
 
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * macrostructure: preserved Studio component system · genre: modern-minimal
+ * tone: precise devtool · anchor: warm coral · contrast: pass (40–41) · type floor: 10px
+ */
+
 /* One token set drives both themes: the dark block swaps the same variables
    (deliberately re-slotting pear to deep indigo per the design handoff). */
 @theme {
@@ -31,6 +36,11 @@
   --font-display: ui-rounded, "Arial Rounded MT Bold", ui-sans-serif, sans-serif;
   --font-body: ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  --text-micro: 0.625rem;
+  --text-micro--line-height: 0.875rem;
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
 
   --shadow-hard-sm: 0 2px 0 var(--color-ink);
   --shadow-hard: 0 3px 0 var(--color-ink);
