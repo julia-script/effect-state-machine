@@ -1,6 +1,6 @@
 {
   "name": "@effect-state-machine/studio-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Connects running effect-state-machine machines to Studio.",
   "license": "MIT",
   "repository": {
