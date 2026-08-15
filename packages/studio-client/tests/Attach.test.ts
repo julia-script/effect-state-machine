@@ -16,18 +16,18 @@ const ChildState = Schema.Union([ChildWaiting, ChildDone]).pipe(Schema.toTaggedU
 const FinishChild = Schema.TaggedStruct("FinishChild", {})
 const ChildEvent = Schema.Union([FinishChild]).pipe(Schema.toTaggedUnion("_tag"))
 const childMachine = Machine.builder({ input: ChildInput, state: ChildState, event: ChildEvent })
-const childDefinition = childMachine.make({
-  id: "attached-child",
-  initial: () => ({ _tag: "ChildWaiting" }),
-  nodes: [
-    childMachine.state("ChildWaiting", {
-      on: {
-        FinishChild: { target: "ChildDone", reduce: () => ({ _tag: "ChildDone" }) },
-      },
+const childDefinition = childMachine.define(
+  {
+    id: "attached-child",
+    initial: () => ({ _tag: "ChildWaiting" }),
+  },
+  {
+    ChildWaiting: childMachine.state({
+      FinishChild: { target: "ChildDone", reduce: () => ({ _tag: "ChildDone" }) },
     }),
-    childMachine.final("ChildDone"),
-  ],
-})
+    ChildDone: childMachine.final(),
+  },
+)
 
 const ParentInput = Schema.Struct({})
 const RunningChild = Schema.TaggedStruct("RunningChild", {})
@@ -40,19 +40,21 @@ const parentMachine = Machine.builder({
   state: ParentState,
   event: ParentEvent,
 })
-const parentDefinition = parentMachine.make({
-  id: "attached-parent",
-  initial: () => ({ _tag: "RunningChild" }),
-  nodes: [
-    parentMachine.child("RunningChild", {
+const parentDefinition = parentMachine.define(
+  {
+    id: "attached-parent",
+    initial: () => ({ _tag: "RunningChild" }),
+  },
+  {
+    RunningChild: parentMachine.child({
       name: "child",
       definition: childDefinition,
       input: () => ({}),
       onComplete: { target: "ParentDone", reduce: () => ({ _tag: "ParentDone" }) },
     }),
-    parentMachine.final("ParentDone"),
-  ],
-})
+    ParentDone: parentMachine.final(),
+  },
+)
 
 const takeUntil = (
   queue: Queue.Dequeue<Protocol.Message>,

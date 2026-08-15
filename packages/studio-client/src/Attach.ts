@@ -141,7 +141,7 @@ export const attach = <State extends Tagged, Event extends Tagged>(
       definitionPath: Machine.DefinitionPath,
     ): void => {
       definitions.set(definitionPath, definition)
-      for (const node of definition.nodes) {
+      for (const node of Machine.definitionNodes(definition)) {
         if (node.kind !== "child") continue
         collectDefinitions(
           node.definition,

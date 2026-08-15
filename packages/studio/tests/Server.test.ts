@@ -25,24 +25,24 @@ const Event = Machine.taggedUnion({
   Stop: { fields: {} },
 })
 const runner = Machine.builder({ input: Input, state: State, event: Event })
-const definition = runner.make({
-  id: "server-test",
-  initial: () => ({ _tag: "Idle" }),
-  nodes: [
-    runner.state("Idle", {
-      on: {
-        Start: {
-          target: "Running",
-          reduce: ({ event }) => ({ _tag: "Running", speed: event.speed }),
-        },
+const definition = runner.define(
+  {
+    id: "server-test",
+    initial: () => ({ _tag: "Idle" }),
+  },
+  {
+    Idle: runner.state({
+      Start: {
+        target: "Running",
+        reduce: ({ event }) => ({ _tag: "Running", speed: event.speed }),
       },
     }),
-    runner.state("Running", {
-      on: { Stop: { target: "Done", reduce: () => ({ _tag: "Done" }) } },
+    Running: runner.state({
+      Stop: { target: "Done", reduce: () => ({ _tag: "Done" }) },
     }),
-    runner.final("Done"),
-  ],
-})
+    Done: runner.final(),
+  },
+)
 
 const startServer = Effect.gen(function* () {
   const services = yield* Layer.build(Server.layer({ port: 0 }))

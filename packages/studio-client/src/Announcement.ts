@@ -48,7 +48,7 @@ const definitionRegistry = (
   const entries: Array<Protocol.DefinitionDescriptorMessage> = []
 
   const visit = (current: Machine.DefinitionMetadata, path: Machine.DefinitionPath): void => {
-    const children = current.nodes.flatMap((node) => {
+    const children = Machine.definitionNodes(current).flatMap((node) => {
       if (node.kind !== "child") return []
       return [
         {

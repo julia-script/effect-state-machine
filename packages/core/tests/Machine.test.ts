@@ -164,12 +164,17 @@ describe("Machine", () => {
   )
 
   it.effect("rejects an initial state that has no node before returning a handle", () => {
-    const invalidDefinition = counter.make({
-      id: "invalid-initial",
-      initial: () =>
-        ({ _tag: "Missing", count: 0 }) as unknown as { _tag: "Active"; count: number },
-      nodes: [counter.state("Active", { on: {} })],
-    })
+    const invalidDefinition = counter.define(
+      {
+        id: "invalid-initial",
+        initial: () =>
+          ({ _tag: "Missing", count: 0 }) as unknown as { _tag: "Active"; count: number },
+      },
+      {
+        Active: counter.state({}),
+        Paused: counter.state({}),
+      },
+    )
 
     return Effect.gen(function* () {
       const exit = yield* Effect.exit(Machine.run(invalidDefinition, { count: 0 }))
@@ -184,35 +189,24 @@ describe("Machine", () => {
     })
   })
 
-  it("rejects duplicate state tags when the definition is constructed", () => {
-    assert.throws(
-      () =>
-        counter.make({
-          id: "duplicate-states",
-          initial: (input) => ({ _tag: "Active", count: input.count }),
-          nodes: [counter.state("Active", { on: {} }), counter.state("Active", { on: {} })],
-        }),
-      Machine.MachineDefinitionDefect,
-    )
-  })
-
   it("rejects transition targets without a corresponding node", () => {
     assert.throws(
       () =>
-        counter.make({
-          id: "missing-target",
-          initial: (input) => ({ _tag: "Active", count: input.count }),
-          nodes: [
-            counter.state("Active", {
-              on: {
-                Pause: {
-                  target: "Missing" as "Paused",
-                  reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
-                },
+        counter.define(
+          {
+            id: "missing-target",
+            initial: (input) => ({ _tag: "Active", count: input.count }),
+          },
+          {
+            Active: counter.state({
+              Pause: {
+                target: "Missing" as "Paused",
+                reduce: ({ state }) => ({ _tag: "Paused", count: state.count }),
               },
             }),
-          ],
-        }),
+            Paused: counter.state({}),
+          },
+        ),
       Machine.MachineDefinitionDefect,
     )
   })

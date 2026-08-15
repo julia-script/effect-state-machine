@@ -14,3 +14,6 @@ next-env.d.ts
 # local env / deploy
 .env*.local
 .vercel
+
+# turborepo cache
+.turbo/
