@@ -3,9 +3,7 @@
 ## Purpose
 
 The Studio interface: pick a session, see the behavior map and current state, dispatch events, and time-travel through semantic history — following the "Interactive devtools redesign" handoff in structure and interaction (Tailwind-native sizing; not pixel-perfect).
-
 ## Requirements
-
 ### Requirement: Sessions are pickable and their status visible
 The interface SHALL list connected root-execution sessions in a persistent top bar, let the viewer switch between them, and show per-session connection status, root-machine status and state, and the number and status of descendant actors. Child actors SHALL be presented as members of their root session rather than as separately pickable sessions.
 
@@ -82,3 +80,15 @@ The interface SHALL provide light and dark themes driven by one token set, persi
 #### Scenario: Reduced motion
 - **WHEN** the viewer's system requests reduced motion
 - **THEN** edge-flow and zoom animations are disabled while all information remains visible
+
+### Requirement: Non-live sessions can be dismissed
+The interface SHALL offer a dismiss control on sessions whose connection status is disconnected or ended, and SHALL NOT offer it on connected sessions. Dismissing sends the removal request; the session leaves the picker only when the removal notification arrives. When the removed session was the one being viewed, the interface SHALL fall back to another session or the empty state without an error.
+
+#### Scenario: Dismissing a stale session
+- **WHEN** the viewer activates the dismiss control on a disconnected session
+- **THEN** the session disappears from the picker for every connected viewer
+
+#### Scenario: Viewed session is removed
+- **WHEN** the session currently being viewed is removed (by this viewer, another viewer, or supersession)
+- **THEN** the interface switches to another available session or its empty state, without stale panels for the removed session
+

@@ -12,6 +12,7 @@ import * as Protocol from "./Protocol.js"
 export interface MakeOptions {
   readonly definition: Machine.DefinitionMetadata
   readonly sessionId: string
+  readonly instanceKey?: string
   readonly rootActorId: Machine.ActorId
   readonly parentSessionId?: string
   readonly app: Schema.Schema.Type<typeof Protocol.AppIdentity>
@@ -101,6 +102,7 @@ export const make = (options: MakeOptions): Protocol.HelloMessage => ({
   _tag: "Hello",
   protocolVersion: Protocol.VERSION,
   sessionId: options.sessionId,
+  ...(options.instanceKey === undefined ? {} : { instanceKey: options.instanceKey }),
   ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
   rootActorId: options.rootActorId,
   app: options.app,

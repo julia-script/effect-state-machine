@@ -5,6 +5,7 @@ import {
   currentSessionAtom,
   displayedSequenceAtom,
   railCollapsedAtom,
+  removeSessionAtom,
   selectedActorIdAtom,
   selectedSessionIdAtom,
   worldViewAtom,
@@ -30,6 +31,7 @@ export function TopBar() {
   const session = useAtomValue(currentSessionAtom)
   const sequence = useAtomValue(displayedSequenceAtom)
   const selectSession = useAtomSet(selectedSessionIdAtom)
+  const removeSession = useAtomSet(removeSessionAtom)
   const [railCollapsed, setRailCollapsed] = useAtom(railCollapsedAtom)
   const selectedActorId = useAtomValue(selectedActorIdAtom(session?.sessionId ?? "no-session"))
 
@@ -63,6 +65,16 @@ export function TopBar() {
             </option>
           ))}
         </select>
+      )}
+      {singleSession || session === undefined || session.connection === "connected" ? null : (
+        <button
+          type="button"
+          className="h-6 w-6 rounded border border-ink bg-surface text-[13px] leading-none text-ink"
+          title="Dismiss this session"
+          onClick={() => removeSession(session.sessionId)}
+        >
+          ✕
+        </button>
       )}
       <span className="flex items-center gap-1.5 font-mono text-caption font-semibold">
         <span

@@ -81,6 +81,42 @@ describe("ViewerClient", () => {
     ),
   )
 
+  it.live("drops removed sessions and sends removal requests", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const pair = yield* MemoryTransport.makeDuplex
+        const client = yield* ViewerClient.make({
+          transport: pair.viewer,
+          reconnectInterval: "10 millis",
+        })
+        const application = yield* pair.application.connect
+        yield* application.send(hello)
+        yield* application.send({ ...hello, sessionId: "session-2" })
+        yield* client.world.pipe(
+          Stream.filter((candidate) => candidate.sessions.length === 2),
+          Stream.runHead,
+          Effect.timeout("1 second"),
+        )
+
+        yield* application.send({ _tag: "SessionRemoved", sessionId: "session-1" })
+        const world = yield* client.world.pipe(
+          Stream.filter((candidate) => candidate.sessions.length === 1),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+          Effect.timeout("1 second"),
+        )
+        assert.deepStrictEqual(
+          world.sessions.map((session) => session.sessionId),
+          ["session-2"],
+        )
+
+        yield* client.removeSession("session-2")
+        const request = yield* Queue.take(application.messages)
+        assert.deepStrictEqual(request, { _tag: "RemoveSession", sessionId: "session-2" })
+      }),
+    ),
+  )
+
   it.effect("delegates source opening and preserves host failures", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -38,6 +38,13 @@ export const dispatchAtom = runtime.fn(
   }),
 )
 
+export const removeSessionAtom = runtime.fn(
+  Effect.fnUntraced(function* (sessionId: string) {
+    const client = yield* ViewerClient.ViewerClient
+    return yield* client.removeSession(sessionId)
+  }),
+)
+
 export const openEditorAtom = runtime.fn(
   Effect.fnUntraced(function* (location: {
     readonly file: string

@@ -85,6 +85,19 @@ const make = (options?: Options) =>
                 })
                 return
               }
+              if (message.instanceKey !== undefined) {
+                for (const [staleId, stale] of sessions) {
+                  if (
+                    staleId === message.sessionId ||
+                    stale.hello.instanceKey !== message.instanceKey ||
+                    stale.status === "connected"
+                  ) {
+                    continue
+                  }
+                  sessions.delete(staleId)
+                  yield* broadcast({ _tag: "SessionRemoved", sessionId: staleId })
+                }
+              }
               const existing = sessions.get(message.sessionId)
               sessions.set(message.sessionId, {
                 hello: message,
@@ -166,6 +179,16 @@ const make = (options?: Options) =>
         }),
       )
       const receive = (message: Protocol.Message): Effect.Effect<void> => {
+        if (message._tag === "RemoveSession") {
+          return mutex.withPermits(1)(
+            Effect.gen(function* () {
+              const entry = sessions.get(message.sessionId)
+              if (entry === undefined || entry.status === "connected") return
+              sessions.delete(message.sessionId)
+              yield* broadcast({ _tag: "SessionRemoved", sessionId: message.sessionId })
+            }),
+          )
+        }
         if (message._tag !== "Dispatch") return Effect.void
         const rejectWith = (reason: Protocol.DispatchFailure) =>
           Queue.offer(queue, {
@@ -175,15 +198,17 @@ const make = (options?: Options) =>
             correlationId: message.correlationId,
             result: { _tag: "Rejected", reason },
           }).pipe(Effect.asVoid)
-        return mutex.withPermits(1)(Effect.sync(() => sessions.get(message.sessionId))).pipe(
-          Effect.flatMap((entry) => {
-            if (entry === undefined) return rejectWith("not-found")
-            if (entry.appSend === undefined) return rejectWith("disconnected")
-            // Never hold the relay mutex across a socket write. The application may answer
-            // immediately, and its outcome handler needs the same mutex to broadcast the reply.
-            return entry.appSend(message)
-          }),
-        )
+        return mutex
+          .withPermits(1)(Effect.sync(() => sessions.get(message.sessionId)))
+          .pipe(
+            Effect.flatMap((entry) => {
+              if (entry === undefined) return rejectWith("not-found")
+              if (entry.appSend === undefined) return rejectWith("disconnected")
+              // Never hold the relay mutex across a socket write. The application may answer
+              // immediately, and its outcome handler needs the same mutex to broadcast the reply.
+              return entry.appSend(message)
+            }),
+          )
       }
       const peer: ViewerPeer = { messages: queue, receive }
       return peer

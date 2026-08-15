@@ -55,6 +55,8 @@ export class ViewerClient extends Context.Service<
     /** Replays the current world immediately, then every change. */
     world: Stream.Stream<World>
     dispatch: (input: DispatchInput) => Effect.Effect<DispatchResult, DispatchUnavailable>
+    /** Requests server-side removal of a non-live session; a no-op while offline. */
+    removeSession: (sessionId: string) => Effect.Effect<void>
     openEditor: (location: {
       readonly file: string
       readonly line: number
@@ -136,6 +138,11 @@ export const make = Effect.fnUntraced(function* (options: Options) {
               connection: "ended",
             })),
           )
+        case "SessionRemoved":
+          return yield* SubscriptionRef.update(worldRef, (world) => ({
+            ...world,
+            sessions: world.sessions.filter((session) => session.sessionId !== message.sessionId),
+          }))
         case "DispatchOutcome": {
           const waiting = (yield* Ref.get(pending)).get(message.correlationId)
           if (waiting !== undefined) yield* Deferred.succeed(waiting, message.result)
@@ -210,6 +217,15 @@ export const make = Effect.fnUntraced(function* (options: Options) {
       )
     })
 
+  const removeSession = (sessionId: string) =>
+    Effect.gen(function* () {
+      const connection = yield* Ref.get(activeConnection)
+      if (connection === undefined) return
+      yield* connection
+        .send({ _tag: "RemoveSession", sessionId })
+        .pipe(Effect.catch(() => Effect.void))
+    })
+
   const openEditor =
     options.openSource ??
     (() => Effect.fail(new EditorOpenFailed({ message: "No source opener is configured." })))
@@ -217,6 +233,7 @@ export const make = Effect.fnUntraced(function* (options: Options) {
   return {
     world: SubscriptionRef.changes(worldRef),
     dispatch,
+    removeSession,
     openEditor,
   }
 })

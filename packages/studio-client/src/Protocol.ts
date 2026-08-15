@@ -456,6 +456,11 @@ export const DefinitionDescriptor = Schema.Struct({
 export const Hello = Schema.TaggedStruct("Hello", {
   protocolVersion: Schema.Number,
   sessionId: Schema.String,
+  /**
+   * Stable application-lineage identifier: reruns of the same application
+   * announce the same key, letting Studio supersede the stale predecessor.
+   */
+  instanceKey: Schema.optionalKey(Schema.String),
   parentSessionId: Schema.optionalKey(Schema.String),
   rootActorId: Schema.String,
   app: AppIdentity,
@@ -592,6 +597,27 @@ export const SessionDisconnected = Schema.TaggedStruct("SessionDisconnected", {
 })
 
 /**
+ * Schema for a viewer's request to remove a disconnected or ended session.
+ *
+ * @category schemas
+ * @since 0.3.0
+ */
+export const RemoveSession = Schema.TaggedStruct("RemoveSession", {
+  sessionId: Schema.String,
+})
+
+/**
+ * Schema for the notification that a session was removed, whether by viewer
+ * request or by a rerun superseding its stale predecessor.
+ *
+ * @category schemas
+ * @since 0.3.0
+ */
+export const SessionRemoved = Schema.TaggedStruct("SessionRemoved", {
+  sessionId: Schema.String,
+})
+
+/**
  * Schema for rejecting a session that announces an unsupported protocol version.
  *
  * @category schemas
@@ -623,6 +649,8 @@ export const Message = Schema.Union([
   SessionEnded,
   SessionDisconnected,
   SessionRejected,
+  RemoveSession,
+  SessionRemoved,
 ])
 
 /**

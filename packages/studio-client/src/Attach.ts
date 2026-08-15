@@ -51,6 +51,12 @@ export interface AttachOptions<State extends Tagged, Event extends Tagged> {
    * Name shown in Studio's session picker; defaults to the machine identifier.
    */
   readonly appName?: string
+  /**
+   * Stable lineage key for supersession; defaults to `appName:definitionId`.
+   * Supply distinct keys to keep deliberate parallel instances from ever
+   * superseding each other's history.
+   */
+  readonly instanceKey?: string
   readonly parentSessionId?: string
   readonly mapSource?: SourceLocation.Mapper
   /**
@@ -148,14 +154,16 @@ export const attach = <State extends Tagged, Event extends Tagged>(
     // ponytail: ambient UUID over a Crypto service layer — available in every
     // supported runtime and not worth a dependency in the public attach signature.
     const sessionId = yield* Effect.sync(() => globalThis.crypto.randomUUID())
+    const appName = options.appName ?? options.definition.id
     const hello = Announcement.make({
       definition: options.definition,
       sessionId,
+      instanceKey: options.instanceKey ?? `${appName}:${options.definition.id}`,
       rootActorId: options.handle.actorId,
       ...(options.parentSessionId === undefined
         ? {}
         : { parentSessionId: options.parentSessionId }),
-      app: { name: options.appName ?? options.definition.id, runtime: detectRuntime() },
+      app: { name: appName, runtime: detectRuntime() },
       quickEvents: controlsByDefinition.get(Machine.DefinitionPath.root) ?? [],
       quickEventsByDefinition: Object.fromEntries(controlsByDefinition),
       ...(options.mapSource === undefined ? {} : { mapSource: options.mapSource }),

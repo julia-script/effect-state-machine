@@ -120,6 +120,36 @@ describe("Attach", () => {
     ),
   )
 
+  it.live("derives a stable instance key and honors overrides", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const helloFor = (options?: { instanceKey?: string; appName?: string }) =>
+          Effect.gen(function* () {
+            const { transport, studio } = yield* MemoryTransport.make
+            const handle = yield* Machine.run(definition, {})
+            yield* Attach.attach({ definition, handle, ...options }).pipe(
+              Effect.provideService(StudioTransport, transport),
+            )
+            return yield* takeUntil(studio.received, (message) => message._tag === "Hello")
+          })
+        const first = yield* helloFor()
+        const second = yield* helloFor()
+        assert.ok(first._tag === "Hello" && second._tag === "Hello")
+        if (first._tag !== "Hello" || second._tag !== "Hello") return
+        assert.strictEqual(first.instanceKey, "runner:runner")
+        assert.strictEqual(first.instanceKey, second.instanceKey)
+        assert.notStrictEqual(first.sessionId, second.sessionId)
+
+        const named = yield* helloFor({ appName: "demo" })
+        const overridden = yield* helloFor({ instanceKey: "fleet-7" })
+        assert.ok(named._tag === "Hello" && overridden._tag === "Hello")
+        if (named._tag !== "Hello" || overridden._tag !== "Hello") return
+        assert.strictEqual(named.instanceKey, "demo:runner")
+        assert.strictEqual(overridden.instanceKey, "fleet-7")
+      }),
+    ),
+  )
+
   it.live("announces the session and streams facts", () =>
     Effect.scoped(
       Effect.gen(function* () {

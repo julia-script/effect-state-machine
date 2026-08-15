@@ -72,7 +72,136 @@ const takeUntil = (
     return yield* Effect.die(new Error("expected message did not arrive"))
   })
 
+const rawHello = (sessionId: string, instanceKey?: string): Protocol.Message => ({
+  _tag: "Hello",
+  protocolVersion: Protocol.VERSION,
+  sessionId,
+  ...(instanceKey === undefined ? {} : { instanceKey }),
+  rootActorId: "actor:0",
+  app: { name: "raw", runtime: "node" },
+  machine: { id: "raw-machine" },
+  graph: { id: "raw-machine", nodes: [], edges: [], ignores: [] },
+  jsonSchemas: { states: {}, events: {} },
+  quickEvents: [],
+  definitions: [
+    {
+      definitionPath: "root",
+      machine: { id: "raw-machine" },
+      graph: { id: "raw-machine", nodes: [], edges: [], ignores: [] },
+      jsonSchemas: { states: {}, events: {} },
+      quickEvents: [],
+      children: [],
+    },
+  ],
+})
+
+/** Session ids of every Hello replayed before (and including) the sentinel session. */
+const hellosUntil = (
+  messages: Transport.Connection["messages"],
+  sentinelSessionId: string,
+): Effect.Effect<ReadonlyArray<string>, unknown> =>
+  Effect.gen(function* () {
+    const seen: Array<string> = []
+    while (true) {
+      const message = yield* Queue.take(messages)
+      if (message._tag !== "Hello") continue
+      seen.push(message.sessionId)
+      if (message.sessionId === sentinelSessionId) return seen
+    }
+  })
+
 describe("Server", () => {
+  it.live("reruns supersede their stale predecessor only", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { appUrl, viewerUrl } = yield* startServer
+        const viewer = yield* connectViewer(viewerUrl)
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const connection = yield* WebSocketTransport.make({ url: appUrl }).connect
+            yield* connection.send(rawHello("run-1", "raw:raw-machine"))
+            yield* Effect.sleep("150 millis")
+          }),
+        )
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "SessionDisconnected" && message.sessionId === "run-1",
+        )
+
+        // The rerun evicts the disconnected predecessor before announcing.
+        const second = yield* WebSocketTransport.make({ url: appUrl }).connect
+        yield* second.send(rawHello("run-2", "raw:raw-machine"))
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "SessionRemoved" && message.sessionId === "run-1",
+        )
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "Hello" && message.sessionId === "run-2",
+        )
+
+        // A second live instance with the same key never evicts a connected session.
+        const third = yield* WebSocketTransport.make({ url: appUrl }).connect
+        yield* third.send(rawHello("run-3", "raw:raw-machine"))
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "Hello" && message.sessionId === "run-3",
+        )
+
+        const late = yield* connectViewer(viewerUrl)
+        const replayed = yield* hellosUntil(late.messages, "run-3")
+        assert.deepStrictEqual(replayed, ["run-2", "run-3"])
+      }),
+    ),
+  )
+
+  it.live("viewer removal only touches non-live sessions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { appUrl, viewerUrl } = yield* startServer
+        const viewer = yield* connectViewer(viewerUrl)
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const connection = yield* WebSocketTransport.make({ url: appUrl }).connect
+            yield* connection.send(rawHello("live-1"))
+            yield* takeUntil(
+              viewer.messages,
+              (message) => message._tag === "Hello" && message.sessionId === "live-1",
+            )
+
+            // Removal of a connected session is ignored.
+            yield* viewer.send({ _tag: "RemoveSession", sessionId: "live-1" })
+            yield* Effect.sleep("150 millis")
+            const early = yield* connectViewer(viewerUrl)
+            const replayed = yield* hellosUntil(early.messages, "live-1")
+            assert.deepStrictEqual(replayed, ["live-1"])
+          }),
+        )
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "SessionDisconnected" && message.sessionId === "live-1",
+        )
+
+        // Once disconnected, removal is honored and broadcast.
+        yield* viewer.send({ _tag: "RemoveSession", sessionId: "live-1" })
+        yield* takeUntil(
+          viewer.messages,
+          (message) => message._tag === "SessionRemoved" && message.sessionId === "live-1",
+        )
+
+        // A late viewer never sees the removed session; a sentinel proves replay ran.
+        const sentinel = yield* WebSocketTransport.make({ url: appUrl }).connect
+        yield* sentinel.send(rawHello("sentinel"))
+        yield* Effect.sleep("150 millis")
+        const late = yield* connectViewer(viewerUrl)
+        const replayed = yield* hellosUntil(late.messages, "sentinel")
+        assert.deepStrictEqual(replayed, ["sentinel"])
+      }),
+    ),
+  )
+
   it.live("replays two sessions to a late viewer and relays live facts", () =>
     Effect.scoped(
       Effect.gen(function* () {

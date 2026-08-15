@@ -253,6 +253,32 @@ describe("Protocol", () => {
     }),
   )
 
+  it.effect("round trips instance keys and session removal messages", () =>
+    Effect.gen(function* () {
+      const keyed = Announcement.make({
+        definition,
+        sessionId: "session-2",
+        instanceKey: "test-app:protocol-test",
+        rootActorId: Machine.ActorId.make("actor:0"),
+        app: { name: "test-app", runtime: "node" },
+      })
+      assert.strictEqual(keyed.instanceKey, "test-app:protocol-test")
+      const messages: ReadonlyArray<Protocol.Message> = [
+        keyed,
+        { _tag: "RemoveSession", sessionId: "session-2" },
+        { _tag: "SessionRemoved", sessionId: "session-2" },
+      ]
+      for (const message of messages) {
+        const decoded = yield* Protocol.decodeMessageString(
+          yield* Protocol.encodeMessageString(message),
+        )
+        assert.deepStrictEqual(decoded, JSON.parse(JSON.stringify(message)))
+      }
+      // Announcements without a key stay valid for older applications.
+      assert.strictEqual(hello.instanceKey, undefined)
+    }),
+  )
+
   it.effect("rejects malformed messages", () =>
     Effect.gen(function* () {
       const result = yield* Effect.exit(
