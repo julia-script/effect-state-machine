@@ -169,12 +169,9 @@ describe("Graph", () => {
       activeNode: "C",
       traversedEdges: ["a-b"],
     })
-    assert.deepStrictEqual(
-      Fn.pipe(two, Graph.activity("C", [{ source: "A", target: "B" }])),
-      {
-        activeNode: "C",
-        traversedEdges: ["a-b"],
-      },
-    )
+    assert.deepStrictEqual(Fn.pipe(two, Graph.activity("C", [{ source: "A", target: "B" }])), {
+      activeNode: "C",
+      traversedEdges: ["a-b"],
+    })
   })
 })

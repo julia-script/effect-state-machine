@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Connects running effect-state-machine machines to Studio.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julia-script/effect-state-machine.git",
+    "directory": "packages/studio-client"
+  },
+  "homepage": "https://github.com/julia-script/effect-state-machine/tree/main/packages/studio-client",
+  "bugs": "https://github.com/julia-script/effect-state-machine/issues",
   "type": "module",
   "sideEffects": false,
   "files": [

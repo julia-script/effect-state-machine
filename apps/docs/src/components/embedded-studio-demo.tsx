@@ -34,11 +34,7 @@ interface Tagged {
   readonly _tag: string
 }
 
-interface ScopedStudioProps<
-  State extends Tagged,
-  Event extends Tagged,
-  Completion extends State,
-> {
+interface ScopedStudioProps<State extends Tagged, Event extends Tagged, Completion extends State> {
   readonly start: Effect.Effect<Machine.MachineHandle<State, Event, Completion>, never, Scope.Scope>
   readonly machine: Omit<StudioMachine<State, Event>, "handle">
   readonly loadingLabel: string
@@ -55,9 +51,7 @@ function ScopedStudio<State extends Tagged, Event extends Tagged, Completion ext
 
   React.useEffect(() => {
     const scope = Effect.runSync(Scope.make())
-    const nextHandle = Effect.runSync(
-      start.pipe(Effect.provideService(Scope.Scope, scope)),
-    )
+    const nextHandle = Effect.runSync(start.pipe(Effect.provideService(Scope.Scope, scope)))
     setHandle(nextHandle)
     return () => {
       Effect.runFork(Scope.close(scope, Exit.void))

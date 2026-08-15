@@ -1,21 +1,18 @@
 {
-	"$schema": "https://unpkg.com/@changesets/config@4.0.0/schema.json",
-	"changelog": [
-		"@changesets/changelog-github",
-		{ "repo": "julia-script/statemachine" }
-	],
-	"commit": false,
-	"fixed": [
-		[
-			"effect-state-machine",
-			"@effect-state-machine/studio",
-			"@effect-state-machine/studio-client",
-			"@effect-state-machine/studio-react"
-		]
-	],
-	"linked": [],
-	"access": "public",
-	"baseBranch": "main",
-	"updateInternalDependencies": "patch",
-	"ignore": ["@effect-state-machine/docs"]
+  "$schema": "https://unpkg.com/@changesets/config@4.0.0/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "julia-script/effect-state-machine" }],
+  "commit": false,
+  "fixed": [
+    [
+      "effect-state-machine",
+      "@effect-state-machine/studio",
+      "@effect-state-machine/studio-client",
+      "@effect-state-machine/studio-react"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["@effect-state-machine/docs"]
 }

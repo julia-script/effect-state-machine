@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "A small code-first state-machine library built with Effect for Effect users.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julia-script/effect-state-machine.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/julia-script/effect-state-machine/tree/main/packages/core",
+  "bugs": "https://github.com/julia-script/effect-state-machine/issues",
   "type": "module",
   "sideEffects": false,
   "files": [

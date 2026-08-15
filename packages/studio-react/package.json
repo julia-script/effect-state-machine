@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Self-contained React Studio for effect-state-machine.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julia-script/effect-state-machine.git",
+    "directory": "packages/studio-react"
+  },
+  "homepage": "https://github.com/julia-script/effect-state-machine/tree/main/packages/studio-react",
+  "bugs": "https://github.com/julia-script/effect-state-machine/issues",
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -40,8 +47,8 @@
   "peerDependencies": {
     "effect": "4.0.0-beta.106",
     "effect-state-machine": "workspace:*",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.106",

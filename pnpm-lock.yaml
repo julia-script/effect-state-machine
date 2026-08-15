@@ -105,28 +105,19 @@ importers:
 
   packages/studio:
     dependencies:
-      '@effect-state-machine/studio-client':
-        specifier: workspace:*
-        version: link:../studio-client
-      '@effect-state-machine/studio-react':
-        specifier: workspace:*
-        version: link:../studio-react
       '@effect/platform-node':
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106(effect@4.0.0-beta.106)(ioredis@5.11.1)
       effect:
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106
-      effect-state-machine:
-        specifier: workspace:*
-        version: link:../core
-      react:
-        specifier: 19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: 19.2.8
-        version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@effect-state-machine/studio-client':
+        specifier: workspace:*
+        version: link:../studio-client
+      '@effect-state-machine/studio-react':
+        specifier: workspace:*
+        version: link:../studio-react
       '@effect/vitest':
         specifier: 4.0.0-beta.106
         version: 4.0.0-beta.106(effect@4.0.0-beta.106)(vitest@4.1.10(@types/node@26.2.0)(jsdom@27.4.0)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0)))
@@ -142,9 +133,18 @@ importers:
       '@vitejs/plugin-react':
         specifier: 6.0.5
         version: 6.0.5(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
+      effect-state-machine:
+        specifier: workspace:*
+        version: link:../core
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3

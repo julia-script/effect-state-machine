@@ -115,11 +115,13 @@ const Cancel = Schema.TaggedStruct("Cancel", {})
 const Event = Schema.Union([Cancel])
 const greeting = Machine.builder({ input: Input, state: State, event: Event })
 
-export const definition = greeting.make({
-  id: "consumer-greeting",
-  initial: (input) => ({ _tag: "Loading", name: input.name }),
-  nodes: [
-    greeting.invoke("Loading", {
+export const definition = greeting.define(
+  {
+    id: "consumer-greeting",
+    initial: (input) => ({ _tag: "Loading", name: input.name }),
+  },
+  {
+    Loading: greeting.invoke({
       name: "Greeter.greet",
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: {
@@ -131,10 +133,10 @@ export const definition = greeting.make({
         reduce: ({ error }) => ({ _tag: "Failed", message: error.message }),
       },
     }),
-    greeting.final("Done"),
-    greeting.final("Failed"),
-  ],
-})
+    Done: greeting.final(),
+    Failed: greeting.final(),
+  },
+)
 
 const GreeterLive = Layer.succeed(
   Greeter,
@@ -169,14 +171,20 @@ const Input = Schema.Struct({})
 const State = Machine.taggedUnion({ Active: { fields: { count: Schema.Number } } })
 const Event = Machine.taggedUnion({ Increment: { fields: { amount: Schema.Number } } })
 const counter = Machine.builder({ input: Input, state: State, event: Event })
-const counterDefinition = counter.make({
-  id: "packed-counter",
-  initial: () => ({ _tag: "Active", count: 0 }),
-  nodes: [counter.state("Active", { on: { Increment: {
-    target: "Active",
-    reduce: ({ state, event }) => ({ ...state, count: state.count + event.amount }),
-  } } })],
-})
+const counterDefinition = counter.define(
+  {
+    id: "packed-counter",
+    initial: () => ({ _tag: "Active", count: 0 }),
+  },
+  {
+    Active: counter.state({
+      Increment: {
+        target: "Active",
+        reduce: ({ state, event }) => ({ ...state, count: state.count + event.amount }),
+      },
+    }),
+  },
+)
 await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const handle = yield* Machine.run(counterDefinition, {})
   yield* handle.send({ _tag: "Increment", amount: 2 })

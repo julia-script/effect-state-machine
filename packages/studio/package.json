@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Studio — the standalone devtool for effect-state-machine.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julia-script/effect-state-machine.git",
+    "directory": "packages/studio"
+  },
+  "homepage": "https://github.com/julia-script/effect-state-machine/tree/main/packages/studio",
+  "bugs": "https://github.com/julia-script/effect-state-machine/issues",
   "type": "module",
   "bin": {
     "effect-state-machine-studio": "./bin/studio.mjs"
@@ -23,15 +30,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect-state-machine/studio-client": "workspace:*",
-    "@effect-state-machine/studio-react": "workspace:*",
     "@effect/platform-node": "4.0.0-beta.106",
-    "effect": "4.0.0-beta.106",
-    "effect-state-machine": "workspace:*",
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "effect": "4.0.0-beta.106"
   },
   "devDependencies": {
+    "@effect-state-machine/studio-client": "workspace:*",
+    "@effect-state-machine/studio-react": "workspace:*",
+    "effect-state-machine": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "@effect/vitest": "4.0.0-beta.106",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "^19.2.18",

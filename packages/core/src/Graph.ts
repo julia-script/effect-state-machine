@@ -228,26 +228,29 @@ export const activity: {
     activeNode: string | undefined,
     transitions: ReadonlyArray<TransitionActivity>,
   ): ActivityOverlay
-} = Fn.dual(3, (
-  graph: Graph,
-  activeNode: string | undefined,
-  transitions: ReadonlyArray<TransitionActivity>,
-): ActivityOverlay => ({
-  ...(activeNode === undefined || !graph.nodes.some((node) => node.id === activeNode)
-    ? {}
-    : { activeNode }),
-  traversedEdges: graph.edges.flatMap((edge) =>
-    transitions.some(
-      (transition) =>
-        transition.source === edge.source &&
-        transition.target === edge.target &&
-        (transition.event === undefined || transition.event === edge.event?.tag) &&
-        (transition.branchIndex === undefined || transition.branchIndex === edge.branch?.index),
-    )
-      ? [edge.id]
-      : [],
-  ),
-}))
+} = Fn.dual(
+  3,
+  (
+    graph: Graph,
+    activeNode: string | undefined,
+    transitions: ReadonlyArray<TransitionActivity>,
+  ): ActivityOverlay => ({
+    ...(activeNode === undefined || !graph.nodes.some((node) => node.id === activeNode)
+      ? {}
+      : { activeNode }),
+    traversedEdges: graph.edges.flatMap((edge) =>
+      transitions.some(
+        (transition) =>
+          transition.source === edge.source &&
+          transition.target === edge.target &&
+          (transition.event === undefined || transition.event === edge.event?.tag) &&
+          (transition.branchIndex === undefined || transition.branchIndex === edge.branch?.index),
+      )
+        ? [edge.id]
+        : [],
+    ),
+  }),
+)
 
 const descriptionOf = (schema: Schema.Top | undefined): string | undefined => {
   if (schema === undefined) return undefined
