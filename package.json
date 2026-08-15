@@ -9,10 +9,15 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "test": "pnpm -r run test",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
+    "@changesets/changelog-github": "^1.0.0",
+    "@changesets/cli": "^3.0.0",
     "turbo": "^2.5.7"
   },
   "packageManager": "pnpm@11.18.0"
