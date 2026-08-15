@@ -36,7 +36,9 @@ export type EditorResolver = (location: Location) => string | undefined
 const internalFrame = (file: string): boolean =>
   /(?:^|\/)src\/(?:Machine|Source)\.[cm]?[jt]s$/.test(file) ||
   /(?:^|\/)dist\/(?:Machine|Source)\.js$/.test(file) ||
-  /node_modules\/effect-state-machine\/(?:src|dist)\/(?:Machine|Source)/.test(file)
+  /node_modules\/effect-state-machine\/(?:src|dist)\/(?:Machine|Source)/.test(file) ||
+  // Vite pre-bundles the whole library into one flattened dev module.
+  /node_modules\/\.vite\/deps\/effect-state-machine(?:\.|_)/.test(file)
 
 const location = (
   file: string,
@@ -59,6 +61,11 @@ const location = (
     return undefined
   }
   let decoded = file
+  if (/^https?:/.test(decoded)) {
+    // Dev servers append cache-busting queries (?t=, ?v=) that would defeat
+    // internal-frame detection and source-map lookup.
+    decoded = decoded.replace(/[?#].*$/, "")
+  }
   if (decoded.startsWith("file://")) {
     try {
       decoded = decodeURIComponent(new URL(decoded).pathname)

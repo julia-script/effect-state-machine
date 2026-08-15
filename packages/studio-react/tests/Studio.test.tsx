@@ -204,11 +204,6 @@ describe("Studio", () => {
       Effect.gen(function* () {
         const handle = yield* Machine.run(definition, {})
         const container = document.createElement("div")
-        const copied: Array<string> = []
-        Object.defineProperty(navigator, "clipboard", {
-          configurable: true,
-          value: { writeText: (text: string) => Promise.resolve(copied.push(text)) },
-        })
         document.body.append(container)
         const root = createRoot(container)
 
@@ -221,13 +216,10 @@ describe("Studio", () => {
         )
         const shadow = yield* waitFor(() => container.firstElementChild?.shadowRoot ?? undefined)
         const source = yield* waitFor(() =>
-          [...shadow.querySelectorAll("button")].find((button) =>
-            button.title.includes("Runner.ts"),
-          ),
+          [...shadow.querySelectorAll("a")].find((anchor) => anchor.title.includes("Runner.ts")),
         )
-        yield* react(() => source.click())
-        assert.strictEqual(copied.length, 1)
-        assert.ok(copied[0]?.includes("Runner.ts"))
+        assert.ok(source.getAttribute("href")?.startsWith("vscode://file"))
+        assert.ok(source.getAttribute("href")?.includes("Runner.ts"))
         yield* react(() => root.unmount())
         yield* handle.send({ _tag: "Start", speed: 3 })
         assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Running", speed: 3 })

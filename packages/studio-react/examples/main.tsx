@@ -6,6 +6,8 @@ import { Machine } from "effect-state-machine"
 import { createRoot } from "react-dom/client"
 import { Studio } from "../src/index.js"
 
+declare const __PROJECT_ROOT__: string
+
 const Input = Schema.Struct({})
 const State = Machine.taggedUnion({
   Idle: { fields: {} },
@@ -48,6 +50,7 @@ createRoot(rootElement).render(
     machine={{
       definition,
       handle,
+      projectRoot: __PROJECT_ROOT__,
       quickEvents: [
         { id: "start", label: "Start at 7", event: { _tag: "Start", speed: 7 } },
         { id: "stop", label: "Stop", event: { _tag: "Stop" } },

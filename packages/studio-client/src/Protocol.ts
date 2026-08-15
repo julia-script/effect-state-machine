@@ -386,6 +386,8 @@ const _projectedToWire: (
 export const AppIdentity = Schema.Struct({
   name: Schema.String,
   runtime: Schema.Literals(["browser", "node", "other"]),
+  /** Absolute filesystem root used to resolve dev-server-relative source paths. */
+  projectRoot: Schema.optionalKey(Schema.String),
 })
 
 /**

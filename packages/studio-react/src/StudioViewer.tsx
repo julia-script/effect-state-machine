@@ -6,7 +6,7 @@ import * as Atom from "effect/unstable/reactivity/Atom"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { App } from "./App.js"
-import { HostContext, type SourceAction, type StudioTheme } from "./HostContext.js"
+import { type EditorId, HostContext, type SourceAction, type StudioTheme } from "./HostContext.js"
 import * as StudioAtoms from "./state/atoms.js"
 import type * as ViewerClient from "./state/ViewerClient.js"
 import styleText from "./theme.css?inline"
@@ -27,6 +27,23 @@ export interface StudioViewerProps {
   readonly style?: React.CSSProperties
 }
 
+// IDE preference and project root are viewer-local settings, not host API:
+// persisted directly so both embedded and standalone Studio remember them.
+const readSetting = (key: string): string | undefined => {
+  try {
+    return globalThis.localStorage.getItem(key) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+const writeSetting = (key: string, value: string): void => {
+  try {
+    globalThis.localStorage.setItem(key, value)
+  } catch {
+    // Storage may be unavailable (sandboxed iframe); the setting just won't persist.
+  }
+}
+
 export function StudioViewer({
   viewerLayer,
   registryKey,
@@ -37,7 +54,7 @@ export function StudioViewer({
   defaultTheme = "light",
   onThemeChange,
   sourceAction: controlledSourceAction,
-  defaultSourceAction = canOpenSource ? "open" : "copy",
+  defaultSourceAction = canOpenSource ? "open" : "link",
   onSourceActionChange,
   className,
   style,
@@ -46,8 +63,14 @@ export function StudioViewer({
   const [localTheme, setLocalTheme] = React.useState<StudioTheme>(defaultTheme)
   const [localSourceAction, setLocalSourceAction] =
     React.useState<SourceAction>(defaultSourceAction)
+  const [editor, setEditorState] = React.useState<EditorId>(() =>
+    readSetting("studio-editor") === "cursor" ? "cursor" : "vscode",
+  )
+  const [projectRoot, setProjectRootState] = React.useState<string>(
+    () => readSetting("studio-project-root") ?? "",
+  )
   const theme = controlledTheme ?? localTheme
-  const sourceAction = canOpenSource ? (controlledSourceAction ?? localSourceAction) : "copy"
+  const sourceAction = canOpenSource ? (controlledSourceAction ?? localSourceAction) : "link"
 
   const hostRef = React.useCallback((host: HTMLDivElement | null) => {
     if (host === null) return
@@ -68,6 +91,14 @@ export function StudioViewer({
     },
     [controlledSourceAction, onSourceActionChange],
   )
+  const setEditor = React.useCallback((next: EditorId) => {
+    setEditorState(next)
+    writeSetting("studio-editor", next)
+  }, [])
+  const setProjectRoot = React.useCallback((next: string) => {
+    setProjectRootState(next)
+    writeSetting("studio-project-root", next)
+  }, [])
 
   const controls = React.useMemo(
     () => ({
@@ -75,11 +106,27 @@ export function StudioViewer({
       setTheme,
       sourceAction,
       setSourceAction,
+      editor,
+      setEditor,
+      projectRoot,
+      setProjectRoot,
       connectionKind,
       singleSession,
       canOpenSource,
     }),
-    [canOpenSource, connectionKind, setSourceAction, setTheme, singleSession, sourceAction, theme],
+    [
+      canOpenSource,
+      connectionKind,
+      editor,
+      projectRoot,
+      setEditor,
+      setProjectRoot,
+      setSourceAction,
+      setTheme,
+      singleSession,
+      sourceAction,
+      theme,
+    ],
   )
 
   return (

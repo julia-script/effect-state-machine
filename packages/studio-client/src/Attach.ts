@@ -9,6 +9,7 @@ import { Machine } from "effect-state-machine"
 import type { SourceLocation } from "effect-state-machine/devtools"
 import * as Announcement from "./Announcement.js"
 import * as Protocol from "./Protocol.js"
+import * as SourceMap from "./SourceMap.js"
 import { type Connection, StudioTransport, TransportError } from "./Transport.js"
 
 interface Tagged {
@@ -58,6 +59,13 @@ export interface AttachOptions<State extends Tagged, Event extends Tagged> {
    */
   readonly instanceKey?: string
   readonly parentSessionId?: string
+  /**
+   * Absolute filesystem root of the app, used by Studio to turn
+   * dev-server-relative source paths into IDE-openable absolute paths.
+   * Defaults to `process.cwd()` in Node; browsers cannot detect it, so pass it
+   * explicitly (e.g. injected via a bundler define).
+   */
+  readonly projectRoot?: string
   readonly mapSource?: SourceLocation.Mapper
   /**
    * Number of unsent facts retained while disconnected; defaults to 10,000.
@@ -155,7 +163,12 @@ export const attach = <State extends Tagged, Event extends Tagged>(
     // supported runtime and not worth a dependency in the public attach signature.
     const sessionId = yield* Effect.sync(() => globalThis.crypto.randomUUID())
     const appName = options.appName ?? options.definition.id
-    const hello = Announcement.make({
+    const projectRoot =
+      options.projectRoot ??
+      (detectRuntime() === "node"
+        ? (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+        : undefined)
+    const announceOptions: Omit<Announcement.MakeOptions, "mapSource"> = {
       definition: options.definition,
       sessionId,
       instanceKey: options.instanceKey ?? `${appName}:${options.definition.id}`,
@@ -163,10 +176,34 @@ export const attach = <State extends Tagged, Event extends Tagged>(
       ...(options.parentSessionId === undefined
         ? {}
         : { parentSessionId: options.parentSessionId }),
-      app: { name: appName, runtime: detectRuntime() },
+      app: {
+        name: appName,
+        runtime: detectRuntime(),
+        ...(projectRoot === undefined ? {} : { projectRoot }),
+      },
       quickEvents: controlsByDefinition.get(Machine.DefinitionPath.root) ?? [],
       quickEventsByDefinition: Object.fromEntries(controlsByDefinition),
-      ...(options.mapSource === undefined ? {} : { mapSource: options.mapSource }),
+    }
+    let mapSource = options.mapSource
+    if (mapSource === undefined) {
+      // Dev-server stacks point at transpiled modules; map them back to
+      // authored positions via the modules' own (inline) source maps. A
+      // collecting pass first walks every candidate frame per source.
+      const files = new Set<string>()
+      Announcement.make({
+        ...announceOptions,
+        mapSource: (generated) => {
+          files.add(generated.file)
+          return undefined
+        },
+      })
+      if ([...files].some((file) => /^https?:/.test(file))) {
+        mapSource = yield* Effect.promise(() => SourceMap.mapper(files))
+      }
+    }
+    const hello = Announcement.make({
+      ...announceOptions,
+      ...(mapSource === undefined ? {} : { mapSource }),
     })
     const bufferLimit = options.bufferLimit ?? 10_000
     const reconnectInterval = options.reconnectInterval ?? "1 second"

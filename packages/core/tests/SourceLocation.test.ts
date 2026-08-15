@@ -26,6 +26,29 @@ describe("SourceLocation", () => {
     assert.strictEqual(SourceLocation.parseFrame("not a frame"), undefined)
   })
 
+  it("strips dev-server cache-busting queries from module URLs", () => {
+    assert.deepStrictEqual(
+      SourceLocation.parseFrame("at http://localhost:5174/main.tsx?t=1786823581900:36:10"),
+      { file: "http://localhost:5174/main.tsx", line: 36, column: 10 },
+    )
+  })
+
+  it("skips Vite-prebundled library frames", () => {
+    const reference = {
+      stack: () =>
+        [
+          "Error",
+          " at state (http://localhost:5174/node_modules/.vite/deps/effect-state-machine.js?v=abc123:1751:20)",
+          " at http://localhost:5174/main.tsx?t=1786823581900:36:10",
+        ].join("\n"),
+    }
+    assert.deepStrictEqual(SourceLocation.resolve(reference), {
+      file: "http://localhost:5174/main.tsx",
+      line: 36,
+      column: 10,
+    })
+  })
+
   it("captures declaration-level node locations and maps them when requested", () => {
     const graph = Graph.fromDefinition(counterDefinition)
     const active = graph.nodes.find((node) => node.id === "Active")

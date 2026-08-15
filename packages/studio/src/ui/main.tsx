@@ -30,8 +30,11 @@ const viewerLayer = ViewerClient.layer({
 
 const readTheme = (): StudioTheme =>
   globalThis.localStorage.getItem("studio-theme") === "dark" ? "dark" : "light"
-const readSourceAction = (): SourceAction =>
-  globalThis.localStorage.getItem("studio-source-action") === "copy" ? "copy" : "open"
+const readSourceAction = (): SourceAction => {
+  const stored = globalThis.localStorage.getItem("studio-source-action")
+  // "copy" is the pre-deeplink name for the non-host action.
+  return stored === "link" || stored === "copy" ? "link" : "open"
+}
 
 function StandaloneStudio() {
   const [theme, setTheme] = React.useState<StudioTheme>(readTheme)

@@ -23,6 +23,10 @@ export function TopBar() {
   const {
     canOpenSource,
     connectionKind,
+    editor,
+    projectRoot,
+    setEditor,
+    setProjectRoot,
     setSourceAction,
     setTheme,
     singleSession,
@@ -116,14 +120,40 @@ export function TopBar() {
                   className="h-6 rounded border border-ink bg-paper px-1 font-mono text-caption text-ink"
                   value={sourceAction}
                   onChange={(event) =>
-                    setSourceAction(event.target.value === "copy" ? "copy" : "open")
+                    setSourceAction(event.target.value === "link" ? "link" : "open")
                   }
                 >
-                  <option value="open">Open</option>
-                  <option value="copy">Copy</option>
+                  <option value="open">Open via host</option>
+                  <option value="link">IDE link</option>
                 </select>
               </div>
             ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-micro font-bold tracking-widest text-muted">IDE</span>
+              <select
+                className="h-6 rounded border border-ink bg-paper px-1 font-mono text-caption text-ink"
+                value={editor}
+                onChange={(event) =>
+                  setEditor(event.target.value === "cursor" ? "cursor" : "vscode")
+                }
+              >
+                <option value="vscode">VS Code</option>
+                <option value="cursor">Cursor</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-mono text-micro font-bold tracking-widest text-muted">
+                PROJECT ROOT
+              </span>
+              <input
+                type="text"
+                className="h-6 w-full rounded border border-ink bg-paper px-1 font-mono text-caption text-ink"
+                placeholder="/path/to/project (for relative sources)"
+                value={projectRoot}
+                onChange={(event) => setProjectRoot(event.target.value)}
+                spellCheck={false}
+              />
+            </div>
             {singleSession ? null : (
               <div className="flex flex-col gap-1">
                 <span className="font-mono text-micro font-bold tracking-widest text-muted">

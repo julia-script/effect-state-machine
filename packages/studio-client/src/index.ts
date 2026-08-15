@@ -39,6 +39,14 @@ export * as MemoryTransport from "./MemoryTransport.js"
 export * as Protocol from "./Protocol.js"
 
 /**
+ * Dev-server source-map fetching and position mapping.
+ *
+ * @category re-exports
+ * @since 0.1.0
+ */
+export * as SourceMap from "./SourceMap.js"
+
+/**
  * Transport contracts and Effect service.
  *
  * @category re-exports
