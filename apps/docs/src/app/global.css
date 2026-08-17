@@ -2,6 +2,52 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 
+/* Docs share the landing/Studio warm palette (packages/studio-react/theme.css):
+   paper backgrounds, indigo-tinted ink, coral accents. */
+:root {
+  --color-fd-background: oklch(96% 0.025 92);
+  --color-fd-foreground: oklch(24% 0.035 284);
+  --color-fd-muted: oklch(92% 0.04 95);
+  --color-fd-muted-foreground: oklch(45% 0.035 284);
+  --color-fd-popover: oklch(99% 0.012 92);
+  --color-fd-popover-foreground: oklch(24% 0.035 284);
+  --color-fd-card: oklch(99% 0.012 92);
+  --color-fd-card-foreground: oklch(24% 0.035 284);
+  --color-fd-border: oklch(76% 0.045 92 / 55%);
+  --color-fd-primary: oklch(55% 0.19 34);
+  --color-fd-primary-foreground: oklch(99% 0.012 92);
+  --color-fd-secondary: oklch(92% 0.04 95);
+  --color-fd-secondary-foreground: oklch(24% 0.035 284);
+  --color-fd-accent: oklch(90% 0.045 95 / 70%);
+  --color-fd-accent-foreground: oklch(22% 0.035 284);
+  --color-fd-ring: oklch(55% 0.19 34);
+}
+
+.dark {
+  --color-fd-background: oklch(24% 0.02 284);
+  --color-fd-foreground: oklch(92% 0.02 92);
+  --color-fd-muted: oklch(29% 0.025 284);
+  --color-fd-muted-foreground: oklch(72% 0.025 284);
+  --color-fd-popover: oklch(21% 0.02 284);
+  --color-fd-popover-foreground: oklch(90% 0.02 92);
+  --color-fd-card: oklch(22% 0.02 284);
+  --color-fd-card-foreground: oklch(92% 0.02 92);
+  --color-fd-border: oklch(42% 0.03 284 / 45%);
+  --color-fd-primary: oklch(74% 0.18 40);
+  --color-fd-primary-foreground: oklch(20% 0.045 284);
+  --color-fd-secondary: oklch(29% 0.025 284);
+  --color-fd-secondary-foreground: oklch(92% 0.02 92);
+  --color-fd-accent: oklch(34% 0.03 284 / 60%);
+  --color-fd-accent-foreground: oklch(92% 0.02 92);
+  --color-fd-ring: oklch(74% 0.18 40);
+}
+
+.dark #nd-sidebar {
+  --color-fd-muted: oklch(28% 0.025 284);
+  --color-fd-secondary: oklch(31% 0.025 284);
+  --color-fd-muted-foreground: oklch(75% 0.025 284);
+}
+
 html {
   overflow-x: clip;
   scrollbar-gutter: stable;

@@ -16,7 +16,7 @@ const body = Inter({
 const mono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-landing-mono",
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
 })
 
 export default function Layout({ children }: LayoutProps<"/">) {
