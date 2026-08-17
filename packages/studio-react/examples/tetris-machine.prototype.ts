@@ -325,7 +325,7 @@ export const definition = tetris.define(
       {
         name: "gravity.wait",
         description:
-          "Sleep one gravity interval. The sleep is scoped to Falling: any transition cancels and re-invokes it.",
+          "Sleep one gravity interval. The sleep is scoped to Falling: leaving the state cancels it, while `stay` updates (steering) leave it running.",
         effect: (state) => Effect.sleep(gravityMs(state.level)),
         onSuccess: {
           branches: [
@@ -348,23 +348,22 @@ export const definition = tetris.define(
         },
       },
       {
+        // `stay` updates state data without exiting or re-entering the node,
+        // so steering the piece never cancels the running gravity Effect.
         MoveLeft: {
-          target: "Falling",
-          reduce: ({ state }) => {
+          stay: ({ state }) => {
             const moved = { ...state.piece, x: state.piece.x - 1 }
             return collides(state.board, moved) ? state : { ...state, piece: moved }
           },
         },
         MoveRight: {
-          target: "Falling",
-          reduce: ({ state }) => {
+          stay: ({ state }) => {
             const moved = { ...state.piece, x: state.piece.x + 1 }
             return collides(state.board, moved) ? state : { ...state, piece: moved }
           },
         },
         Rotate: {
-          target: "Falling",
-          reduce: ({ state }) => {
+          stay: ({ state }) => {
             const turned = { ...state.piece, rotation: (state.piece.rotation + 1) & 3 }
             for (const nudge of [0, -1, 1, -2, 2]) {
               const candidate = { ...turned, x: turned.x + nudge }
@@ -374,8 +373,7 @@ export const definition = tetris.define(
           },
         },
         SoftDrop: {
-          target: "Falling",
-          reduce: ({ state }) =>
+          stay: ({ state }) =>
             collides(state.board, down(state.piece))
               ? state
               : { ...state, piece: down(state.piece) },
