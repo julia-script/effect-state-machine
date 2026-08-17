@@ -1,5 +1,5 @@
-import Link from "next/link"
 import packageJson from "effect-state-machine/package.json"
+import Link from "next/link"
 import { appName, docsRoute, gitConfig } from "@/lib/shared"
 
 const githubUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`
@@ -16,6 +16,9 @@ export function LandingNav() {
         <nav className="landing-nav__links" aria-label="Primary">
           <Link className="chip-btn" href={docsRoute}>
             Docs
+          </Link>
+          <Link className="chip-btn" href="/tetris">
+            Tetris
           </Link>
           <a className="chip-btn" href={githubUrl} rel="noreferrer">
             GitHub

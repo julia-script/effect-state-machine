@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "apps/docs", "dev"],
+      "port": 3000
+    },
+    {
       "name": "studio-react-example",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

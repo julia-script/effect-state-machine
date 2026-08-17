@@ -1,8 +1,8 @@
 /**
- * PROTOTYPE — throwaway Tetris machine for the Studio demo page. The whole
- * game is one machine definition: gravity is a scoped invoked Effect owned by
- * the Falling state (pausing cancels it), every input is a machine event, and
- * lock/clear/top-out decisions are named guards.
+ * Tetris as one machine definition. Gravity is a scoped invoked Effect owned
+ * by the Falling state (pausing cancels it, `stay` steering updates leave it
+ * running), every input is a machine event, and lock/clear/top-out decisions
+ * are named guards visible in the inspection stream and Studio.
  */
 import { Effect, Schema } from "effect"
 import { Machine } from "effect-state-machine"
@@ -141,7 +141,8 @@ export const dropped = (board: BoardData, piece: PieceData): PieceData => {
   return candidate
 }
 
-// ponytail: plain LCG instead of a 7-bag randomizer; swap in a bag if streaks annoy
+// Plain LCG keeps the piece stream a pure function of the seed; a 7-bag
+// randomizer would reduce streaks but needs no library features this demo shows.
 const nextSeed = (seed: number): number => (Math.imul(seed, 1664525) + 1013904223) >>> 0
 const roll = (seed: number): readonly [number, number] => {
   const advanced = nextSeed(seed)
