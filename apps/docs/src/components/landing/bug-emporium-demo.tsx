@@ -166,14 +166,19 @@ function ProductRow({
           {product.origin} · {product.note}
         </span>
       </div>
-      {count > 0 ? (
-        <>
-          <span className="shop-item__count">× {count}</span>
-          <button type="button" className="shop-item__minus" title="Remove one" onClick={onRemove}>
-            −
-          </button>
-        </>
-      ) : null}
+      {/* Always rendered, hidden at zero: the reserved space keeps the card
+          height stable when the first item lands in the cart. */}
+      <span className={`shop-item__count${count > 0 ? "" : " shop-item__count--empty"}`}>
+        × {count}
+      </span>
+      <button
+        type="button"
+        className={`shop-item__minus${count > 0 ? "" : " shop-item__minus--empty"}`}
+        title="Remove one"
+        onClick={onRemove}
+      >
+        −
+      </button>
       <button type="button" className="shop-item__add" onClick={onAdd}>
         Add
       </button>

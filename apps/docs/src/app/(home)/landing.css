@@ -659,12 +659,20 @@
 
 .shop-item__count {
   flex-shrink: 0;
+  min-inline-size: 3ch;
   padding: 0.18rem 0.5rem;
   border-radius: 999px;
   border: 1.5px solid var(--color-ink);
   background: var(--color-cyan);
   color: var(--color-cyan-ink);
   font: 700 0.6875rem / 1 var(--font-mono);
+  text-align: center;
+}
+
+/* Hidden, not removed: the reserved space keeps card heights stable. */
+.shop-item__count--empty,
+.shop-item__minus--empty {
+  visibility: hidden;
 }
 
 .shop-item__minus,
