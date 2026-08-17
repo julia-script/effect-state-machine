@@ -27,7 +27,7 @@ This repository is a pnpm workspace:
 The v0 line currently targets the Effect beta used to design and verify its semantics:
 
 ```sh
-pnpm add effect-state-machine effect@4.0.0-beta.106
+pnpm add effect-state-machine effect
 ```
 
 ## Quick start
