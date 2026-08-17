@@ -17,8 +17,8 @@ export function LandingNav() {
           <Link className="chip-btn" href={docsRoute}>
             Docs
           </Link>
-          <Link className="chip-btn" href="/tetris">
-            Tetris
+          <Link className="chip-btn" href="/examples">
+            Examples
           </Link>
           <a className="chip-btn" href={githubUrl} rel="noreferrer">
             GitHub
