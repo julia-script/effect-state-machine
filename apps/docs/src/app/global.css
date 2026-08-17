@@ -3,7 +3,12 @@
 @import "fumadocs-ui/css/preset.css";
 
 html {
+  overflow-x: clip;
   scrollbar-gutter: stable;
+}
+
+body {
+  overflow-x: clip;
 }
 
 /* `scrollbar-gutter: stable` already reserves the space, so undo the inline

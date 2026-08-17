@@ -1,9 +1,14 @@
 {
-  "date": "2026-08-09",
-  "font_stack": "none detected",
-  "palette": "none detected",
-  "motion": "motion-cut; no motion library detected",
-  "spacing": "no shared token scale detected",
-  "framework": "vanilla TypeScript and HTML",
-  "preserve": ["library and devtools entry-point separation", "Effect-native runtime boundary"]
+  "date": "2026-08-16",
+  "font_stack": "fumadocs-ui default (no next/font in apps/docs)",
+  "palette": "fumadocs-ui/css/neutral.css + preset.css (apps/docs/src/app/global.css)",
+  "motion": "motion-cut; no framer-motion / motion / gsap",
+  "spacing": "Tailwind v4 default scale",
+  "framework": "Next.js 16 App Router + Fumadocs + Tailwind 4 (apps/docs)",
+  "preserve": [
+    "fumadocs-ui CSS imports in global.css",
+    "HomeLayout nav + GitHub link",
+    "existing EmbeddedStudioDemo / studio-react embed",
+    "docs routes and MDX content"
+  ]
 }

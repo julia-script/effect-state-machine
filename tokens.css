@@ -1,0 +1,74 @@
+/* Hallmark · portable tokens · theme: Cobalt · modern-minimal */
+:root {
+  --color-paper: oklch(98.5% 0.004 250);
+  --color-paper-2: oklch(96.2% 0.008 250);
+  --color-paper-3: oklch(93.5% 0.01 252);
+  --color-rule: oklch(88% 0.012 252);
+  --color-rule-2: oklch(80% 0.014 254);
+  --color-ink: oklch(24% 0.02 258);
+  --color-ink-2: oklch(34% 0.018 257);
+  --color-muted: oklch(42% 0.016 257);
+  --color-accent: oklch(58% 0.2 256);
+  --color-accent-2: oklch(52% 0.2 256);
+  --color-accent-ink: oklch(98.5% 0.01 250);
+  --color-focus: oklch(58% 0.2 256);
+  --color-graphite: oklch(22% 0.016 260);
+  --color-graphite-2: oklch(18% 0.016 260);
+  --color-band: oklch(20% 0.016 260);
+  --color-band-ink: oklch(94% 0.012 250);
+  --color-band-muted: oklch(74% 0.014 252);
+  --color-code: oklch(90% 0.012 250);
+  --color-code-muted: oklch(68% 0.014 254);
+  --color-code-string: oklch(86% 0.04 180);
+  --color-error: oklch(52% 0.18 25);
+  --color-success: oklch(52% 0.14 155);
+  --color-mark: oklch(90% 0.05 256);
+  --color-nav: oklch(98.5% 0.004 250 / 0.92);
+  --color-scrim: oklch(24% 0.02 258 / 0.28);
+  --color-band-rule: oklch(40% 0.02 258);
+  --shadow-code: 0 1px 2px oklch(24% 0.02 258 / 0.05);
+
+  --font-display: var(--font-landing-display), "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-body: var(--font-landing-body), Inter, ui-sans-serif, sans-serif;
+  --font-mono: var(--font-landing-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.333rem;
+  --text-2xl: 1.777rem;
+  --text-3xl: 2.369rem;
+  --text-display-s: clamp(2rem, 4vw + 0.5rem, 3.15rem);
+  --text-display: clamp(2.5rem, 5vw + 0.5rem, 4.25rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --rule-hair: 1px;
+  --banner-height: 3.5rem;
+  --page-gutter: clamp(1rem, 4vw, 1.5rem);
+  --page-max: 72rem;
+
+  --z-base: 1;
+  --z-sticky: 200;
+  --z-sticky-nav: 300;
+  --z-overlay: 700;
+}
