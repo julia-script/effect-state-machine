@@ -1,4 +1,5 @@
 import Link from "next/link"
+import packageJson from "effect-state-machine/package.json"
 import { appName, docsRoute, gitConfig } from "@/lib/shared"
 
 const githubUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`
@@ -10,7 +11,7 @@ export function LandingNav() {
         <Link className="landing-nav__brand" href="/" aria-current="page">
           {appName}
         </Link>
-        <span className="landing-nav__sticker">v0 · code-first</span>
+        <span className="landing-nav__sticker">v{packageJson.version} · MIT</span>
         <span className="landing-nav__spacer" />
         <nav className="landing-nav__links" aria-label="Primary">
           <Link className="chip-btn" href={docsRoute}>
