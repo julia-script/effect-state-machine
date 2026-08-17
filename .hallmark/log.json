@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-08-16",
+    "macrostructure": "Component Playground",
+    "theme": "Cobalt",
+    "enrichment": "live Studio embed",
+    "brief": "Docs home landing for effect-state-machine with live Studio and install"
+  },
+  {
     "date": "2026-08-10",
     "macrostructure": "Map / Diagram",
     "theme": "Hum",

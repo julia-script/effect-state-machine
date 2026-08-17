@@ -38,12 +38,14 @@ interface ScopedStudioProps<State extends Tagged, Event extends Tagged, Completi
   readonly start: Effect.Effect<Machine.MachineHandle<State, Event, Completion>, never, Scope.Scope>
   readonly machine: Omit<StudioMachine<State, Event>, "handle">
   readonly loadingLabel: string
+  readonly height?: number
 }
 
 function ScopedStudio<State extends Tagged, Event extends Tagged, Completion extends State>({
   start,
   machine,
   loadingLabel,
+  height = 620,
 }: ScopedStudioProps<State, Event, Completion>) {
   const [handle, setHandle] = React.useState<
     Machine.MachineHandle<State, Event, Completion> | undefined
@@ -73,7 +75,7 @@ function ScopedStudio<State extends Tagged, Event extends Tagged, Completion ext
           ...machine,
           handle,
         }}
-        style={{ height: 620 }}
+        style={{ height }}
       />
     </div>
   )
@@ -88,11 +90,18 @@ export type StudioExample =
   | "child"
   | "parallel"
 
-export function MachineStudioDemo({ example }: { readonly example: StudioExample }) {
+export function MachineStudioDemo({
+  example,
+  height,
+}: {
+  readonly example: StudioExample
+  readonly height?: number
+}) {
   switch (example) {
     case "runner":
       return (
         <ScopedStudio
+          height={height}
           start={runnerStart}
           machine={{
             definition: runnerDefinition,
@@ -105,6 +114,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "counter":
       return (
         <ScopedStudio
+          height={height}
           start={counterStart}
           machine={{
             definition: counterDefinition,
@@ -117,6 +127,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "guards":
       return (
         <ScopedStudio
+          height={height}
           start={classifierStart}
           machine={{
             definition: classifierDefinition,
@@ -129,6 +140,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "invoke":
       return (
         <ScopedStudio
+          height={height}
           start={profileStart}
           machine={{
             definition: profileDefinition,
@@ -141,6 +153,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "retry":
       return (
         <ScopedStudio
+          height={height}
           start={retryStart}
           machine={{
             definition: retryDefinition,
@@ -153,6 +166,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "child":
       return (
         <ScopedStudio
+          height={height}
           start={childStart}
           machine={{
             definition: childDefinition,
@@ -165,6 +179,7 @@ export function MachineStudioDemo({ example }: { readonly example: StudioExample
     case "parallel":
       return (
         <ScopedStudio
+          height={height}
           start={parallelStart}
           machine={{
             definition: parallelDefinition,
