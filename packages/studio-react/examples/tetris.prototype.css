@@ -164,9 +164,13 @@ button:focus-visible {
   .layout .studio-shell {
     grid-column: 3;
     grid-row: 1;
-    /* stretch gives the shell the row's definite height (the board column) */
+    /* stretch gives the shell the row's definite height (the board column);
+     * contain: size keeps Studio's own content (the growing history list)
+     * from inflating the row — the board stays the ruler and Studio
+     * scrolls internally. */
     align-self: stretch;
     height: auto;
+    contain: size;
   }
 }
 
