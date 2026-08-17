@@ -4,7 +4,7 @@ import { BugEmporiumDemo } from "@/components/landing/bug-emporium-demo"
 import { appName, docsRoute, gitConfig } from "@/lib/shared"
 
 const githubUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`
-const installCommand = "pnpm add effect-state-machine effect@4.0.0-beta.106"
+const installCommand = "pnpm add effect-state-machine effect"
 
 export const metadata: Metadata = {
   description:
