@@ -30,8 +30,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-beta.106",
-    "effect": "4.0.0-beta.106"
+    "@effect/platform-node": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.110"
   },
   "devDependencies": {
     "@effect-state-machine/studio-client": "workspace:*",
@@ -39,7 +39,7 @@
     "effect-state-machine": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "@effect/vitest": "4.0.0-beta.106",
+    "@effect/vitest": "4.0.0-rc.110",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

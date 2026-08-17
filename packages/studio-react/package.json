@@ -40,18 +40,18 @@
   },
   "dependencies": {
     "@effect-state-machine/studio-client": "workspace:*",
-    "@effect/atom-react": "4.0.0-beta.106",
+    "@effect/atom-react": "4.0.0-rc.110",
     "@xyflow/react": "^12.11.2",
     "elkjs": "^0.12.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.106",
+    "effect": "4.0.0-rc.110",
     "effect-state-machine": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-beta.106",
+    "@effect/vitest": "4.0.0-rc.110",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
