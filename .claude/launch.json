@@ -2,12 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "tetris-demo",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5199", "--directory", "packages/core/examples"],
-      "port": 5199
-    },
-    {
       "name": "studio-react-example",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

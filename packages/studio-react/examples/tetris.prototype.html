@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Tetris as one effect-state-machine definition, with the embedded Studio watching it live. Prototype demo."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/tetris.prototype.css" />
+    <title>Tetris · effect-state-machine prototype</title>
+  </head>
+  <body>
+    <header class="top">
+      <span class="brand">effect-state-machine</span>
+      <span class="sticker">tetris · prototype</span>
+      <span class="top-spacer"></span>
+      <span class="top-hint">← → move · ↑ rotate · ↓ soft drop · space hard drop · P pause</span>
+    </header>
+    <main class="page">
+      <div class="layout" id="game-root">
+        <p class="boot-message">Booting the tetris machine…</p>
+      </div>
+      <section class="studio-section">
+        <div class="section-intro">
+          <span class="panel-label panel-label--coral">studio</span>
+          <p class="section-note">
+            The embedded <code>&lt;Studio&gt;</code> component, attached to the same machine
+            handle the game runs on. Watch events arrive, branches get selected, and the gravity
+            invocation start and cancel — or drive the game from Studio's quick events.
+          </p>
+        </div>
+        <div class="studio-shell" id="studio-root">
+          <div class="studio-loading">Mounting Studio…</div>
+        </div>
+      </section>
+      <section class="code-section">
+        <details class="code-details">
+          <summary class="code-summary">
+            <span class="panel-label">the code</span>
+            <span class="code-summary-note">tetris-machine.prototype.ts — the whole game is this one definition</span>
+          </summary>
+          <div class="code-card" id="code-source"></div>
+        </details>
+      </section>
+    </main>
+    <footer class="foot">
+      PROTOTYPE · throwaway demo · machine in <code>examples/tetris-machine.prototype.ts</code>
+    </footer>
+    <script type="module" src="/tetris.prototype.tsx"></script>
+  </body>
+</html>

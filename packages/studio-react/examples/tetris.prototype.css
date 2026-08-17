@@ -494,6 +494,116 @@ button:focus-visible {
   color: var(--color-band-muted);
 }
 
+/* ---------- Studio embed ---------- */
+
+.page {
+  max-width: 72rem;
+  margin-inline: auto;
+}
+
+.studio-section,
+.code-section {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem clamp(1rem, 4vw, 1.5rem) 0.5rem;
+}
+
+.section-intro {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  max-width: 65ch;
+}
+
+.section-note {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--color-ink-soft);
+}
+
+.section-note code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.panel-label--coral {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+.studio-shell {
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--color-surface);
+  box-shadow: 0 6px 0 var(--color-ink);
+}
+
+.studio-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 560px;
+  color: var(--color-muted);
+  font: 600 0.8125rem / 1 var(--font-mono);
+}
+
+/* ---------- Code panel ---------- */
+
+.code-details {
+  border: 2px solid var(--color-ink);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 0 var(--color-ink);
+  overflow: hidden;
+}
+
+.code-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.code-summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-summary::after {
+  content: "▸";
+  margin-inline-start: auto;
+  color: var(--color-muted);
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.code-details[open] .code-summary::after {
+  transform: rotate(90deg);
+}
+
+.code-summary-note {
+  font: 600 0.71875rem / 1.4 var(--font-mono);
+  color: var(--color-muted);
+}
+
+.code-card {
+  max-height: 32rem;
+  overflow: auto;
+  border-top: 2px solid var(--color-ink);
+  background: var(--color-band);
+  color: var(--color-band-ink);
+}
+
+.code-card pre {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  font: 400 0.71875rem / 1.6 var(--font-mono);
+  white-space: pre;
+}
+
 /* ---------- Footer ---------- */
 
 .foot {
