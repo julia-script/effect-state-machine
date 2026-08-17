@@ -113,13 +113,60 @@ button:focus-visible {
 
 .layout {
   display: grid;
-  grid-template-columns: auto minmax(16rem, 22rem);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   justify-content: center;
   align-items: start;
   padding: 2rem clamp(1rem, 4vw, 1.5rem) 1rem;
-  max-width: 72rem;
+  max-width: 96rem;
   margin-inline: auto;
+}
+
+/* The re-rendered game wrapper dissolves into the grid so the board, side
+ * panel, trace, and the (static) Studio shell share one layout. */
+#game-root {
+  display: contents;
+}
+
+.board-card {
+  order: 1;
+}
+
+.side {
+  order: 2;
+}
+
+.studio-shell {
+  order: 3;
+}
+
+.trace-card {
+  order: 4;
+}
+
+@media (min-width: 46rem) {
+  .layout {
+    grid-template-columns: auto minmax(15rem, 22rem);
+  }
+
+  .studio-shell {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Wide screens: Studio sits beside the game, stretched to the board height. */
+@media (min-width: 78rem) {
+  .layout {
+    grid-template-columns: auto minmax(14rem, 17rem) minmax(28rem, 1fr);
+  }
+
+  .studio-shell {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: stretch;
+    height: 100%;
+    min-height: 0;
+  }
 }
 
 /* ---------- Board ---------- */
@@ -497,39 +544,14 @@ button:focus-visible {
 /* ---------- Studio embed ---------- */
 
 .page {
-  max-width: 72rem;
+  max-width: 96rem;
   margin-inline: auto;
 }
 
-.studio-section,
 .code-section {
   display: grid;
   gap: 0.9rem;
   padding: 1rem clamp(1rem, 4vw, 1.5rem) 0.5rem;
-}
-
-.section-intro {
-  display: grid;
-  gap: 0.5rem;
-  justify-items: start;
-  max-width: 65ch;
-}
-
-.section-note {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  color: var(--color-ink-soft);
-}
-
-.section-note code {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-
-.panel-label--coral {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
 }
 
 .studio-shell {
@@ -538,6 +560,7 @@ button:focus-visible {
   overflow: hidden;
   background: var(--color-surface);
   box-shadow: 0 6px 0 var(--color-ink);
+  min-height: 35rem;
 }
 
 .studio-loading {
@@ -607,7 +630,7 @@ button:focus-visible {
 /* ---------- Footer ---------- */
 
 .foot {
-  max-width: 72rem;
+  max-width: 96rem;
   margin-inline: auto;
   padding: 0.75rem clamp(1rem, 4vw, 1.5rem) 2rem;
   color: var(--color-muted);

@@ -24,22 +24,14 @@
       <span class="top-hint">← → move · ↑ rotate · ↓ soft drop · space hard drop · P pause</span>
     </header>
     <main class="page">
-      <div class="layout" id="game-root">
-        <p class="boot-message">Booting the tetris machine…</p>
-      </div>
-      <section class="studio-section">
-        <div class="section-intro">
-          <span class="panel-label panel-label--coral">studio</span>
-          <p class="section-note">
-            The embedded <code>&lt;Studio&gt;</code> component, attached to the same machine
-            handle the game runs on. Watch events arrive, branches get selected, and the gravity
-            invocation start and cancel — or drive the game from Studio's quick events.
-          </p>
+      <div class="layout">
+        <div id="game-root" class="game-contents">
+          <p class="boot-message">Booting the tetris machine…</p>
         </div>
         <div class="studio-shell" id="studio-root">
           <div class="studio-loading">Mounting Studio…</div>
         </div>
-      </section>
+      </div>
       <section class="code-section">
         <details class="code-details">
           <summary class="code-summary">

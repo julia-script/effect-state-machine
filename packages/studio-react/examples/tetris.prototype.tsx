@@ -85,7 +85,7 @@ const mountStudio = (handle: Handle) => {
           { id: "drop", label: "Hard drop", event: { _tag: "HardDrop" } },
         ],
       }}
-      style={{ height: 560 }}
+      style={{ height: "100%", minHeight: 560 }}
     />,
   )
 }
@@ -273,7 +273,7 @@ const render = () => {
       <div class="panel">
         <span class="panel-label">machine state</span>
         <div class="state-strip">${renderStateStrip(state)}</div>
-        <p class="panel-note">One tagged union, four nodes. Gravity is an invoked Effect owned by <code>Falling</code>; leaving the state cancels it. The Studio below watches the same handle.</p>
+        <p class="panel-note">One tagged union, four nodes. Gravity is an invoked Effect owned by <code>Falling</code>; leaving the state cancels it. Studio watches the same handle.</p>
       </div>
       ${controls(state)}
     </aside>
