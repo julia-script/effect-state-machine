@@ -160,12 +160,13 @@ button:focus-visible {
     grid-template-columns: auto minmax(14rem, 17rem) minmax(28rem, 1fr);
   }
 
-  .studio-shell {
+  /* .layout prefix outranks the base .studio-shell height further down */
+  .layout .studio-shell {
     grid-column: 3;
     grid-row: 1;
+    /* stretch gives the shell the row's definite height (the board column) */
     align-self: stretch;
-    height: 100%;
-    min-height: 0;
+    height: auto;
   }
 }
 
@@ -560,7 +561,10 @@ button:focus-visible {
   overflow: hidden;
   background: var(--color-surface);
   box-shadow: 0 6px 0 var(--color-ink);
-  min-height: 35rem;
+  /* Definite height, not min-height: Studio's inner layout is height: 100%,
+   * and the flow map has no intrinsic size — against an auto-height parent
+   * it collapses to 0px and only the rail renders. */
+  height: 35rem;
 }
 
 .studio-loading {
