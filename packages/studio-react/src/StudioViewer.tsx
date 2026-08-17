@@ -129,13 +129,24 @@ export function StudioViewer({
     ],
   )
 
+  // A percentage height inside an auto-height parent resolves to nothing: the
+  // flow map (no intrinsic size) collapses to 0px and only the rail renders.
+  // A definite min-height floor keeps Studio visible even when the host
+  // forgets to give its container a definite height.
+  const hostStyle = React.useMemo((): React.CSSProperties => {
+    const merged: React.CSSProperties = { display: "block", height: 640, width: "100%", ...style }
+    if (
+      typeof merged.height === "string" &&
+      merged.height.trimEnd().endsWith("%") &&
+      merged.minHeight === undefined
+    ) {
+      merged.minHeight = 320
+    }
+    return merged
+  }, [style])
+
   return (
-    <div
-      ref={hostRef}
-      className={className}
-      data-effect-state-machine-studio=""
-      style={{ display: "block", height: 640, width: "100%", ...style }}
-    >
+    <div ref={hostRef} className={className} data-effect-state-machine-studio="" style={hostStyle}>
       {shadowRoot === undefined
         ? null
         : createPortal(

@@ -39,6 +39,7 @@ The supplied machine handle must already be running. Studio owns only its observ
 ## Host integration
 
 - Use `className` or `style` to size the shadow host. It defaults to full width and 640 pixels high.
+- Give the host a definite height. Studio fills its container, so `height: "100%"` inside an auto-height parent collapses the map to nothing and lets the history rail grow the page instead of scrolling. A percentage height gets a defensive 320px minimum, but sizing the container (fixed height, stretch in a sized grid row, or `contain: size`) is the fix.
 - Use `theme`, `onThemeChange`, and `defaultTheme` for controlled or uncontrolled light/dark theming.
 - Provide `onOpenSource` to open captured source locations in a playground editor. Without it, source links use the browser-safe copy action.
 - Render one `Studio` per handle. Multiple components have independent connections, cursors, selections, and themes.
