@@ -1,6 +1,7 @@
 import { useAtom, useAtomValue } from "@effect/atom-react"
 import { History } from "@effect-state-machine/studio-client"
 import type { Graph } from "effect-state-machine/devtools"
+import { diffLines } from "../lib/diff.js"
 import {
   diffAtom,
   displayedSequenceAtom,
@@ -9,8 +10,9 @@ import {
   selectedStepAtom,
 } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
-import { JsonTree } from "./JsonTree.js"
 import { SourceLink } from "./SourceLink.js"
+
+const pretty = (value: unknown) => JSON.stringify(value, null, 2) ?? "undefined"
 
 export function StatePanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const sequence = useAtomValue(displayedSequenceAtom) ?? 0
@@ -95,22 +97,35 @@ export function StatePanel({ session }: { readonly session: ViewerClient.Session
           No committed state for this actor at the cursor.
         </p>
       ) : (
-        <JsonTree
-          className="mt-2 max-h-48 overflow-auto rounded bg-paper p-2 leading-relaxed"
-          value={position.state}
-          previous={previous?.state}
-          diff={diffEnabled && previous !== undefined}
-        />
+        <pre className="mt-2 max-h-48 overflow-auto rounded bg-paper p-2 font-mono text-caption leading-relaxed">
+          {diffEnabled && previous !== undefined
+            ? diffLines(pretty(previous.state), pretty(position.state)).map((line, index) => (
+                <div
+                  // Diff output is an immutable list; repeated identical lines have no intrinsic id.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: presentation-only diff rows carry no React state
+                  key={`${index}-${line.kind}`}
+                  className={
+                    line.kind === "added"
+                      ? "bg-success-soft text-success"
+                      : line.kind === "removed"
+                        ? "bg-danger-soft text-danger"
+                        : undefined
+                  }
+                >
+                  {line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} {line.text}
+                </div>
+              ))
+            : pretty(position.state)}
+        </pre>
       )}
       {step?.actorId !== actorId || step.eventPayload === undefined ? null : (
         <details className="mt-2">
           <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             EVENT PAYLOAD · {step.eventTag}
           </summary>
-          <JsonTree
-            className="mt-1 max-h-32 overflow-auto rounded bg-paper p-2"
-            value={step.eventPayload}
-          />
+          <pre className="mt-1 max-h-32 overflow-auto rounded bg-paper p-2 font-mono text-caption">
+            {pretty(step.eventPayload)}
+          </pre>
         </details>
       )}
       {history.encodingFailures.filter((failure) => failure.actorId === actorId).length ===
