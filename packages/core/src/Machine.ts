@@ -416,20 +416,78 @@ export interface RetryPolicy<
   readonly schedule: Policy
 }
 
-/** A transition owned by one node entry's timer. */
-export type AfterTransition<
+/** Named synchronous logic that computes one timer duration when a node entry starts. */
+export interface NamedDuration<State> {
+  readonly name: string
+  readonly description?: string
+  readonly compute: (state: State) => Duration.Input
+}
+
+type AfterArgs<State extends Tagged, Current extends TagOf<State>> = Readonly<{
+  state: ByTag<State, Current>
+}>
+
+type SingleAfterTransition<
   State extends Tagged,
   Current extends TagOf<State>,
   Target extends TagOf<State> = TagOf<State>,
 > =
   Target extends TagOf<State>
     ? Readonly<{
-        duration: Duration.Input
-        description?: string
         target: Target
-        reduce: (args: Readonly<{ state: ByTag<State, Current> }>) => FieldsOf<ByTag<State, Target>>
+        reduce: (args: AfterArgs<State, Current>) => FieldsOf<ByTag<State, Target>>
       }>
     : never
+
+type AfterWhenBranch<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        when: Readonly<{
+          name: string
+          description?: string
+          guard: (args: AfterArgs<State, Current>) => boolean
+          source?: Source.Reference
+        }>
+        target: Target
+        description?: string
+        reduce: (args: AfterArgs<State, Current>) => FieldsOf<ByTag<State, Target>>
+      }>
+    : never
+
+type AfterOtherwiseBranch<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Target extends TagOf<State> = TagOf<State>,
+> =
+  Target extends TagOf<State>
+    ? Readonly<{
+        otherwise: true
+        target: Target
+        description?: string
+        reduce: (args: AfterArgs<State, Current>) => FieldsOf<ByTag<State, Target>>
+      }>
+    : never
+
+type GuardedAfterTransition<State extends Tagged, Current extends TagOf<State>> = Readonly<{
+  branches:
+    | readonly [AfterWhenBranch<State, Current>, ...ReadonlyArray<AfterWhenBranch<State, Current>>]
+    | readonly [
+        AfterWhenBranch<State, Current>,
+        ...ReadonlyArray<AfterWhenBranch<State, Current>>,
+        AfterOtherwiseBranch<State, Current>,
+      ]
+}>
+
+/** A transition owned by one node entry's timer. */
+export type AfterTransition<State extends Tagged, Current extends TagOf<State>> = Readonly<{
+  duration: Duration.Input | NamedDuration<ByTag<State, Current>>
+  description?: string
+}> &
+  (SingleAfterTransition<State, Current> | GuardedAfterTransition<State, Current>)
 
 /** Common statically inspectable shape of invoked work. */
 export interface InvokeSpecBase {
@@ -689,18 +747,96 @@ type RegionAfterTransition<
   Current extends TagOf<State>,
   Slot extends Tagged,
   RegionTag extends TagOf<Slot>,
+> = Readonly<{
+  duration:
+    | Duration.Input
+    | NamedDuration<Readonly<{ state: ByTag<Slot, RegionTag>; parent: ByTag<State, Current> }>>
+  description?: string
+}> &
+  (
+    | RegionAfterSingleTransition<State, Current, Slot, RegionTag>
+    | RegionGuardedAfterTransition<State, Current, Slot, RegionTag>
+  )
+
+type RegionAfterSingleTransition<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Slot extends Tagged,
+  RegionTag extends TagOf<Slot>,
   Target extends TagOf<Slot> = TagOf<Slot>,
 > =
   Target extends TagOf<Slot>
     ? Readonly<{
-        duration: Duration.Input
-        description?: string
         target: Target
         reduce: (
           args: Readonly<{ state: ByTag<Slot, RegionTag>; parent: ByTag<State, Current> }>,
         ) => FieldsOf<ByTag<Slot, Target>>
       }>
     : never
+
+type RegionAfterWhenBranch<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Slot extends Tagged,
+  RegionTag extends TagOf<Slot>,
+  Target extends TagOf<Slot> = TagOf<Slot>,
+> =
+  Target extends TagOf<Slot>
+    ? Readonly<{
+        when: Readonly<{
+          name: string
+          description?: string
+          guard: (
+            args: Readonly<{
+              state: ByTag<Slot, RegionTag>
+              parent: ByTag<State, Current>
+            }>,
+          ) => boolean
+          source?: Source.Reference
+        }>
+        target: Target
+        description?: string
+        reduce: (
+          args: Readonly<{ state: ByTag<Slot, RegionTag>; parent: ByTag<State, Current> }>,
+        ) => FieldsOf<ByTag<Slot, Target>>
+      }>
+    : never
+
+type RegionAfterOtherwiseBranch<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Slot extends Tagged,
+  RegionTag extends TagOf<Slot>,
+  Target extends TagOf<Slot> = TagOf<Slot>,
+> =
+  Target extends TagOf<Slot>
+    ? Readonly<{
+        otherwise: true
+        target: Target
+        description?: string
+        reduce: (
+          args: Readonly<{ state: ByTag<Slot, RegionTag>; parent: ByTag<State, Current> }>,
+        ) => FieldsOf<ByTag<Slot, Target>>
+      }>
+    : never
+
+type RegionGuardedAfterTransition<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Slot extends Tagged,
+  RegionTag extends TagOf<Slot>,
+> = Readonly<{
+  branches:
+    | readonly [
+        RegionAfterWhenBranch<State, Current, Slot, RegionTag>,
+        ...ReadonlyArray<RegionAfterWhenBranch<State, Current, Slot, RegionTag>>,
+      ]
+    | readonly [
+        RegionAfterWhenBranch<State, Current, Slot, RegionTag>,
+        ...ReadonlyArray<RegionAfterWhenBranch<State, Current, Slot, RegionTag>>,
+        RegionAfterOtherwiseBranch<State, Current, Slot, RegionTag>,
+      ]
+}>
 
 type RegionSuccessTransition<
   State extends Tagged,
@@ -977,7 +1113,7 @@ export type DefinitionNode =
       tag: string
       source: Source.Reference
       description?: string
-      after?: TransitionMetadata & Readonly<{ duration: Duration.Input }>
+      after?: AfterTransitionMetadata
       on: Readonly<Record<string, HandlerMetadata | undefined>>
     }>
   | Readonly<{
@@ -995,7 +1131,7 @@ export type DefinitionNode =
       workKind?: "effect" | "all" | "race"
       tasks?: Readonly<Record<string, unknown>>
       concurrency?: number | "unbounded"
-      after?: TransitionMetadata & Readonly<{ duration: Duration.Input }>
+      after?: AfterTransitionMetadata
       retry?: Readonly<{
         name: string
         description?: string
@@ -1563,6 +1699,18 @@ interface GuardedTransitionMetadata {
   >
 }
 
+interface NamedDurationMetadata {
+  readonly name: string
+  readonly description?: string
+  readonly compute: unknown
+}
+
+type AfterTransitionMetadata = Readonly<{
+  duration: Duration.Input | NamedDurationMetadata
+  description?: string
+}> &
+  (TransitionMetadata | GuardedTransitionMetadata)
+
 interface StayMetadata {
   readonly stay: unknown
 }
@@ -2033,6 +2181,26 @@ export const builder = <
       }
     }
 
+    const validateAfter = (
+      owner: string,
+      after: unknown,
+      allowedTargets: ReadonlySet<string> = tags,
+    ): void => {
+      validateTarget(owner, after, allowedTargets)
+      if (typeof after !== "object" || after === null) return
+      const duration = (after as Readonly<Record<string, unknown>>).duration
+      if (
+        typeof duration === "object" &&
+        duration !== null &&
+        "compute" in duration &&
+        String((duration as Readonly<Record<string, unknown>>).name ?? "").trim().length === 0
+      ) {
+        throw new MachineDefinitionDefect(
+          `Machine ${config.id} declares a dynamic duration without a stable name in ${owner}`,
+        )
+      }
+    }
+
     for (const node of nodes) {
       const value = node as Readonly<Record<string, unknown>>
       const owner = String(value.tag)
@@ -2054,7 +2222,7 @@ export const builder = <
       )) {
         validateTarget(owner, handler)
       }
-      validateTarget(owner, value.after)
+      validateAfter(owner, value.after)
       if (value.kind === "invoke") {
         if (String(value.name ?? "").trim().length === 0) {
           throw new MachineDefinitionDefect(
@@ -2135,7 +2303,7 @@ export const builder = <
             )) {
               validateTarget(regionOwner, handler, regionTags)
             }
-            validateTarget(regionOwner, regionNode.after, regionTags)
+            validateAfter(regionOwner, regionNode.after, regionTags)
             const regionInvoke = regionNode.invoke as Readonly<Record<string, unknown>> | undefined
             if (regionInvoke !== undefined) {
               if (String(regionInvoke.name ?? "").trim().length === 0) {
@@ -2268,12 +2436,43 @@ interface RuntimeForward<State extends Tagged, Event extends Tagged> {
   readonly map: (args: Readonly<{ state: State; event: Event }>) => Tagged
 }
 
-interface RuntimeAfter<State extends Tagged> {
-  readonly duration: Duration.Input
+interface RuntimeNamedDuration<State> {
+  readonly name: string
   readonly description?: string
+  readonly compute: (state: State) => Duration.Input
+}
+
+type RuntimeDuration<State> = Duration.Input | RuntimeNamedDuration<State>
+
+interface RuntimeAfterTransition<State extends Tagged> {
   readonly target: string
+  readonly description?: string
   readonly reduce: (args: Readonly<{ state: State }>) => Readonly<Record<string, unknown>>
 }
+
+interface RuntimeAfterWhenBranch<State extends Tagged> extends RuntimeAfterTransition<State> {
+  readonly when: Readonly<{
+    name: string
+    description?: string
+    guard: (args: Readonly<{ state: State }>) => boolean
+  }>
+}
+
+interface RuntimeAfterOtherwiseBranch<State extends Tagged> extends RuntimeAfterTransition<State> {
+  readonly otherwise: true
+}
+
+interface RuntimeGuardedAfterTransition<State extends Tagged> {
+  readonly branches: ReadonlyArray<
+    RuntimeAfterWhenBranch<State> | RuntimeAfterOtherwiseBranch<State>
+  >
+}
+
+type RuntimeAfter<State extends Tagged> = Readonly<{
+  readonly duration: RuntimeDuration<State>
+  readonly description?: string
+}> &
+  (RuntimeAfterTransition<State> | RuntimeGuardedAfterTransition<State>)
 
 type RuntimeTask<State extends Tagged, Requirements> =
   | ((state: State) => Effect.Effect<unknown, unknown, Requirements>)
@@ -2309,16 +2508,47 @@ interface RuntimeRegionOutcome<State extends Tagged, Key extends "value" | "erro
   ) => Readonly<Record<string, unknown>>
 }
 
+interface RuntimeRegionAfterTransition<State extends Tagged> {
+  readonly target: string
+  readonly description?: string
+  readonly reduce: (
+    args: Readonly<{ state: Tagged; parent: State }>,
+  ) => Readonly<Record<string, unknown>>
+}
+
+interface RuntimeRegionAfterWhenBranch<State extends Tagged>
+  extends RuntimeRegionAfterTransition<State> {
+  readonly when: Readonly<{
+    name: string
+    description?: string
+    guard: (args: Readonly<{ state: Tagged; parent: State }>) => boolean
+  }>
+}
+
+interface RuntimeRegionAfterOtherwiseBranch<State extends Tagged>
+  extends RuntimeRegionAfterTransition<State> {
+  readonly otherwise: true
+}
+
+type RuntimeRegionAfter<State extends Tagged> = Readonly<{
+  readonly duration: RuntimeDuration<Readonly<{ state: Tagged; parent: State }>>
+  readonly description?: string
+}> &
+  (
+    | RuntimeRegionAfterTransition<State>
+    | Readonly<{
+        branches: ReadonlyArray<
+          RuntimeRegionAfterWhenBranch<State> | RuntimeRegionAfterOtherwiseBranch<State>
+        >
+      }>
+  )
+
 interface RuntimeRegionNode<State extends Tagged, Event extends Tagged, Requirements> {
   readonly source?: Source.Reference
   readonly description?: string
   readonly final?: true
   readonly on?: Readonly<Record<string, RuntimeRegionHandler<State, Event> | undefined>>
-  readonly after?: Readonly<{
-    duration: Duration.Input
-    target: string
-    reduce: (args: Readonly<{ state: Tagged; parent: State }>) => Readonly<Record<string, unknown>>
-  }>
+  readonly after?: RuntimeRegionAfter<State>
   readonly invoke?: Readonly<{
     kind: "effect"
     name: string
@@ -2409,6 +2639,8 @@ type TimerEnvelope = Readonly<{
   kind: "timer"
   stateTag: string
   generation: number
+  timer: string
+  durationMillis: number
 }>
 
 type RegionEnvelope =
@@ -2446,6 +2678,8 @@ type RegionEnvelope =
       slot: string
       regionTag: string
       slotGeneration: number
+      timer: string
+      durationMillis: number
     }>
   | Readonly<{
       kind: "regions-complete"
@@ -2588,6 +2822,73 @@ const selectOutcome = <State extends Tagged, Value, Key extends "value" | "error
     }
   }
   return undefined
+}
+
+interface SelectedAfter<State extends Tagged> {
+  readonly transition: RuntimeAfterTransition<State>
+  readonly branch?: SelectedBranch
+}
+
+const selectAfter = <State extends Tagged>(
+  after: RuntimeAfter<State>,
+  state: State,
+): SelectedAfter<State> | undefined => {
+  if (!("branches" in after)) return { transition: after }
+  for (const [index, branch] of after.branches.entries()) {
+    if ("otherwise" in branch) {
+      return { transition: branch, branch: { kind: "otherwise", index } }
+    }
+    if (branch.when.guard({ state })) {
+      return {
+        transition: branch,
+        branch: { kind: "guard", index, name: branch.when.name },
+      }
+    }
+  }
+  return undefined
+}
+
+interface SelectedRegionAfter<State extends Tagged> {
+  readonly transition: RuntimeRegionAfterTransition<State>
+  readonly branch?: SelectedBranch
+}
+
+const selectRegionAfter = <State extends Tagged>(
+  after: RuntimeRegionAfter<State>,
+  args: Readonly<{ state: Tagged; parent: State }>,
+): SelectedRegionAfter<State> | undefined => {
+  if (!("branches" in after)) return { transition: after }
+  for (const [index, branch] of after.branches.entries()) {
+    if ("otherwise" in branch) {
+      return { transition: branch, branch: { kind: "otherwise", index } }
+    }
+    if (branch.when.guard(args)) {
+      return {
+        transition: branch,
+        branch: { kind: "guard", index, name: branch.when.name },
+      }
+    }
+  }
+  return undefined
+}
+
+const resolveDuration = <State>(
+  duration: RuntimeDuration<State>,
+  state: State,
+): Readonly<{ input: Duration.Input; timer: string; durationMillis: number }> => {
+  const dynamic: RuntimeNamedDuration<State> | undefined =
+    typeof duration === "object" && duration !== null && "compute" in duration
+      ? (duration as RuntimeNamedDuration<State>)
+      : undefined
+  // Duration.Input contains object variants, so the structural dynamic-duration check is the
+  // runtime erasure boundary TypeScript cannot subtract from that union.
+  const input: Duration.Input =
+    dynamic === undefined ? (duration as Duration.Input) : dynamic.compute(state)
+  return {
+    input,
+    timer: dynamic?.name ?? "after",
+    durationMillis: Duration.toMillis(input),
+  }
 }
 
 interface ActorAdapter {
@@ -2870,6 +3171,18 @@ const runActor = <
     )
     let generation = 0
     const regionGenerations = new Map<string, number>()
+    let activeTimer:
+      | Readonly<{ generation: number; timer: string; durationMillis: number }>
+      | undefined
+    const activeRegionTimers = new Map<
+      string,
+      Readonly<{
+        generation: number
+        slotGeneration: number
+        timer: string
+        durationMillis: number
+      }>
+    >()
     let childInstanceSequence = 0
     let activeChild: ActiveChild | undefined
 
@@ -3115,21 +3428,29 @@ const runActor = <
         return
       }
       const timerGeneration = generation
+      const resolved = resolveDuration(node.after.duration, state)
+      activeTimer = {
+        generation: timerGeneration,
+        timer: resolved.timer,
+        durationMillis: resolved.durationMillis,
+      }
       yield* emit({
         _tag: "TimerStarted",
         machineId: definition.id,
         stateTag: state._tag,
-        timer: "after",
+        timer: resolved.timer,
         generation: timerGeneration,
         ownerPath: state._tag,
-        durationMillis: Duration.toMillis(node.after.duration),
+        durationMillis: resolved.durationMillis,
       })
-      const timer = Effect.sleep(node.after.duration).pipe(
+      const timer = Effect.sleep(resolved.input).pipe(
         Effect.andThen(
           Queue.offer(inbox, {
             kind: "timer" as const,
             stateTag: state._tag,
             generation: timerGeneration,
+            timer: resolved.timer,
+            durationMillis: resolved.durationMillis,
           }),
         ),
         Effect.asVoid,
@@ -3239,16 +3560,24 @@ const runActor = <
         }
 
         if (regionNode.after !== undefined) {
+          const durationState = { state: regionState, parent: state }
+          const resolved = resolveDuration(regionNode.after.duration, durationState)
+          activeRegionTimers.set(slot, {
+            generation: ownerGeneration,
+            slotGeneration,
+            timer: resolved.timer,
+            durationMillis: resolved.durationMillis,
+          })
           yield* emit({
             _tag: "TimerStarted",
             machineId: definition.id,
             stateTag: state._tag,
-            timer: "after",
+            timer: resolved.timer,
             generation: ownerGeneration,
             ownerPath: `${state._tag}/${slot}/${regionState._tag}`,
-            durationMillis: Duration.toMillis(regionNode.after.duration),
+            durationMillis: resolved.durationMillis,
           })
-          const timer = Effect.sleep(regionNode.after.duration).pipe(
+          const timer = Effect.sleep(resolved.input).pipe(
             Effect.andThen(
               Queue.offer(inbox, {
                 kind: "region-timer" as const,
@@ -3257,6 +3586,8 @@ const runActor = <
                 slot,
                 regionTag: regionState._tag,
                 slotGeneration,
+                timer: resolved.timer,
+                durationMillis: resolved.durationMillis,
               }),
             ),
             Effect.asVoid,
@@ -3319,23 +3650,26 @@ const runActor = <
       Effect.fnUntraced(function* (previous: State, next: State, firedTimer = false) {
         next = yield* validateState(next)
         const previousNode = nodes.get(previous._tag)
+        const previousTimer = activeTimer
         if (
           !firedTimer &&
           previousNode !== undefined &&
           previousNode.kind !== "final" &&
           previousNode.kind !== "regions" &&
-          previousNode.after !== undefined
+          previousNode.after !== undefined &&
+          previousTimer !== undefined
         ) {
           yield* emit({
             _tag: "TimerCancelled",
             machineId: definition.id,
             stateTag: previous._tag,
-            timer: "after",
-            generation,
+            timer: previousTimer.timer,
+            generation: previousTimer.generation,
             ownerPath: previous._tag,
-            durationMillis: Duration.toMillis(previousNode.after.duration),
+            durationMillis: previousTimer.durationMillis,
           })
         }
+        activeTimer = undefined
         if (previousNode?.kind === "regions") {
           for (const [slot, region] of Object.entries(previousNode.regions)) {
             const slotState = (previous as Readonly<Record<string, unknown>>)[slot]
@@ -3355,17 +3689,19 @@ const runActor = <
                 workKind: "effect",
               })
             }
-            if (regionNode?.after !== undefined) {
+            const regionTimer = activeRegionTimers.get(slot)
+            if (regionNode?.after !== undefined && regionTimer !== undefined) {
               yield* emit({
                 _tag: "TimerCancelled",
                 machineId: definition.id,
                 stateTag: previous._tag,
-                timer: "after",
-                generation,
+                timer: regionTimer.timer,
+                generation: regionTimer.generation,
                 ownerPath,
-                durationMillis: Duration.toMillis(regionNode.after.duration),
+                durationMillis: regionTimer.durationMillis,
               })
             }
+            activeRegionTimers.delete(slot)
           }
         }
         generation += 1
@@ -3456,20 +3792,23 @@ const runActor = <
             workKind: "effect",
           })
         }
+        const regionTimer = activeRegionTimers.get(slot)
         if (
           regionNode?.after !== undefined &&
-          !(settled?.slot === slot && settled.kind === "timer")
+          !(settled?.slot === slot && settled.kind === "timer") &&
+          regionTimer !== undefined
         ) {
           yield* emit({
             _tag: "TimerCancelled",
             machineId: definition.id,
             stateTag: previous._tag,
-            timer: "after",
-            generation,
+            timer: regionTimer.timer,
+            generation: regionTimer.generation,
             ownerPath,
-            durationMillis: Duration.toMillis(regionNode.after.duration),
+            durationMillis: regionTimer.durationMillis,
           })
         }
+        activeRegionTimers.delete(slot)
         yield* FiberMap.remove(activeFibers, `region:${slot}:work`)
         yield* FiberMap.remove(activeFibers, `region:${slot}:timer`)
         regionGenerations.set(slot, (regionGenerations.get(slot) ?? 0) + 1)
@@ -3606,22 +3945,41 @@ const runActor = <
           const regionNode = currentNode.regions[envelope.slot]?.states[regionState._tag]
           if (regionNode === undefined) return true
 
-          let transition: RuntimeRegionOutcome<State, "value" | "error"> | undefined
+          let transition:
+            | RuntimeRegionOutcome<State, "value" | "error">
+            | RuntimeRegionAfterTransition<State>
+            | undefined
           let fields: Readonly<Record<string, unknown>>
+          let selectedBranch: SelectedBranch | undefined
           if (envelope.kind === "region-timer") {
             const after = regionNode.after
             if (after === undefined) return true
+            const selectedAfter = selectRegionAfter(after, {
+              state: regionState,
+              parent: current,
+            })
+            if (selectedAfter === undefined) {
+              return yield* Effect.die(
+                new ProtocolDefect(
+                  definition.id,
+                  `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
+                  "timer",
+                ),
+              )
+            }
+            activeRegionTimers.delete(envelope.slot)
             yield* emit({
               _tag: "TimerFired",
               machineId: definition.id,
               stateTag: current._tag,
-              timer: "after",
+              timer: envelope.timer,
               generation,
               ownerPath: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-              durationMillis: Duration.toMillis(after.duration),
+              durationMillis: envelope.durationMillis,
             })
-            fields = after.reduce({ state: regionState, parent: current })
-            transition = after as unknown as RuntimeRegionOutcome<State, "value" | "error">
+            transition = selectedAfter.transition
+            selectedBranch = selectedAfter.branch
+            fields = selectedAfter.transition.reduce({ state: regionState, parent: current })
           } else if (envelope.kind === "region-success") {
             const outcome = regionNode.invoke?.onSuccess
             if (outcome === undefined) return true
@@ -3664,6 +4022,7 @@ const runActor = <
                   : "@failure",
             ownerPath: `${current._tag}/${envelope.slot}`,
             macrostep: generation,
+            ...(selectedBranch === undefined ? {} : { branch: selectedBranch }),
           })
           const nextSlot = { ...fields, _tag: transition.target } as Tagged
           yield* commitRegion(current, { [envelope.slot]: nextSlot }, new Set([envelope.slot]), {
@@ -3731,15 +4090,20 @@ const runActor = <
             }
             return true
           }
-          const transition = currentNode.after
+          const selectedAfter = selectAfter(currentNode.after, current)
+          if (selectedAfter === undefined) {
+            return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, "timer"))
+          }
+          activeTimer = undefined
+          const transition = selectedAfter.transition
           yield* emit({
             _tag: "TimerFired",
             machineId: definition.id,
             stateTag: current._tag,
-            timer: "after",
+            timer: envelope.timer,
             generation,
             ownerPath: current._tag,
-            durationMillis: Duration.toMillis(transition.duration),
+            durationMillis: envelope.durationMillis,
           })
           yield* emit({
             _tag: "TransitionSelected",
@@ -3749,6 +4113,7 @@ const runActor = <
             eventTag: "@after",
             ownerPath: current._tag,
             macrostep: generation,
+            ...(selectedAfter.branch === undefined ? {} : { branch: selectedAfter.branch }),
           })
           const fields = transition.reduce({ state: current })
           const next = { ...fields, _tag: transition.target } as State

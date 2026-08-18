@@ -27,8 +27,10 @@ export interface Node {
     }>
   }>
   readonly timer?: Readonly<{
-    duration: unknown
-    target: string
+    duration?: unknown
+    name?: string
+    description?: string
+    targets: ReadonlyArray<string>
   }>
   readonly regions?: Readonly<{
     slots: ReadonlyArray<string>
@@ -89,6 +91,8 @@ export interface Edge {
   }>
   readonly outcome?: Readonly<{
     kind: "success" | "failure" | "completion" | "timer"
+    name?: string
+    description?: string
   }>
   readonly description?: string
   readonly branch?:
@@ -264,6 +268,58 @@ const titleOf = (schema: Schema.Top | undefined, fallback: string): string => {
   return typeof title === "string" ? title : fallback
 }
 
+interface AfterMetadata {
+  readonly duration: unknown
+  readonly target?: string
+  readonly branches?: ReadonlyArray<
+    Readonly<{
+      target: string
+      description?: string
+      when?: Readonly<{ name: string; description?: string; source?: unknown }>
+      otherwise?: true
+    }>
+  >
+}
+
+const timerOf = (
+  after: AfterMetadata,
+  qualifyTarget: (target: string) => string = (target) => target,
+): NonNullable<Node["timer"]> => {
+  const duration = after.duration
+  const named =
+    typeof duration === "object" && duration !== null && "compute" in duration
+      ? (duration as Readonly<{ name?: unknown; description?: unknown }>)
+      : undefined
+  const targets = Array.from(
+    new Set(
+      after.branches === undefined
+        ? after.target === undefined
+          ? []
+          : [qualifyTarget(after.target)]
+        : after.branches.map((branch) => qualifyTarget(branch.target)),
+    ),
+  )
+  return {
+    targets,
+    ...(named === undefined ? { duration } : {}),
+    ...(typeof named?.name === "string" ? { name: named.name } : {}),
+    ...(typeof named?.description === "string" ? { description: named.description } : {}),
+  }
+}
+
+const timerOutcomeOf = (after: AfterMetadata): NonNullable<Edge["outcome"]> => {
+  const duration = after.duration
+  const named =
+    typeof duration === "object" && duration !== null && "compute" in duration
+      ? (duration as Readonly<{ name?: unknown; description?: unknown }>)
+      : undefined
+  return {
+    kind: "timer",
+    ...(typeof named?.name === "string" ? { name: named.name } : {}),
+    ...(typeof named?.description === "string" ? { description: named.description } : {}),
+  }
+}
+
 /**
  * Projects a machine definition into graphable nodes, edges, ignores, and child graphs.
  *
@@ -320,7 +376,7 @@ export const fromDefinition = (
       ...(node.kind === "state" || node.kind === "invoke"
         ? node.after === undefined
           ? {}
-          : { timer: { duration: node.after.duration, target: node.after.target } }
+          : { timer: timerOf(node.after) }
         : {}),
       ...(node.kind === "regions" ? { regions: { slots: Object.keys(node.regions) } } : {}),
       ...(node.kind === "child"
@@ -380,7 +436,7 @@ export const fromDefinition = (
                   description?: string
                   retry?: Readonly<{ name: string; description?: string }>
                 }>
-                after?: Readonly<{ duration: unknown; target: string }>
+                after?: AfterMetadata
               }>
             >
           >
@@ -414,10 +470,7 @@ export const fromDefinition = (
           ...(child.after === undefined
             ? {}
             : {
-                timer: {
-                  duration: child.after.duration,
-                  target: `${parent.tag}/${slot}/${child.after.target}`,
-                },
+                timer: timerOf(child.after, (target) => `${parent.tag}/${slot}/${target}`),
               }),
         }
       }),
@@ -524,12 +577,38 @@ export const fromDefinition = (
     }
 
     if ((node.kind === "state" || node.kind === "invoke") && node.after !== undefined) {
-      edges.push({
-        source: node.tag,
-        target: node.after.target,
-        outcome: { kind: "timer" },
-        ...(node.after.description === undefined ? {} : { description: node.after.description }),
-      })
+      const outcome = timerOutcomeOf(node.after)
+      if (!("branches" in node.after)) {
+        edges.push({
+          source: node.tag,
+          target: node.after.target,
+          outcome,
+          ...(node.after.description === undefined ? {} : { description: node.after.description }),
+        })
+      } else {
+        for (const [index, branchValue] of node.after.branches.entries()) {
+          const branch =
+            "otherwise" in branchValue
+              ? ({ kind: "otherwise", index } as const)
+              : ({
+                  kind: "guard",
+                  index,
+                  name: branchValue.when.name,
+                  ...(branchValue.when.description === undefined
+                    ? {}
+                    : { description: branchValue.when.description }),
+                } as const)
+          edges.push({
+            source: node.tag,
+            target: branchValue.target,
+            outcome,
+            branch,
+            ...(branchValue.description === undefined
+              ? {}
+              : { description: branchValue.description }),
+          })
+        }
+      }
     }
 
     if (node.kind === "child") {
@@ -581,7 +660,7 @@ export const fromDefinition = (
                     onSuccess: Readonly<{ target: string; description?: string }>
                     onFailure: Readonly<{ target: string; description?: string }>
                   }>
-                  after?: Readonly<{ target: string; description?: string }>
+                  after?: AfterMetadata & Readonly<{ description?: string }>
                 }>
               >
             >
@@ -619,14 +698,42 @@ export const fromDefinition = (
             })
           }
           if (child.after !== undefined) {
-            edges.push({
-              source,
-              target: `${node.tag}/${slot}/${child.after.target}`,
-              outcome: { kind: "timer" },
-              ...(child.after.description === undefined
-                ? {}
-                : { description: child.after.description }),
-            })
+            const outcome = timerOutcomeOf(child.after)
+            if (child.after.branches === undefined) {
+              if (child.after.target !== undefined) {
+                edges.push({
+                  source,
+                  target: `${node.tag}/${slot}/${child.after.target}`,
+                  outcome,
+                  ...(child.after.description === undefined
+                    ? {}
+                    : { description: child.after.description }),
+                })
+              }
+            } else {
+              for (const [index, branchValue] of child.after.branches.entries()) {
+                const branch =
+                  branchValue.otherwise === true
+                    ? ({ kind: "otherwise", index } as const)
+                    : ({
+                        kind: "guard",
+                        index,
+                        name: branchValue.when?.name ?? "guard",
+                        ...(branchValue.when?.description === undefined
+                          ? {}
+                          : { description: branchValue.when.description }),
+                      } as const)
+                edges.push({
+                  source,
+                  target: `${node.tag}/${slot}/${branchValue.target}`,
+                  outcome,
+                  branch,
+                  ...(branchValue.description === undefined
+                    ? {}
+                    : { description: branchValue.description }),
+                })
+              }
+            }
           }
         }
       }
@@ -654,9 +761,12 @@ export const fromDefinition = (
             ? authoredNode.onSuccess
             : authoredNode.kind === "invoke" && edge.outcome?.kind === "failure"
               ? authoredNode.onFailure
-              : authoredNode.kind === "child" && edge.outcome?.kind === "completion"
-                ? authoredNode.onComplete
-                : undefined
+              : (authoredNode.kind === "state" || authoredNode.kind === "invoke") &&
+                  edge.outcome?.kind === "timer"
+                ? authoredNode.after
+                : authoredNode.kind === "child" && edge.outcome?.kind === "completion"
+                  ? authoredNode.onComplete
+                  : undefined
       if (handler !== undefined && "branches" in handler) {
         const branch = handler.branches[edge.branch.index]
         if (branch !== undefined && "when" in branch) {

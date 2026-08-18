@@ -38,7 +38,10 @@ Edit: { target: "Typing", reduce: ({ event }) => ({ text: event.text }) }
 ## Timers and declared work
 
 A non-final node may own one `after` timer. The timer starts on entry, is cancelled on exit, and is
-protected by the same stale-entry checks as work outcomes.
+protected by the same stale-entry checks as work outcomes. A duration may be a static
+`Duration.Input` or named synchronous logic computed once from the entry state. When it fires,
+`after` may select one direct target or an ordered guarded branch using the latest state value.
+Region timers support the same forms with child state and parent state arguments.
 
 `invoke` runs one Effect. `invoke.all` joins a keyed product and can limit concurrency. Its first
 typed failure interrupts unfinished siblings. `invoke.race` returns a correlated `winner` and

@@ -90,7 +90,11 @@ describe("Protocol", () => {
               concurrency: 2,
               retry: { name: "spaced" },
             },
-            timer: { duration: "1 second", target: "Done" },
+            timer: {
+              name: "join-timeout",
+              description: "Depends on the active queue.",
+              targets: ["Done"],
+            },
           },
           {
             id: "Active/playback/Playing",
@@ -104,7 +108,11 @@ describe("Protocol", () => {
             id: "timer",
             source: "Joining",
             target: "Done",
-            outcome: { kind: "timer" as const },
+            outcome: {
+              kind: "timer" as const,
+              name: "join-timeout",
+              description: "Depends on the active queue.",
+            },
           },
         ],
         ignores: [],

@@ -106,8 +106,8 @@ machine instance or interrupted Effect from encoded state.
 | `InvocationFailed` | The invoked Effect's typed failure selected an outcome. |
 | `InvocationCancelled` | The machine left the invocation state before completion. |
 | `InvocationDefected` | The invoked Effect died. |
-| `TimerStarted` | An entry-owned timer began. |
-| `TimerFired` | The active timer elapsed and selected its transition. |
+| `TimerStarted` | An entry-owned timer began with its computed duration. |
+| `TimerFired` | The active timer elapsed and selected its direct or guarded transition. |
 | `TimerCancelled` | Its owning entry exited before the timer fired. |
 | `StaleOutcomeIgnored` | Work, timer, or completion from an inactive generation was discarded. |
 | `ChildStarted` | A child instance began with a generated instance ID. |

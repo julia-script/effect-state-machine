@@ -10,6 +10,7 @@ import {
   selectionAtom,
 } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
+import { JsonTree } from "./JsonTree.js"
 
 export function HistoryPanel({ session }: { readonly session: ViewerClient.SessionView }) {
   const [cursor, setCursor] = useAtom(cursorAtom(session.sessionId))
@@ -192,13 +193,10 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
           <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             RAW EVENTS · {raw.length}
           </summary>
-          <pre className="mt-1 max-h-36 overflow-auto rounded bg-paper p-2 font-mono text-micro">
-            {JSON.stringify(
-              raw.map((fact) => fact.body),
-              null,
-              2,
-            )}
-          </pre>
+          <JsonTree
+            className="mt-1 max-h-36 overflow-auto rounded bg-paper p-2 text-micro"
+            value={raw.map((fact) => fact.body)}
+          />
         </details>
       )}
     </section>

@@ -8,7 +8,7 @@ import type { Graph } from "effect-state-machine/devtools"
  * @category constants
  * @since 0.1.0
  */
-export const VERSION = 4
+export const VERSION = 5
 
 /**
  * Default TCP port used by the local Studio server.
@@ -80,7 +80,11 @@ const GraphEdge = Schema.Struct({
   location: Schema.optionalKey(SourceLocation),
   event: Schema.optionalKey(EventReference),
   outcome: Schema.optionalKey(
-    Schema.Struct({ kind: Schema.Literals(["success", "failure", "completion", "timer"]) }),
+    Schema.Struct({
+      kind: Schema.Literals(["success", "failure", "completion", "timer"]),
+      name: Schema.optionalKey(Schema.String),
+      description: Schema.optionalKey(Schema.String),
+    }),
   ),
   description: Schema.optionalKey(Schema.String),
   branch: Schema.optionalKey(GraphEdgeBranch),
@@ -106,7 +110,12 @@ interface GraphNodeEncoded {
     readonly description?: string
     readonly retry?: { readonly name: string; readonly description?: string }
   }
-  readonly timer?: { readonly duration: unknown; readonly target: string }
+  readonly timer?: {
+    readonly duration?: unknown
+    readonly name?: string
+    readonly description?: string
+    readonly targets: ReadonlyArray<string>
+  }
   readonly regions?: { readonly slots: ReadonlyArray<string> }
   readonly region?: { readonly parent: string; readonly slot: string; readonly tag: string }
   readonly child?: {
@@ -154,8 +163,10 @@ const GraphNode: Schema.Codec<GraphNodeEncoded> = Schema.Struct({
   ),
   timer: Schema.optionalKey(
     Schema.Struct({
-      duration: Json,
-      target: Schema.String,
+      duration: Schema.optionalKey(Json),
+      name: Schema.optionalKey(Schema.String),
+      description: Schema.optionalKey(Schema.String),
+      targets: Schema.Array(Schema.String),
     }),
   ),
   regions: Schema.optionalKey(

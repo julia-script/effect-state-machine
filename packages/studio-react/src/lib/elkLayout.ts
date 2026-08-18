@@ -58,7 +58,11 @@ export const transitionSize = (edge: Graph.Edge): { width: number; height: numbe
 }
 
 export const edgeLabelText = (edge: Graph.Edge): string => {
-  const base = edge.event?.tag ?? (edge.outcome !== undefined ? edge.outcome.kind : "")
+  const base =
+    edge.event?.tag ??
+    (edge.outcome?.kind === "timer" && edge.outcome.name !== undefined
+      ? `@after "${edge.outcome.name}"`
+      : (edge.outcome?.kind ?? ""))
   const branch =
     edge.branch === undefined
       ? ""

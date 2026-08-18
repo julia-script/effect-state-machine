@@ -46,9 +46,11 @@ export const nodeFacts = (
     }
   }
   if (node.timer !== undefined) {
+    const duration =
+      node.timer.name === undefined ? renderValue(node.timer.duration) : `"${node.timer.name}"`
     facts.push({
       label: "After",
-      value: `${renderValue(node.timer.duration)} → ${node.timer.target}`,
+      value: `${duration} → ${node.timer.targets.join(", ")}`,
     })
   }
   return facts

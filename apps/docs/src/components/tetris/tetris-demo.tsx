@@ -146,7 +146,7 @@ function Board({ state, onRestart }: { readonly state: State; readonly onRestart
         <div className="tetris-overlay">
           <div className="tetris-overlay-card tetris-overlay-card--pear">
             Paused
-            <span>gravity Effect cancelled</span>
+            <span>gravity timer cancelled</span>
           </div>
         </div>
       ) : null}
@@ -309,9 +309,9 @@ export function TetrisDemo() {
             ))}
           </div>
           <p className="tetris-panel-note">
-            One tagged union, four nodes. Gravity is an invoked Effect owned by <code>Falling</code>
-            : steering is a <code>stay</code> update that leaves it running; leaving the state
-            cancels it. Studio watches the same handle.
+            One tagged union, four nodes. Gravity is a named timer owned by <code>Falling</code>:
+            steering is a <code>stay</code> update that leaves it running; leaving the state cancels
+            it. Studio watches the same handle.
           </p>
         </div>
         <div className="tetris-pad">

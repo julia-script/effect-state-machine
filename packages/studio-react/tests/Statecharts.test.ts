@@ -25,7 +25,7 @@ const graph: Graph.Graph = {
       title: "Playing",
       kind: "state",
       region: { parent: "Active", slot: "playback", tag: "Playing" },
-      timer: { duration: "500 millis", target: "Active/playback/Paused" },
+      timer: { duration: "500 millis", targets: ["Active/playback/Paused"] },
     },
     {
       id: "Active/playback/Paused",

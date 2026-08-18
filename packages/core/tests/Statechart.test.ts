@@ -294,6 +294,26 @@ describe("shallow statechart runtime", () => {
         ),
       Machine.MachineDefinitionDefect,
     )
+    assert.throws(
+      () =>
+        lifecycle.define(
+          { id: "blank-duration-name", initial: () => ({ _tag: "Editing", count: 0 }) },
+          {
+            Editing: lifecycle.state(
+              {},
+              {
+                after: {
+                  duration: { name: " ", compute: () => "1 second" },
+                  target: "Done",
+                  reduce: ({ state }) => ({ count: state.count }),
+                },
+              },
+            ),
+            Done: lifecycle.final(),
+          },
+        ),
+      Machine.MachineDefinitionDefect,
+    )
   })
 
   it.effect("commits the declared target tag even when a reducer leaks another tag", () =>
@@ -319,6 +339,98 @@ describe("shallow statechart runtime", () => {
       assert.deepStrictEqual(yield* restart.snapshot, { _tag: "Editing", count: 1 })
       yield* TestClock.adjust("500 millis")
       assert.deepStrictEqual(yield* restart.completion, { _tag: "Done", count: 1 })
+    }),
+  )
+
+  it.effect("computes named durations once per entry and selects guarded timer branches", () =>
+    Effect.gen(function* () {
+      const computedFrom: Array<number> = []
+      const definition = lifecycle.define(
+        { id: "dynamic-guarded-after", initial: () => ({ _tag: "Editing", count: 0 }) },
+        {
+          Editing: lifecycle.state(
+            {
+              Stay: { stay: ({ state }) => ({ count: state.count + 1 }) },
+            },
+            {
+              after: {
+                duration: {
+                  name: "editing-deadline",
+                  description: "One second from entry.",
+                  compute: (state) => {
+                    computedFrom.push(state.count)
+                    return "1 second"
+                  },
+                },
+                branches: [
+                  {
+                    when: {
+                      name: "edited",
+                      guard: ({ state }) => state.count > 0,
+                    },
+                    target: "Done",
+                    reduce: ({ state }) => ({ count: state.count + 10 }),
+                  },
+                  {
+                    otherwise: true,
+                    target: "Done",
+                    reduce: ({ state }) => ({ count: state.count }),
+                  },
+                ],
+              },
+            },
+          ),
+          Done: lifecycle.final(),
+        },
+      )
+
+      const graph = Graph.fromDefinition(definition)
+      assert.deepStrictEqual(graph.nodes.find(({ id }) => id === "Editing")?.timer, {
+        name: "editing-deadline",
+        description: "One second from entry.",
+        targets: ["Done"],
+      })
+      assert.deepStrictEqual(
+        graph.edges.filter(({ outcome }) => outcome?.kind === "timer").map(({ branch }) => branch),
+        [
+          { kind: "guard", index: 0, name: "edited" },
+          { kind: "otherwise", index: 1 },
+        ],
+      )
+      assert.match(Mermaid.render(graph), /@after "editing-deadline" \[1: edited\]/)
+
+      const handle = yield* Machine.run(definition, { count: 0 })
+      yield* TestClock.adjust("500 millis")
+      yield* handle.send({ _tag: "Stay" })
+      yield* TestClock.adjust("500 millis")
+      assert.deepStrictEqual(yield* handle.completion, { _tag: "Done", count: 11 })
+      assert.deepStrictEqual(computedFrom, [0])
+
+      const facts = Array.from(yield* Stream.runCollect(Stream.take(handle.inspection, 8)))
+      const timers = facts.filter(
+        (fact): fact is Extract<Machine.InspectionEvent, { timer: string }> =>
+          fact._tag === "TimerStarted" || fact._tag === "TimerFired",
+      )
+      assert.deepStrictEqual(
+        timers.map((fact) => ({ timer: fact.timer, durationMillis: fact.durationMillis })),
+        [
+          { timer: "editing-deadline", durationMillis: 1_000 },
+          { timer: "editing-deadline", durationMillis: 1_000 },
+        ],
+      )
+      assert.deepStrictEqual(
+        facts.find((fact) => fact._tag === "TransitionSelected" && fact.eventTag === "@after"),
+        {
+          _tag: "TransitionSelected",
+          machineId: "dynamic-guarded-after",
+          sourceStateTag: "Editing",
+          targetStateTag: "Done",
+          eventTag: "@after",
+          ownerPath: "Editing",
+          macrostep: 0,
+          branch: { kind: "guard", index: 0, name: "edited" },
+        },
+      )
     }),
   )
 
@@ -428,6 +540,94 @@ describe("shallow statechart runtime", () => {
       assert.strictEqual((yield* restarted.snapshot)._tag, "Active")
       yield* TestClock.adjust("500 millis")
       assert.deepStrictEqual(yield* restarted.completion, { _tag: "Completed", count: 1 })
+    }),
+  )
+
+  it.effect("supports parent-aware named durations and guarded branches in regions", () =>
+    Effect.gen(function* () {
+      const computed: Array<readonly [number, string]> = []
+      const definition = regionTimer.define(
+        {
+          id: "guarded-region-timer",
+          initial: () => ({ _tag: "Active", timer: { _tag: "Waiting", count: 0 } }),
+        },
+        {
+          Active: regionTimer.regions(
+            {
+              timer: {
+                Waiting: {
+                  on: {
+                    Stay: { stay: ({ state }) => ({ count: state.count + 1 }) },
+                  },
+                  after: {
+                    duration: {
+                      name: "slot-deadline",
+                      compute: ({ state, parent }) => {
+                        computed.push([state.count, parent._tag])
+                        return "1 second"
+                      },
+                    },
+                    branches: [
+                      {
+                        when: { name: "changed", guard: ({ state }) => state.count > 0 },
+                        target: "SlotDone",
+                        reduce: ({ state }) => ({ count: state.count + 1 }),
+                      },
+                      {
+                        otherwise: true,
+                        target: "SlotDone",
+                        reduce: ({ state }) => ({ count: state.count }),
+                      },
+                    ],
+                  },
+                },
+                SlotDone: { final: true },
+              },
+            },
+            {},
+            {
+              onComplete: {
+                target: "Completed",
+                reduce: ({ state }) => ({ count: state.timer.count }),
+              },
+            },
+          ),
+          Completed: regionTimer.final(),
+        },
+      )
+      const graph = Graph.fromDefinition(definition)
+      assert.deepStrictEqual(graph.nodes.find(({ id }) => id === "Active/timer/Waiting")?.timer, {
+        name: "slot-deadline",
+        targets: ["Active/timer/SlotDone"],
+      })
+      assert.deepStrictEqual(
+        graph.edges
+          .filter(
+            ({ source, outcome }) => source === "Active/timer/Waiting" && outcome?.kind === "timer",
+          )
+          .map(({ branch }) => branch),
+        [
+          { kind: "guard", index: 0, name: "changed" },
+          { kind: "otherwise", index: 1 },
+        ],
+      )
+      const handle = yield* Machine.run(definition, undefined)
+      yield* TestClock.adjust("500 millis")
+      yield* handle.send({ _tag: "Stay" })
+      yield* TestClock.adjust("500 millis")
+      assert.deepStrictEqual(yield* handle.completion, { _tag: "Completed", count: 2 })
+      assert.deepStrictEqual(computed, [[0, "Active"]])
+
+      const facts = Array.from(yield* Stream.runCollect(Stream.take(handle.inspection, 10)))
+      assert.ok(
+        facts.some(
+          (fact) =>
+            fact._tag === "TransitionSelected" &&
+            fact.eventTag === "@after" &&
+            fact.branch?.kind === "guard" &&
+            fact.branch.name === "changed",
+        ),
+      )
     }),
   )
 

@@ -107,6 +107,39 @@ Creates an invoked node that selects the first successful task. `onSuccess` rece
 `winner` and `value` fields. Typed lane failures remain pending while another lane can succeed;
 `onFailure` runs after every lane has failed.
 
+### `options.after`
+
+Ordinary and invoked nodes may own one timer. A static duration uses any Effect `Duration.Input`:
+
+```ts
+after: {
+  duration: "280 millis",
+  target: "Ready",
+  reduce: ({ state }) => ({ value: state.value }),
+}
+```
+
+The duration may instead be named synchronous logic computed once from the state at entry:
+
+```ts
+after: {
+  duration: {
+    name: "refresh-interval",
+    description: "Shorter while the queue is busy.",
+    compute: (state) => state.pending > 0 ? "1 second" : "10 seconds",
+  },
+  branches: [
+    { when: staleGuard, target: "Refreshing", reduce: () => ({}) },
+    { otherwise: true, target: "Ready", reduce: ({ state }) => state },
+  ],
+}
+```
+
+Timer branches are ordered, first-match-wins, and follow the same named-guard and final-fallback
+rules as event and outcome branches. Guards and reducers observe the state when the timer fires;
+the duration remains the value computed when the entry started. Region timers support the same
+forms, with dynamic duration logic, guards, and reducers receiving `{ state, parent }`.
+
 ### `regions(trees, on?, options?)`
 
 Creates a region-bearing state. `trees` is keyed by tagged-union fields on the parent state; every
@@ -237,4 +270,4 @@ Outcome guard order and fallback behavior match event guards.
 The module also exports structural node and transition types used in these signatures, including
 `StateNode`, `InvokeNode`, `ChildNode`, `FinalNode`, `Transition`,
 `GuardedTransition`, `IgnoredTransition`, `SuccessTransition`, `FailureTransition`, `RetryPolicy`,
-`NamedGuard`, and `ChildForwarders`.
+`AfterTransition`, `NamedDuration`, `NamedGuard`, and `ChildForwarders`.

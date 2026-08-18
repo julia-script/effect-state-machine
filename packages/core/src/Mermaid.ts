@@ -41,11 +41,12 @@ export const render = (graph: Graph.Graph): string => {
         : edge.branch?.kind === "otherwise"
           ? " [otherwise]"
           : ""
-    lines.push(
-      `  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${
-        edge.event?.tag.replaceAll("\n", " ") ?? edge.outcome?.kind ?? "transition"
-      }${branch}`,
-    )
+    const transition =
+      edge.event?.tag.replaceAll("\n", " ") ??
+      (edge.outcome?.kind === "timer" && edge.outcome.name !== undefined
+        ? `@after ${JSON.stringify(edge.outcome.name)}`
+        : (edge.outcome?.kind ?? "transition"))
+    lines.push(`  ${ids.get(edge.source)} --> ${ids.get(edge.target)}: ${transition}${branch}`)
   }
 
   for (const ignored of graph.ignores) {

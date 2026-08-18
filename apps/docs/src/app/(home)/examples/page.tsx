@@ -22,7 +22,7 @@ export default function ExamplesPage() {
             <span className="spec-card__kind spec-card__kind--pear">game loop</span>
             <span className="spec-card__title">Tetris</span>
             <p>
-              A full game as one machine: gravity as a scoped invoked Effect, steering as{" "}
+              A full game as one machine: gravity as a named state-derived timer, steering as{" "}
               <code>stay</code> updates, and lock, clear, and top-out decisions as named guards.
             </p>
           </Link>

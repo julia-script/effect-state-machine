@@ -21,7 +21,7 @@ export default async function TetrisPage() {
         <header className="tetris-intro">
           <h1>Tetris, as one machine definition</h1>
           <p>
-            The whole game is a single machine: gravity is an invoked Effect scoped to the{" "}
+            The whole game is a single machine: gravity is a named timer owned by the{" "}
             <code>Falling</code> state, steering is a <code>stay</code> update that leaves it
             running, and every lock, clear, and top-out decision is a named guard. The embedded
             Studio is attached to the same handle — play from the keyboard or drive the machine from

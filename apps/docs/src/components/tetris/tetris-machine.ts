@@ -1,10 +1,10 @@
 /**
- * Tetris as one machine definition. Gravity is a scoped invoked Effect owned
+ * Tetris as one machine definition. Gravity is a named state-derived timer owned
  * by the Falling state (pausing cancels it, `stay` steering updates leave it
  * running), every input is a machine event, and lock/clear/top-out decisions
  * are named guards visible in the inspection stream and Studio.
  */
-import { Effect, Schema } from "effect"
+import { Schema } from "effect"
 import { Machine } from "effect-state-machine"
 
 // ---------------------------------------------------------------------------
@@ -184,8 +184,7 @@ const Input = Schema.Struct({ seed: Schema.Number }).annotate({
 const State = Machine.taggedUnion({
   Falling: {
     fields: { ...progressFields, piece: Piece },
-    description:
-      "One piece is falling. The gravity delay is an invoked Effect owned by this state.",
+    description: "One piece is falling. A named state-derived timer owns the gravity interval.",
   },
   Clearing: {
     fields: { ...progressFields, cleared: Schema.Array(Schema.Number) },
@@ -193,7 +192,7 @@ const State = Machine.taggedUnion({
   },
   Paused: {
     fields: { ...progressFields, piece: Piece },
-    description: "Leaving Falling cancels the scoped gravity Effect; nothing ticks here.",
+    description: "Leaving Falling cancels its gravity timer; nothing ticks here.",
   },
   GameOver: {
     fields: { board: Board, score: Schema.Number, lines: Schema.Number, level: Schema.Number },
@@ -207,8 +206,8 @@ const Event = Machine.taggedUnion({
   Rotate: { fields: {}, description: "Rotate clockwise, nudging off walls when needed." },
   SoftDrop: { fields: {}, description: "Descend one row without waiting for gravity." },
   HardDrop: { fields: {}, description: "Drop to the floor and lock immediately." },
-  Pause: { fields: {}, description: "Suspend play; cancels the gravity Effect." },
-  Resume: { fields: {}, description: "Return to Falling; gravity is re-invoked." },
+  Pause: { fields: {}, description: "Suspend play; cancels the gravity timer." },
+  Resume: { fields: {}, description: "Return to Falling; gravity starts on entry." },
 })
 
 type FallingState = {
@@ -300,7 +299,7 @@ export const definition = tetris.define(
   {
     id: "tetris",
     description:
-      "A complete Tetris game as one machine: gravity as a scoped invoked Effect, inputs as events, lock decisions as named guards.",
+      "A complete Tetris game as one machine: gravity as a named timer, inputs as events, lock decisions as named guards.",
     initial: (input) => {
       let seed = input.seed >>> 0
       const kinds: Array<number> = []
@@ -322,35 +321,10 @@ export const definition = tetris.define(
     },
   },
   {
-    Falling: tetris.invoke(
-      {
-        name: "gravity.wait",
-        description:
-          "Sleep one gravity interval. The sleep is scoped to Falling: leaving the state cancels it, while `stay` updates (steering) leave it running.",
-        effect: (state) => Effect.sleep(gravityMs(state.level)),
-        onSuccess: {
-          branches: [
-            {
-              when: {
-                name: "piece-can-descend",
-                description: "The row below the piece is free.",
-                guard: ({ state }) => !collides(state.board, down(state.piece)),
-              },
-              target: "Falling",
-              reduce: ({ state }) => ({ ...state, piece: down(state.piece) }),
-            },
-            ...lockBranches((state) => state.piece),
-          ],
-        },
-        // Effect.sleep cannot fail; the type still requires a transition.
-        onFailure: {
-          target: "GameOver",
-          reduce: ({ state }) => toGameOver(state, state.board),
-        },
-      },
+    Falling: tetris.state(
       {
         // `stay` updates state data without exiting or re-entering the node,
-        // so steering the piece never cancels the running gravity Effect.
+        // so steering the piece never restarts the running gravity timer.
         MoveLeft: {
           stay: ({ state }) => {
             const moved = { ...state.piece, x: state.piece.x - 1 }
@@ -387,35 +361,54 @@ export const definition = tetris.define(
           reduce: ({ state }) => ({ ...state, _tag: "Paused" as const }),
         },
       },
-    ),
-    Clearing: tetris.invoke({
-      name: "clear.settle",
-      description: "Hold the completed rows on screen before collapsing them.",
-      effect: () => Effect.sleep(280),
-      onSuccess: {
-        branches: [
-          {
-            when: {
-              name: "spawn-blocked",
-              description: "Even after clearing, the next piece cannot enter.",
-              guard: ({ state }) =>
-                collides(collapse(state.board, state.cleared), spawn(state.queue[0])),
+      {
+        after: {
+          duration: {
+            name: "gravity-interval",
+            description: "750ms minus 60ms per level, with a 90ms floor.",
+            compute: (state) => gravityMs(state.level),
+          },
+          branches: [
+            {
+              when: {
+                name: "piece-can-descend",
+                description: "The row below the piece is free.",
+                guard: ({ state }) => !collides(state.board, down(state.piece)),
+              },
+              target: "Falling",
+              reduce: ({ state }) => ({ ...state, piece: down(state.piece) }),
             },
-            target: "GameOver",
-            reduce: ({ state }) => toGameOver(state, collapse(state.board, state.cleared)),
-          },
-          {
-            otherwise: true,
-            target: "Falling",
-            reduce: ({ state }) => spawnNext(state, collapse(state.board, state.cleared)),
-          },
-        ],
+            ...lockBranches((state) => state.piece),
+          ],
+        },
       },
-      onFailure: {
-        target: "GameOver",
-        reduce: ({ state }) => toGameOver(state, state.board),
+    ),
+    Clearing: tetris.state(
+      {},
+      {
+        after: {
+          duration: "280 millis",
+          description: "Hold the completed rows on screen before collapsing them.",
+          branches: [
+            {
+              when: {
+                name: "spawn-blocked",
+                description: "Even after clearing, the next piece cannot enter.",
+                guard: ({ state }) =>
+                  collides(collapse(state.board, state.cleared), spawn(state.queue[0])),
+              },
+              target: "GameOver",
+              reduce: ({ state }) => toGameOver(state, collapse(state.board, state.cleared)),
+            },
+            {
+              otherwise: true,
+              target: "Falling",
+              reduce: ({ state }) => spawnNext(state, collapse(state.board, state.cleared)),
+            },
+          ],
+        },
       },
-    }),
+    ),
     Paused: tetris.state({
       Resume: {
         target: "Falling",

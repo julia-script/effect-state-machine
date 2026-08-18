@@ -1,6 +1,7 @@
 import { nodeFacts, nodeKindLabel } from "../lib/nodePresentation.js"
 import type { MapSelection } from "../state/atoms.js"
 import type * as ViewerClient from "../state/ViewerClient.js"
+import { JsonTree } from "./JsonTree.js"
 import { SourceLink } from "./SourceLink.js"
 
 export type Selection = MapSelection
@@ -119,9 +120,10 @@ export function DetailCard({
           <summary className="cursor-pointer font-mono text-micro font-bold tracking-widest text-muted">
             JSON SCHEMA
           </summary>
-          <pre className="mt-1 max-h-44 overflow-auto rounded bg-paper p-2 font-mono text-micro leading-relaxed">
-            {JSON.stringify(schema, null, 2)}
-          </pre>
+          <JsonTree
+            className="mt-1 max-h-44 overflow-auto rounded bg-paper p-2 text-micro leading-relaxed"
+            value={schema}
+          />
         </details>
       )}
     </section>
