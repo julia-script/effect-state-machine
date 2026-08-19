@@ -1,0 +1,17 @@
+{
+  "date": "2026-08-18",
+  "target": "apps/bugs-and-patches",
+  "framework": "React 19 + Vite 8",
+  "macrostructure": "Narrative Workflow",
+  "theme": "Hum",
+  "genre": "playful",
+  "nav": "N7 Brutal slab",
+  "footer": "Ft5 Statement",
+  "enrichment": "Audited supplied SVG card illustrations",
+  "fonts": ["Plus Jakarta Sans", "JetBrains Mono"],
+  "assumptions": {
+    "audience": "Developers and friends trying a multiplayer demo",
+    "primaryUse": "Understand the rules, sign in, and play",
+    "tone": "Playful technical neo-brutalism"
+  }
+}

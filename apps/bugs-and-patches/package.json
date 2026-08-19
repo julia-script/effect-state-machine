@@ -1,0 +1,43 @@
+{
+  "name": "@effect-state-machine/bugs-and-patches",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rm -rf dist && pnpm build:client && pnpm build:server",
+    "build:client": "vite build",
+    "build:server": "rm -rf dist/server && esbuild src/server/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/main.js --external:effect --external:@effect/platform-node --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" && cp -R drizzle dist/server/drizzle",
+    "check": "pnpm typecheck && pnpm test",
+    "db:generate": "drizzle-kit generate",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "pnpm build:server && node --env-file=.env.local dist/server/main.js",
+    "start": "node --env-file-if-exists=.env.local dist/server/main.js",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect-state-machine/studio-client": "workspace:*",
+    "@effect/platform-node": "4.0.0-rc.110",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.0-rc.110",
+    "effect-state-machine": "workspace:*",
+    "pg": "^8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.110",
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "drizzle-kit": "1.0.0-rc.4",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  }
+}

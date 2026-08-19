@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 44"><g fill="none" stroke="#2b2933" stroke-width="2" stroke-linecap="round">
+<g transform="translate(48 8) rotate(135)">
+  <line x1="-7" y1="0" x2="0" y2="0"></line>
+  <line x1="-7" y1="-4" x2="-7" y2="4"></line>
+  <rect x="0" y="-4" width="15" height="8" rx="2" fill="#ffffff"></rect>
+  <rect x="2" y="-2" width="7" height="4" fill="#f26b41" stroke="none"></rect>
+  <line x1="15" y1="-6" x2="15" y2="6"></line>
+  <line x1="15" y1="0" x2="25" y2="0" stroke-width="1.6"></line>
+</g>
+<circle cx="31" cy="24" r="1.8" fill="#f26b41" stroke="none"></circle>
+<ellipse cx="27" cy="28" rx="13" ry="4.5" fill="#92d8e8"></ellipse>
+<line x1="14" y1="28" x2="14" y2="37"></line>
+<line x1="40" y1="28" x2="40" y2="37"></line>
+<path d="M14,37 A13,4.5 0 0 0 40,37"></path>
+<path id="cyl" d="M8,31.5 A17,5.6 0 0 0 46,31.5" fill="none" stroke="none"></path><text font-size="4.8" font-family="ui-monospace,monospace" fill="#2b2933" stroke="none"><textPath href="#cyl" startOffset="50%" text-anchor="middle">users_db</textPath></text>
+</g></svg>

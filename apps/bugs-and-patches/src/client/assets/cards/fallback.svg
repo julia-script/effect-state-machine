@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-labelledby="title desc">
+  <title id="title">Card art pending</title>
+  <desc id="desc">A friendly bug hiding behind a patch-shaped square.</desc>
+  <rect width="320" height="240" rx="32" fill="#f0eccf"/>
+  <path d="M104 167c0-47 24-82 56-82s56 35 56 82" fill="none" stroke="#252532" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="137" cy="119" r="7" fill="#252532"/>
+  <circle cx="183" cy="119" r="7" fill="#252532"/>
+  <path d="M145 143c10 8 20 8 30 0M111 118 82 99m27 49-34 6m134-36 29-19m-27 49 34 6" fill="none" stroke="#252532" stroke-width="9" stroke-linecap="round"/>
+  <rect x="122" y="157" width="76" height="56" rx="10" fill="#dfff52" stroke="#252532" stroke-width="8"/>
+  <path d="M160 169v32m-16-16h32" stroke="#252532" stroke-width="8" stroke-linecap="round"/>
+</svg>
