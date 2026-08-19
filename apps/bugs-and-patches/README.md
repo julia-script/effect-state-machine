@@ -80,7 +80,7 @@ Create an OAuth App under GitHub **Settings → Developer settings → OAuth App
 - Homepage URL: `http://127.0.0.1:5173`
 - Authorization callback URL: `http://127.0.0.1:4788/auth/github/callback`
 
-For production, the homepage is `https://bugsandpatches.jlort.com` and the authorization callback is `https://bugsandpatches-api.juliaortiz.com.br/auth/github/callback`.
+For production, the homepage is `https://bugsandpatches.jlort.com` and the authorization callback is `https://bugsandpatches-api.jlort.com/auth/github/callback`.
 
 The app requests no OAuth scopes and reads only GitHub's public `/user` response. Authorization uses CSRF state and PKCE. The GitHub access token is discarded immediately after that profile fetch; only an opaque, digested application session remains. Sessions use a fixed lifetime rather than sliding renewal.
 
@@ -142,7 +142,7 @@ Create a Vercel project with `apps/bugs-and-patches` as its Root Directory. The 
 
 Set only this public build-time value in Vercel:
 
-- `VITE_BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.juliaortiz.com.br`
+- `VITE_BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.jlort.com`
 
 Do not add `DATABASE_URL` or GitHub OAuth credentials to the client project. After choosing or changing the server hostname, update this variable and redeploy the client.
 
@@ -156,7 +156,7 @@ Set these runtime-only application variables:
 - `BUGS_PATCHES_GITHUB_CLIENT_ID`
 - `BUGS_PATCHES_GITHUB_CLIENT_SECRET`
 - `BUGS_PATCHES_CLIENT_URL=https://bugsandpatches.jlort.com`
-- `BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.juliaortiz.com.br`
+- `BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.jlort.com`
 
 The image contains the server bundle and checked-in migrations but no browser client. Startup fails closed if PostgreSQL is unavailable or a migration fails. Coolify's stop/redeploy signal unwinds the scoped server and closes its bounded PostgreSQL pool.
 
