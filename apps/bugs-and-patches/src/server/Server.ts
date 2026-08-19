@@ -562,23 +562,21 @@ export const layer = (configuration: ServerConfiguration, options?: Options) => 
   }).pipe(Layer.provide(storage))
   const services = Layer.mergeAll(config, storage, githubApi, github, sessions, registry)
 
-  const browserCors = HttpRouter.cors({
+  // Router CORS middleware is global, including when it is provided to one
+  // branch of a merged router. Keep a single policy so challenge routes do not
+  // overwrite the credentialed browser origin with a wildcard.
+  const cors = HttpRouter.cors({
     allowedOrigins: [configuration.clientUrl],
     allowedMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    credentials: true,
-  })
-  const agentCors = HttpRouter.cors({
-    allowedOrigins: [],
-    allowedMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["content-type", "accept", "mcp-protocol-version", "mcp-session-id"],
     exposedHeaders: ["mcp-protocol-version", "mcp-session-id"],
-    credentials: false,
+    credentials: true,
   })
 
   const routes = Layer.mergeAll(
-    gameRoute.pipe(Layer.provide(browserCors)),
-    authRoutes.pipe(Layer.provide(browserCors)),
-    challengeRoutes.pipe(Layer.provide(agentCors)),
+    gameRoute.pipe(Layer.provide(cors)),
+    authRoutes.pipe(Layer.provide(cors)),
+    challengeRoutes.pipe(Layer.provide(cors)),
     healthRoute,
     staticRoutes(options?.uiRoot),
   )
