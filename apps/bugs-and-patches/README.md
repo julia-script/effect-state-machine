@@ -80,7 +80,7 @@ Create an OAuth App under GitHub **Settings → Developer settings → OAuth App
 - Homepage URL: `http://127.0.0.1:5173`
 - Authorization callback URL: `http://127.0.0.1:4788/auth/github/callback`
 
-For production, the homepage is `https://bugsandpatches.jlort.com`. The callback is derived from the game-server origin and will be `https://<chosen-server-host>/auth/github/callback`; the server hostname is intentionally deferred until the Coolify route is selected.
+For production, the homepage is `https://bugsandpatches.jlort.com` and the authorization callback is `https://bugsandpatches-api.juliaortiz.com.br/auth/github/callback`.
 
 The app requests no OAuth scopes and reads only GitHub's public `/user` response. Authorization uses CSRF state and PKCE. The GitHub access token is discarded immediately after that profile fetch; only an opaque, digested application session remains. Sessions use a fixed lifetime rather than sliding renewal.
 
@@ -142,7 +142,7 @@ Create a Vercel project with `apps/bugs-and-patches` as its Root Directory. The 
 
 Set only this public build-time value in Vercel:
 
-- `VITE_BUGS_PATCHES_SERVER_URL=https://<chosen-server-host>`
+- `VITE_BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.juliaortiz.com.br`
 
 Do not add `DATABASE_URL` or GitHub OAuth credentials to the client project. After choosing or changing the server hostname, update this variable and redeploy the client.
 
@@ -156,17 +156,17 @@ Set these runtime-only application variables:
 - `BUGS_PATCHES_GITHUB_CLIENT_ID`
 - `BUGS_PATCHES_GITHUB_CLIENT_SECRET`
 - `BUGS_PATCHES_CLIENT_URL=https://bugsandpatches.jlort.com`
-- `BUGS_PATCHES_SERVER_URL=https://<chosen-server-host>`
+- `BUGS_PATCHES_SERVER_URL=https://bugsandpatches-api.juliaortiz.com.br`
 
 The image contains the server bundle and checked-in migrations but no browser client. Startup fails closed if PostgreSQL is unavailable or a migration fails. Coolify's stop/redeploy signal unwinds the scoped server and closes its bounded PostgreSQL pool.
 
 Enable scheduled PostgreSQL backups in Coolify and test a restore before relying on them. For a manual logical backup, use `pg_dump` against the database resource rather than copying container files. Completed Ranked results, ratings, profiles, and sessions survive server restarts; active matches, private seats, OAuth attempts, and the Ranked queue are process-local and are lost.
 
-After the public game-server hostname is chosen:
+For a fresh deployment or hostname change:
 
 1. Route it to the Coolify application with HTTPS.
 2. Set `BUGS_PATCHES_SERVER_URL` and redeploy the server.
-3. Register `https://<chosen-server-host>/auth/github/callback` in GitHub.
+3. Register the server origin plus `/auth/github/callback` in GitHub.
 4. Set the same origin in Vercel's `VITE_BUGS_PATCHES_SERVER_URL` and redeploy the client.
 5. Run a two-account Friendly and Ranked smoke test.
 
