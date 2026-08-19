@@ -16,6 +16,10 @@ ENV BUGS_PATCHES_HOST=0.0.0.0
 ENV BUGS_PATCHES_PORT=4788
 ENV BUGS_PATCHES_UI_ROOT=
 
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /workspace
 COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/bugs-and-patches/node_modules ./apps/bugs-and-patches/node_modules
