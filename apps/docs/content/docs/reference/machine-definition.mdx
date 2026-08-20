@@ -149,7 +149,9 @@ every active slot child is final.
 
 Region event reducers receive `state`, `event`, and the read-only narrowed `parent`. Targets are
 restricted to tags in the same slot. `region.invoke(config, on?, options?)` declares one Effect
-owned by a region child; its Effect receives the child state and parent snapshot.
+owned by a region child; its Effect receives the child state and parent snapshot. Like top-level
+invoked work, the config requires `success` and `error` Schemas (`Schema.Never` for an impossible
+typed failure).
 
 ### `child(config, on?)`
 

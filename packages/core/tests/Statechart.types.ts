@@ -30,9 +30,9 @@ const machine = Machine.builder({
   event: Event,
 })
 
-interface WorkFailure {
-  readonly code: "failed"
-}
+class WorkFailure extends Schema.TaggedError<WorkFailure>()("WorkFailure", {
+  code: Schema.Literal("failed"),
+}) {}
 
 class WorkService extends Context.Service<
   WorkService,
@@ -65,6 +65,8 @@ const inferred = machine.define(
   {
     A: machine.invoke({
       name: "typed-work",
+      success: Schema.Number,
+      error: WorkFailure,
       effect: (state) => {
         const current: "A" = state._tag
         void current
@@ -83,8 +85,8 @@ const inferred = machine.define(
         target: "C",
         reduce: ({ error }) => {
           const code: "failed" = error.code
-          // @ts-expect-error The typed failure has no message field.
-          error.message
+          // @ts-expect-error The typed failure has no arbitrary payload field.
+          error.payload
           return { value: code }
         },
       },
@@ -152,7 +154,18 @@ machine.define(
   {
     A: machine.invoke.all({
       name: "join",
-      tasks: { text: () => Effect.succeed("ok"), count: () => Effect.succeed(1) },
+      tasks: {
+        text: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: () => Effect.succeed("ok"),
+        },
+        count: {
+          success: Schema.Number,
+          error: Schema.Never,
+          effect: () => Effect.succeed(1),
+        },
+      },
       onSuccess: {
         target: "C",
         reduce: ({ value }) => {
@@ -175,7 +188,18 @@ machine.define(
   {
     A: machine.invoke.race({
       name: "race",
-      tasks: { text: () => Effect.succeed("ok"), count: () => Effect.succeed({ count: 1 }) },
+      tasks: {
+        text: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: () => Effect.succeed("ok"),
+        },
+        count: {
+          success: Schema.Struct({ count: Schema.Number }),
+          error: Schema.Never,
+          effect: () => Effect.succeed({ count: 1 }),
+        },
+      },
       onSuccess: {
         target: "C",
         reduce: ({ winner, value }) => {

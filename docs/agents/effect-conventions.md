@@ -27,7 +27,7 @@ import { Effect } from "effect"
 import { Machine } from "effect-state-machine"
 ```
 
-`effect-state-machine` publicly exports `.`, `./devtools`, `./Machine`,
+`effect-state-machine` publicly exports `.`, `./devtools`, `./Machine`, `./Durable`,
 `./Graph`, `./Mermaid`, and `./SourceLocation` — mirrored in `publishConfig`
 and verified by `check-package.mjs`. `Source` is internal; adding a public
 module means adding it to both export maps. Never import another package's
@@ -66,8 +66,10 @@ effects.
 
 ## Define services and compose layers
 
-Core defines no services — the machine interpreter takes its requirements from
-invoked Effects and expresses them in `run`'s `R` channel. Where services are
+Ordinary `Machine.run` defines no services and takes its requirements from
+invoked Effects. Durable execution deliberately defines `Durable.Store` as the single atomic
+checkpoint-and-queue seam; adapters provide its Layer and must pass the published conformance
+cases. Where other services are
 needed (studio, clients), prefer class syntax for `Context.Service` with a
 stable `"<package>/<Module>"` identifier, construct implementations with
 `Service.of`, attach `layer`/`layerNoDeps`/`layerTest` statics to the service

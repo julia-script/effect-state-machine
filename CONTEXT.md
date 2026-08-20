@@ -32,8 +32,20 @@ A validated value from the machine's schema-first tagged union that requests a t
 _Avoid_: Untyped message
 
 **Machine schema**:
-The Effect Schemas that are the runtime and compile-time source for machine input, states, and events. The interpreter trusts their decoded types; explicit encode/decode helper Effects own codec requirements. In v0 schemas provide definition metadata and encoding boundaries, not persistence or durable resumption; transient invoked outputs, failures, Schedule values, and reducer internals remain inferred TypeScript types.
+The Effect Schemas that are the runtime and compile-time source for machine input, states, events, invoked successes, and allowed invoked failures. The ordinary interpreter validates invoked outcomes through their JSON codecs. The durable interpreter also uses those codecs for checkpoints and replayable activity outcomes; Schedule progress and reducer internals remain transient.
 _Avoid_: Parallel type declaration, persistence engine
+
+**Durable machine instance**:
+A machine execution identified by a caller-supplied stable instance ID whose encoded checkpoint, serialized mailbox, timers, activity commands, and idempotency records live behind `Durable.Store`. Starting the same compatible instance resumes its checkpoint without rerunning the initializer.
+_Avoid_: A process-local machine with snapshots copied after transitions
+
+**Durable activity**:
+At-least-once execution of Schema-backed invoked work outside the serialized machine mailbox. It receives a stable execution key that callers can pass to Effect Workflow, a task queue, or an application idempotency table. The library makes the outcome durable; the external side effect is only as durable or idempotent as the integration chosen by the application.
+_Avoid_: Exactly-once side effect
+
+**Durable timer**:
+An entry-owned delayed machine message with one resolved duration and an absolute store-authoritative deadline. Resumption neither restarts the delay nor skips an overdue timer.
+_Avoid_: Persisted remaining sleep duration
 
 **Description**:
 Human-written metadata attached beside a named machine element to explain its intent without determining its behavior. State and event descriptions live on their Schema annotations; behavioral descriptions live beside their declarations in the machine definition. Descriptions are visible in both authored code and visualization.

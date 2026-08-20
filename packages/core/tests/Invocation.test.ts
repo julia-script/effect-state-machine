@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -11,13 +10,15 @@ import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
 
-class LoadFailed extends Data.TaggedError("LoadFailed")<{
-  readonly message: string
-}> {}
+class LoadFailed extends Schema.TaggedError<LoadFailed>()("LoadFailed", {
+  message: Schema.String,
+}) {}
 
-class NotFound extends Data.TaggedError("NotFound")<{
-  readonly message: string
-}> {}
+class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+  message: Schema.String,
+}) {}
+
+const LoadError = Schema.Union([LoadFailed, NotFound])
 
 class Documents extends Context.Service<
   Documents,
@@ -46,6 +47,8 @@ const definition = document.define(
       {
         name: "Documents.load",
         description: "Load the requested document through an application-provided service.",
+        success: Schema.String,
+        error: LoadError,
         effect: (state) => Effect.flatMap(Documents, ({ load }) => load(state.id)),
         onSuccess: {
           target: "Loaded",
@@ -219,6 +222,39 @@ describe("invoked Effects", () => {
     }),
   )
 
+  it.effect("defects when an Effect violates either declared outcome Schema", () =>
+    Effect.gen(function* () {
+      const invalidSuccess = Layer.succeed(
+        Documents,
+        Documents.of({
+          load: () => Effect.succeed(42) as unknown as Effect.Effect<string, LoadFailed | NotFound>,
+        }),
+      )
+      const invalidFailure = Layer.succeed(
+        Documents,
+        Documents.of({
+          load: () =>
+            Effect.fail({ _tag: "Unexpected", message: "bad" }) as unknown as Effect.Effect<
+              string,
+              LoadFailed | NotFound
+            >,
+        }),
+      )
+
+      for (const layer of [invalidSuccess, invalidFailure]) {
+        const handle = yield* Machine.run(definition, { id: "invalid" }).pipe(Effect.provide(layer))
+        const exit = yield* Effect.exit(handle.completion)
+        assert.strictEqual(Exit.isFailure(exit), true)
+        if (Exit.isFailure(exit)) {
+          assert.strictEqual(
+            Cause.squash(exit.cause) instanceof Machine.MachineDefinitionDefect,
+            true,
+          )
+        }
+      }
+    }),
+  )
+
   it.effect("ignores a late callback from work interrupted by state exit", () =>
     Effect.gen(function* () {
       let resumeLate: ((effect: Effect.Effect<string, LoadFailed | NotFound>) => void) | undefined
@@ -257,6 +293,10 @@ describe("invoked Effects", () => {
         name: "Documents.load",
         kind: "effect",
         description: "Load the requested document through an application-provided service.",
+        outcomes: {
+          success: { kind: "String" },
+          error: { kind: "Union" },
+        },
       },
     })
     assert.deepStrictEqual(

@@ -25,6 +25,20 @@ export interface Node {
       name: string
       description?: string
     }>
+    outcomes?: Readonly<{
+      success?: Machine.WorkSchemaMetadata
+      error?: Machine.WorkSchemaMetadata
+      lanes?: Readonly<
+        Record<
+          string,
+          Readonly<{
+            description?: string
+            success?: Machine.WorkSchemaMetadata
+            error?: Machine.WorkSchemaMetadata
+          }>
+        >
+      >
+    }>
   }>
   readonly timer?: Readonly<{
     duration?: unknown
@@ -370,6 +384,17 @@ export const fromDefinition = (
                         : { description: node.retry.description }),
                     },
                   }),
+              ...(node.successSchema === undefined &&
+              node.errorSchema === undefined &&
+              node.taskSchemas === undefined
+                ? {}
+                : {
+                    outcomes: {
+                      ...(node.successSchema === undefined ? {} : { success: node.successSchema }),
+                      ...(node.errorSchema === undefined ? {} : { error: node.errorSchema }),
+                      ...(node.taskSchemas === undefined ? {} : { lanes: node.taskSchemas }),
+                    },
+                  }),
             },
           }
         : {}),
@@ -435,6 +460,8 @@ export const fromDefinition = (
                   name: string
                   description?: string
                   retry?: Readonly<{ name: string; description?: string }>
+                  success?: unknown
+                  error?: unknown
                 }>
                 after?: AfterMetadata
               }>
@@ -465,6 +492,14 @@ export const fromDefinition = (
                     ? {}
                     : { description: child.invoke.description }),
                   ...(child.invoke.retry === undefined ? {} : { retry: child.invoke.retry }),
+                  outcomes: {
+                    ...(Machine.workSchemaMetadata(child.invoke.success) === undefined
+                      ? {}
+                      : { success: Machine.workSchemaMetadata(child.invoke.success) }),
+                    ...(Machine.workSchemaMetadata(child.invoke.error) === undefined
+                      ? {}
+                      : { error: Machine.workSchemaMetadata(child.invoke.error) }),
+                  },
                 },
               }),
           ...(child.after === undefined

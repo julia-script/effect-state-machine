@@ -71,8 +71,8 @@ const allDefinition = work.define(
       name: "join",
       concurrency: 2,
       tasks: {
-        left: () => Effect.succeed("L"),
-        right: () => Effect.succeed(2),
+        left: { success: Schema.String, error: Schema.Never, effect: () => Effect.succeed("L") },
+        right: { success: Schema.Number, error: Schema.Never, effect: () => Effect.succeed(2) },
       },
       onSuccess: {
         target: "Ready",
@@ -96,8 +96,12 @@ const raceDefinition = work.define(
     Racing: work.invoke.race({
       name: "first-success",
       tasks: {
-        earlyFailure: () => Effect.fail("not-it"),
-        winner: () => Effect.succeed(42),
+        earlyFailure: {
+          success: Schema.Never,
+          error: Schema.String,
+          effect: () => Effect.fail("not-it"),
+        },
+        winner: { success: Schema.Number, error: Schema.Never, effect: () => Effect.succeed(42) },
       },
       onSuccess: {
         target: "Ready",
@@ -240,6 +244,8 @@ describe("shallow statechart runtime", () => {
       {
         Editing: lifecycle.invoke({
           name: "static-work",
+          success: Schema.Void,
+          error: Schema.Never,
           effect: () => {
             callbackCalls += 1
             return Effect.succeed(undefined)
@@ -266,6 +272,8 @@ describe("shallow statechart runtime", () => {
           {
             Editing: lifecycle.invoke({
               name: " ",
+              success: Schema.Void,
+              error: Schema.Never,
               effect: () => Effect.succeed(undefined),
               onSuccess: { target: "Done", reduce: () => ({ count: 0 }) },
               onFailure: { target: "Done", reduce: () => ({ count: 0 }) },
@@ -283,7 +291,13 @@ describe("shallow statechart runtime", () => {
             Joining: work.invoke.all({
               name: "join",
               concurrency: 0,
-              tasks: { lane: () => Effect.succeed(undefined) },
+              tasks: {
+                lane: {
+                  success: Schema.Undefined,
+                  error: Schema.Never,
+                  effect: () => Effect.succeed(undefined),
+                },
+              },
               onSuccess: { target: "Ready", reduce: () => ({ summary: "" }) },
               onFailure: { target: "Failed", reduce: () => ({ message: "" }) },
             }),
@@ -443,6 +457,8 @@ describe("shallow statechart runtime", () => {
           Editing: lifecycle.invoke(
             {
               name: "pending",
+              success: Schema.Number,
+              error: Schema.Never,
               effect: () => Deferred.await(result),
               onSuccess: {
                 target: "Done",
@@ -472,6 +488,8 @@ describe("shallow statechart runtime", () => {
           Editing: lifecycle.invoke(
             {
               name: "slow-work",
+              success: Schema.Number,
+              error: Schema.Never,
               effect: () =>
                 Deferred.await(pending).pipe(
                   Effect.onInterrupt(() =>
@@ -679,6 +697,8 @@ describe("shallow statechart runtime", () => {
               job: {
                 Loading: parent.region.invoke({
                   name: "load",
+                  success: Schema.Number,
+                  error: Schema.String,
                   effect: (_slot, owner): Effect.Effect<number, string> =>
                     Ref.updateAndGet(attempts, (value) => value + 1).pipe(
                       Effect.flatMap((attempt) =>
@@ -723,6 +743,8 @@ describe("shallow statechart runtime", () => {
               job: {
                 Loading: parent.region.invoke({
                   name: "pending",
+                  success: Schema.Number,
+                  error: Schema.Never,
                   effect: () =>
                     Deferred.await(pendingResult).pipe(
                       Effect.onInterrupt(() =>
@@ -856,6 +878,12 @@ describe("shallow statechart runtime", () => {
       kind: "all",
       lanes: ["left", "right"],
       concurrency: 2,
+      outcomes: {
+        lanes: {
+          left: { success: { kind: "String" }, error: { kind: "Never" } },
+          right: { success: { kind: "Number" }, error: { kind: "Never" } },
+        },
+      },
     })
     assert.match(Mermaid.render(parallelGraph), /Active\/left\/LeftIdle/)
   })
@@ -869,13 +897,21 @@ describe("shallow statechart runtime", () => {
           Joining: work.invoke.all({
             name: "failure",
             tasks: {
-              fail: () => Effect.yieldNow.pipe(Effect.andThen(Effect.fail("boom"))),
-              pending: () =>
-                Effect.never.pipe(
-                  Effect.onInterrupt(() =>
-                    Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
+              fail: {
+                success: Schema.Never,
+                error: Schema.String,
+                effect: () => Effect.yieldNow.pipe(Effect.andThen(Effect.fail("boom"))),
+              },
+              pending: {
+                success: Schema.Never,
+                error: Schema.Never,
+                effect: () =>
+                  Effect.never.pipe(
+                    Effect.onInterrupt(() =>
+                      Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
+                    ),
                   ),
-                ),
+              },
             },
             onSuccess: { target: "Ready", reduce: () => ({ summary: "impossible" }) },
             onFailure: { target: "Failed", reduce: ({ error }) => ({ message: String(error) }) },
@@ -911,9 +947,9 @@ describe("shallow statechart runtime", () => {
             name: "limited",
             concurrency: 2,
             tasks: {
-              first: () => lane(first),
-              second: () => lane(second),
-              third: () => lane(third),
+              first: { success: Schema.String, error: Schema.Never, effect: () => lane(first) },
+              second: { success: Schema.Number, error: Schema.Never, effect: () => lane(second) },
+              third: { success: Schema.Boolean, error: Schema.Never, effect: () => lane(third) },
             },
             onSuccess: {
               target: "Ready",
@@ -955,14 +991,26 @@ describe("shallow statechart runtime", () => {
             Racing: work.invoke.race({
               name: "race",
               tasks: {
-                failed: () => Effect.fail("early"),
-                winner: () => Effect.yieldNow.pipe(Effect.as(7)),
-                loser: () =>
-                  Effect.never.pipe(
-                    Effect.onInterrupt(() =>
-                      Deferred.succeed(loserInterrupted, undefined).pipe(Effect.asVoid),
+                failed: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("early"),
+                },
+                winner: {
+                  success: Schema.Number,
+                  error: Schema.Never,
+                  effect: () => Effect.yieldNow.pipe(Effect.as(7)),
+                },
+                loser: {
+                  success: Schema.Never,
+                  error: Schema.Never,
+                  effect: () =>
+                    Effect.never.pipe(
+                      Effect.onInterrupt(() =>
+                        Deferred.succeed(loserInterrupted, undefined).pipe(Effect.asVoid),
+                      ),
                     ),
-                  ),
+                },
               },
               onSuccess: {
                 target: "Ready",
@@ -984,7 +1032,18 @@ describe("shallow statechart runtime", () => {
             Joining: work.state({}),
             Racing: work.invoke.race({
               name: "race",
-              tasks: { first: () => Effect.fail("one"), last: () => Effect.fail("two") },
+              tasks: {
+                first: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("one"),
+                },
+                last: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("two"),
+                },
+              },
               onSuccess: { target: "Ready", reduce: () => ({ summary: "impossible" }) },
               onFailure: { target: "Failed", reduce: ({ error }) => ({ message: String(error) }) },
             }),

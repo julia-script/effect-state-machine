@@ -2,6 +2,10 @@
 
 A small code-first state-machine library built with Effect for Effect users.
 
+It supports both scoped in-memory execution and opt-in durable execution through an
+application-supplied atomic store. Durable checkpoints retain absolute timer deadlines, keyed
+dispatches, and Schema-encoded activity outcomes across process loss.
+
 Agentic coding makes code cheap to produce, but it can make an application harder for its own
 developer to explain. `effect-state-machine` keeps orchestration explicit in ordinary TypeScript
 and projects the same executable definition into a read-only graph. The graph is for you—the
@@ -78,6 +82,8 @@ export const definition = greeting.define(
   {
     Loading: greeting.invoke({
       name: "Greeter.greet",
+      success: Schema.String,
+      error: GreetFailed,
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: {
         target: "Done",

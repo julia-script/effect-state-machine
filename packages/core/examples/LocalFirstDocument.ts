@@ -12,6 +12,12 @@ export interface Document {
 
 export interface SaveRequest extends Document {}
 
+const DocumentOutcome = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  revision: Schema.Number,
+})
+
 export class OpenFailed extends Schema.TaggedError<OpenFailed>()("OpenFailed", {
   message: Schema.String,
 }) {}
@@ -29,6 +35,7 @@ export class SyncConflict extends Schema.TaggedError<SyncConflict>()("SyncConfli
 }) {}
 
 export type SyncFailure = SyncOffline | SyncConflict
+const SyncError = Schema.Union([SyncOffline, SyncConflict])
 
 export class Documents extends Context.Service<
   Documents,
@@ -237,6 +244,8 @@ export const definition = document.define(
       {
         name: "Documents.open",
         description: "Load the local snapshot using the application-provided Documents service.",
+        success: DocumentOutcome,
+        error: OpenFailed,
         effect: (state) => Effect.flatMap(Documents, ({ open }) => open(state.documentId)),
         onSuccess: {
           target: "Editing",
@@ -299,6 +308,8 @@ export const definition = document.define(
       {
         name: "Documents.save",
         description: "Persist the current text locally before any remote synchronization.",
+        success: Schema.Number,
+        error: SaveFailed,
         effect: (state) =>
           Effect.flatMap(Documents, ({ save }) =>
             save({ id: state.documentId, text: state.text, revision: state.revision }),
@@ -374,6 +385,8 @@ export const definition = document.define(
       {
         name: "Synchronizer.sync",
         description: "Push the locally saved revision through the injected remote service.",
+        success: Schema.Number,
+        error: SyncError,
         effect: (state) =>
           Effect.flatMap(Synchronizer, ({ sync }) =>
             sync({ id: state.documentId, text: state.text, revision: state.revision }),

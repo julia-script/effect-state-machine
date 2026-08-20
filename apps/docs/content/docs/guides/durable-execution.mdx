@@ -1,0 +1,63 @@
+---
+title: Durable execution
+description: Resume checkpoints, timers, and Schema-backed activities through an application-supplied store.
+---
+
+Import `Durable` when a machine must outlive one process. `Machine.run` remains the lightweight
+in-memory interpreter; `Durable.run` adds a stable instance identity and requires a `Durable.Store`.
+
+```ts
+import { Effect } from "effect"
+import * as Durable from "effect-state-machine/Durable"
+
+const store = yield* Durable.makeMemoryStore()
+const handle = yield* Durable.run(definition, input, {
+  instanceId: Durable.instanceId("invoice:2026-0042"),
+  persistenceVersion: Durable.persistenceVersion("1"),
+}).pipe(Effect.provideService(Durable.Store, store))
+
+yield* handle.send(event, { idempotencyKey: "approve:request-17" })
+```
+
+The same call starts an absent instance or resumes an existing compatible checkpoint. Resume
+decodes the stored state and does not call the initializer again. A different persistence version
+requires an explicit migration over the checkpoint plus its unconsumed messages and activities.
+
+## Timers continue from their deadline
+
+Entering a state resolves its dynamic duration once using store time. The checkpoint and delayed
+timer message retain the duration, entry identity, and absolute deadline atomically. A restart 30
+seconds into a 60-second wait leaves 30 seconds; downtime beyond the deadline makes the timer
+immediately eligible. A stay keeps that deadline. A self-targeting transition deliberately re-enters
+the state and allocates a new deadline.
+
+## Activities are at least once
+
+Invoked Effects run as separately leased activities so an event can still exit their owning state.
+Successes and allowed failures must declare Schemas. The worker encodes the terminal outcome and
+atomically publishes it back to the serialized machine mailbox.
+
+```ts
+effect: (state, metadata) =>
+  Workflow.start({
+    idempotencyKey: metadata?.executionKey ?? "missing",
+    input: state.payload,
+  })
+```
+
+If a worker disappears before committing the outcome, the Effect may run again with the same
+execution key. Use that key with Effect Workflow, a durable queue, or an application idempotency
+table. The state-machine library does not make an arbitrary external side effect exactly once.
+Operational Schedule progress may restart after process loss, while the execution key remains
+stable.
+
+## Adapter contract
+
+A store adapter owns atomic create, payload-sensitive keyed offer, delayed ordering, one machine
+claim per instance, concurrent activity claims, lease renewal, fencing, optimistic revisions,
+cancellation, terminal dispatch observation, and migration replacement. Its clock is authoritative.
+Retain message, execution, and dispatch idempotency records for the instance lifetime.
+
+Use `Durable.storeConformance(makeStore, advanceClock)` to obtain executable, test-framework-neutral
+adapter cases. The in-memory Layer is intended for deterministic tests and examples, not durable
+production storage.

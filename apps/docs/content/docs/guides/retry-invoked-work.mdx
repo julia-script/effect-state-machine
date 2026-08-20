@@ -10,9 +10,12 @@ Import Effect's `Schedule` module and attach a named retry policy to an invocati
 ```ts
 import * as Effect from "effect/Effect"
 import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 
 const attempting = machine.invoke({
   name: "Orders.place",
+  success: Schema.String,
+  error: PlaceFailed,
   effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.total)),
   retry: {
     name: "retry-transient-order-failures",

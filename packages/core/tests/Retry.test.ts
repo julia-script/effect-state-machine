@@ -1,5 +1,4 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
@@ -9,9 +8,9 @@ import { TestClock } from "effect/testing"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
 
-class TransientFailure extends Data.TaggedError("TransientFailure")<{
-  readonly attempt: number
-}> {}
+class TransientFailure extends Schema.TaggedError<TransientFailure>()("TransientFailure", {
+  attempt: Schema.Number,
+}) {}
 
 const Input = Schema.Void
 const Attempting = Schema.TaggedStruct("Attempting", {})
@@ -46,6 +45,8 @@ const makeOperationalDefinition = (options: {
       Attempting: machine.invoke(
         {
           name: "unstable-operation",
+          success: Schema.Number,
+          error: TransientFailure,
           effect: () =>
             Ref.updateAndGet(options.attempts, (attempt) => attempt + 1).pipe(
               Effect.flatMap((attempt) =>
@@ -189,6 +190,8 @@ describe("invocation retry", () => {
         {
           ModeledAttempting: machine.invoke({
             name: "save-attempt",
+            success: Schema.Number,
+            error: TransientFailure,
             effect: (state) =>
               state.attempt < 2
                 ? Effect.fail(new TransientFailure({ attempt: state.attempt }))

@@ -23,6 +23,7 @@
     ".": "./src/index.ts",
     "./devtools": "./src/devtools.ts",
     "./Machine": "./src/Machine.ts",
+    "./Durable": "./src/Durable.ts",
     "./Graph": "./src/Graph.ts",
     "./Mermaid": "./src/Mermaid.ts",
     "./SourceLocation": "./src/SourceLocation.ts",
@@ -42,6 +43,10 @@
       "./Machine": {
         "types": "./dist/Machine.d.ts",
         "import": "./dist/Machine.js"
+      },
+      "./Durable": {
+        "types": "./dist/Durable.d.ts",
+        "import": "./dist/Durable.js"
       },
       "./Graph": {
         "types": "./dist/Graph.d.ts",

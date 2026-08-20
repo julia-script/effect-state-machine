@@ -84,6 +84,8 @@ export const editorDefinition = editor.define(
     Saving: editor.invoke(
       {
         name: "save-document",
+        success: Schema.String,
+        error: Schema.Never,
         effect: (state) => Effect.succeed(state.text),
         onSuccess: { target: "Typing", reduce: ({ value }) => ({ text: value }) },
         onFailure: { target: "Typing", reduce: ({ state }) => ({ text: state.text }) },
@@ -117,8 +119,16 @@ export const importerDefinition = importer.define(
     Fetching: importer.invoke.race({
       name: "fetch-fastest",
       tasks: {
-        cache: (state) => Effect.succeed(`cache:${state.url}`),
-        origin: (state) => Effect.succeed({ raw: `origin:${state.url}` }),
+        cache: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: (state) => Effect.succeed(`cache:${state.url}`),
+        },
+        origin: {
+          success: Schema.Struct({ raw: Schema.String }),
+          error: Schema.Never,
+          effect: (state) => Effect.succeed({ raw: `origin:${state.url}` }),
+        },
       },
       onSuccess: {
         target: "Enriching",
@@ -131,8 +141,16 @@ export const importerDefinition = importer.define(
       name: "enrich",
       concurrency: 2,
       tasks: {
-        geocode: () => Effect.succeed([0, 0] as const),
-        thumbnail: (state) => Effect.succeed(`preview:${state.raw}`),
+        geocode: {
+          success: Schema.Tuple([Schema.Number, Schema.Number]),
+          error: Schema.Never,
+          effect: () => Effect.succeed([0, 0] as readonly [number, number]),
+        },
+        thumbnail: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: (state) => Effect.succeed(`preview:${state.raw}`),
+        },
       },
       onSuccess: {
         target: "Ready",

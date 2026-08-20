@@ -43,8 +43,10 @@ protected by the same stale-entry checks as work outcomes. A duration may be a s
 `after` may select one direct target or an ordered guarded branch using the latest state value.
 Region timers support the same forms with child state and parent state arguments.
 
-`invoke` runs one Effect. `invoke.all` joins a keyed product and can limit concurrency. Its first
-typed failure interrupts unfinished siblings. `invoke.race` returns a correlated `winner` and
+`invoke` runs one Effect whose `success` and `error` Schemas define its replayable outcome
+contract. `invoke.all` joins a keyed product and can limit concurrency; every named lane is an
+object with its own `success`, `error`, and `effect`. Its first typed failure interrupts unfinished
+siblings. `invoke.race` returns a correlated `winner` and
 `value`; typed lane failures do not end the race while another lane can still succeed. Its failure
 transition runs only after every lane has failed, using the final observed typed failure. Defects
 remain defects and never enter a typed failure reducer.
@@ -94,6 +96,6 @@ See the compile-checked player, editor, and importer definitions in
 Studio renders each region slot as a labeled boundary and derives its active child directly from the
 schema-encoded parent state. When one event selects transitions in several parallel slots, history
 keeps them together as one macrostep and highlights every traversed edge. Invoked nodes expose their
-work kind, lanes, concurrency, and retry policy; timer lifecycles and stale outcomes remain visible
-as semantic history rows. The same metadata is available in the versioned Studio protocol and raw
-JSON view.
+work kind, lanes, concurrency, retry policy, and safe outcome-Schema metadata; timer lifecycles and
+stale outcomes remain visible as semantic history rows. The same metadata is available in the
+versioned Studio protocol and raw JSON view.

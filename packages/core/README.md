@@ -49,6 +49,8 @@ export const definition = greeting.define(
   {
     Loading: greeting.invoke({
       name: "Greeter.greet",
+      success: Schema.String,
+      error: GreetFailed,
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: { target: "Done", reduce: ({ value }) => ({ message: value }) },
       onFailure: { target: "Failed", reduce: ({ error }) => ({ message: error.message }) },
@@ -76,6 +78,56 @@ const result = await Effect.runPromise(program)
 `Machine.run` infers `Greeter` from the definition; any test, server, or browser application can
 provide a different Layer without changing the machine. The handle exposes `snapshot`, `changes`,
 `send`, `can`, `completion`, and a metadata-only `inspection` stream.
+
+## Durable execution
+
+`Durable.run` starts an absent instance or resumes its encoded checkpoint. The store owns the
+checkpoint, serialized machine mailbox, absolute timer deadlines, concurrent activity queue,
+leases, fences, and idempotency records as one atomic service:
+
+```ts
+import { Effect } from "effect"
+import * as Durable from "effect-state-machine/Durable"
+
+const store = yield* Durable.makeMemoryStore()
+const options = {
+  instanceId: Durable.instanceId("greeting:ada"),
+  persistenceVersion: Durable.persistenceVersion("1"),
+}
+
+const handle = yield* Durable.run(definition, { name: "Ada" }, options).pipe(
+  Effect.provideService(Durable.Store, store),
+)
+
+yield* handle.send({ _tag: "Cancel" }, { idempotencyKey: "cancel-request-42" })
+```
+
+An `after` duration is resolved once on entry and stored with an absolute deadline from the store's
+clock. If the process stops 30 seconds into a 60-second timer, resumption waits the remaining 30
+seconds; if it resumes after the deadline, the overdue timer is immediately eligible ahead of
+newer events. Stay updates preserve the entry and deadline, while explicit self-transitions create
+a new entry and timer.
+
+Invoked work is delivered at least once until its encoded outcome is committed. Every invocation
+receives `metadata.executionKey`; pass that key to Effect Workflow, an external task queue, or your
+own idempotency table when the side effect itself must be durable:
+
+```ts
+effect: (state, metadata) =>
+  ExternalTasks.submit({
+    idempotencyKey: metadata?.executionKey ?? "missing-key",
+    payload: state.request,
+  })
+```
+
+The library makes the activity command and outcome durable, but cannot promise exactly-once
+external side effects. Operational `Effect.Schedule` retry progress may restart after process loss;
+the execution key does not change.
+
+Production adapters implement `Durable.Store` and should register every framework-neutral case
+returned by `Durable.storeConformance`. Adapter transactions must preserve atomic create, offer,
+machine commit, activity completion, and migration replacement; use store-authoritative time,
+retain idempotency tombstones for the instance lifetime, and reject expired or superseded fences.
 
 ## Read-only graph
 

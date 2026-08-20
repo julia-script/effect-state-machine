@@ -25,6 +25,7 @@ try {
   const archive = join(packed, archiveName)
   const contents = execute("tar", ["-tf", archive])
   assert.match(contents, /package\/dist\/index\.d\.ts/)
+  assert.match(contents, /package\/dist\/Durable\.d\.ts/)
   assert.match(contents, /package\/dist\/devtools\.js/)
   assert.doesNotMatch(contents, /devtools-viewer/)
   assert.doesNotMatch(contents, /interactive-devtools|local-first-document|reference-workflow/)
@@ -85,6 +86,7 @@ try {
     join(consumer, "core.ts"),
     `import { Context, Effect, Layer, Schema } from "effect"
 import * as Machine from "effect-state-machine/Machine"
+import * as Durable from "effect-state-machine/Durable"
 
 // @ts-expect-error Source is internal and must not resolve through the export map
 import type * as PrivateSource from "effect-state-machine/Source"
@@ -123,6 +125,8 @@ export const definition = greeting.define(
   {
     Loading: greeting.invoke({
       name: "Greeter.greet",
+      success: Schema.String,
+      error: GreetFailed,
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: {
         target: "Done",
@@ -137,6 +141,11 @@ export const definition = greeting.define(
     Failed: greeting.final(),
   },
 )
+
+export const durableOptions: Durable.RunOptions = {
+  instanceId: Durable.instanceId("consumer-greeting"),
+  persistenceVersion: Durable.persistenceVersion("1"),
+}
 
 const GreeterLive = Layer.succeed(
   Greeter,

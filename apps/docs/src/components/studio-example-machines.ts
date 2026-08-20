@@ -1,5 +1,4 @@
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
@@ -162,9 +161,9 @@ export const classifierQuickEvents = [
   { id: "reset", label: "Reset", event: { _tag: "Reset" } },
 ] as const
 
-class LoadFailed extends Data.TaggedError("LoadFailed")<{
-  readonly message: string
-}> {}
+class LoadFailed extends Schema.TaggedError<LoadFailed>()("LoadFailed", {
+  message: Schema.String,
+}) {}
 
 class Profiles extends Context.Service<
   Profiles,
@@ -189,6 +188,8 @@ export const profileDefinition = profile.define(
     Loading: profile.invoke(
       {
         name: "Profiles.load",
+        success: Schema.String,
+        error: LoadFailed,
         effect: (state) => Effect.flatMap(Profiles, ({ load }) => load(state.id)),
         onSuccess: {
           target: "Loaded",
@@ -231,10 +232,10 @@ export const profileQuickEvents = [
   { id: "reload", label: "Load again", event: { _tag: "Reload" } },
 ] as const
 
-class PlaceFailed extends Data.TaggedError("PlaceFailed")<{
-  readonly attempt: number
-  readonly message: string
-}> {}
+class PlaceFailed extends Schema.TaggedError<PlaceFailed>()("PlaceFailed", {
+  attempt: Schema.Number,
+  message: Schema.String,
+}) {}
 
 class Orders extends Context.Service<
   Orders,
@@ -273,6 +274,8 @@ export const retryDefinition = orders.define(
     }),
     Attempting: orders.invoke({
       name: "Orders.place",
+      success: Schema.String,
+      error: PlaceFailed,
       effect: (state) =>
         Effect.flatMap(Orders, ({ place }) => place(state.total, state.shouldSucceed)),
       retry: {
@@ -328,9 +331,9 @@ export const retryQuickEvents = [
   { id: "reset", label: "Reset", event: { _tag: "Reset" } },
 ] as const
 
-class SaveFailed extends Data.TaggedError("SaveFailed")<{
-  readonly message: string
-}> {}
+class SaveFailed extends Schema.TaggedError<SaveFailed>()("SaveFailed", {
+  message: Schema.String,
+}) {}
 
 class ConflictStore extends Context.Service<
   ConflictStore,
@@ -364,6 +367,8 @@ const conflictDefinition = conflict.define(
     }),
     Saving: conflict.invoke({
       name: "ConflictStore.save",
+      success: Schema.String,
+      error: SaveFailed,
       effect: (state) => Effect.flatMap(ConflictStore, ({ save }) => save(state.text)),
       onSuccess: {
         target: "Chosen",

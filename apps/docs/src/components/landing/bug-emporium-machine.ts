@@ -89,6 +89,8 @@ export const emporiumDefinition = checkout.define(
     }),
     PlacingOrder: checkout.invoke({
       name: "Orders.place",
+      success: Schema.String,
+      error: PaymentDeclined,
       effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.items)),
       onSuccess: {
         target: "Ordered",

@@ -23,7 +23,7 @@ const definition = document.make({
   initial: (input) => ({ _tag: "Closed", documentId: input.documentId }),
   nodes: [
     document.state("Closed", { on: { /* event routes */ } }),
-    document.invoke("Opening", { /* one named Effect */ }),
+    document.invoke("Opening", { /* one named Effect plus success/error Schemas */ }),
     document.child("Resolving", { /* one named child */ }),
     document.final("Done"),
   ],
@@ -39,7 +39,7 @@ Binding the three Schemas once gives every node the complete state and event voc
 The four node methods are:
 
 - `builder.state(tag, { on })` for an ordinary state.
-- `builder.invoke(tag, { name, description?, effect, retry?, onSuccess, onFailure, on? })` for one named Effect.
+- `builder.invoke(tag, { name, description?, success, error, effect, retry?, onSuccess, onFailure, on? })` for one named Effect with Schema-backed outcomes.
 - `builder.child(tag, { name, description?, machine, input, forward, onDone, on? })` for one statically declared child.
 - `builder.final(tag)` for a final state whose state value is the completion value.
 
@@ -47,7 +47,7 @@ The state tag selects and narrows the current state variant. Event-map keys sele
 
 Each transition type couples its literal `target` to the reducer's return variant. A transition that declares `target: "Saving"` cannot return a `Done` state and make runtime behavior disagree with the graph.
 
-An invoked Effect infers its success, typed failure, and service requirements. A child infers its input, forwarded event vocabulary, final output, and transitive service requirements. A parent event tag is forwardable only when that parent's full event variant is assignable to the child's same-tag variant, preventing equal tags from hiding incompatible payloads. `MachineCompletion<Definition>` and `MachineRequirements<Definition>` expose those results without parallel declarations.
+An invoked Effect is constrained by its declared success and allowed-failure Schemas and infers its service requirements. A child infers its input, forwarded event vocabulary, final output, and transitive service requirements. A parent event tag is forwardable only when that parent's full event variant is assignable to the child's same-tag variant, preventing equal tags from hiding incompatible payloads. `MachineCompletion<Definition>` and `MachineRequirements<Definition>` expose those results without parallel declarations.
 
 ## Recommended branch surface
 

@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -11,9 +10,9 @@ import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
 
-class SaveFailed extends Data.TaggedError("SaveFailed")<{
-  readonly message: string
-}> {}
+class SaveFailed extends Schema.TaggedError<SaveFailed>()("SaveFailed", {
+  message: Schema.String,
+}) {}
 
 class ConflictStore extends Context.Service<
   ConflictStore,
@@ -48,6 +47,8 @@ const conflictDefinition = conflict.define(
     }),
     Saving: conflict.invoke({
       name: "ConflictStore.save",
+      success: Schema.String,
+      error: SaveFailed,
       effect: (state) => Effect.flatMap(ConflictStore, ({ save }) => save(state.text)),
       onSuccess: {
         target: "Chosen",
