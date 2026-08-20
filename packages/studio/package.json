@@ -1,6 +1,6 @@
 {
   "name": "@effect-state-machine/studio",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Studio — the standalone devtool for effect-state-machine.",
   "license": "MIT",
   "repository": {

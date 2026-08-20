@@ -1,6 +1,6 @@
 {
   "name": "effect-state-machine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A small code-first state-machine library built with Effect for Effect users.",
   "license": "MIT",
   "repository": {

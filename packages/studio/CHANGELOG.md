@@ -1,5 +1,13 @@
 # @effect-state-machine/studio
 
+## 0.3.0
+
+### Minor Changes
+
+- [#10](https://github.com/julia-script/effect-state-machine/pull/10) [`20afdc1`](https://github.com/julia-script/effect-state-machine/commit/20afdc171229a0520e2a5d8ce7fe5ba3e2fe64cc) Thanks [@julia-script](https://github.com/julia-script)! - Unify machine execution behind `MachineEngine`, add resumable aggregate persistence with memory and browser-local stores, require stable work identities, and add the optional Effect Workflow integration.
+  
+  Remove the pre-release `Durable` and process-local execution APIs, and update Studio to replay the persisted machine-tree journal.
+
 ## 0.1.1
 
 ### Patch Changes
