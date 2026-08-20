@@ -35,7 +35,11 @@ interface Tagged {
 }
 
 interface ScopedStudioProps<State extends Tagged, Event extends Tagged, Completion extends State> {
-  readonly start: Effect.Effect<Machine.MachineHandle<State, Event, Completion>, never, Scope.Scope>
+  readonly start: Effect.Effect<
+    Machine.MachineHandle<State, Event, Completion, unknown>,
+    unknown,
+    Scope.Scope
+  >
   readonly machine: Omit<StudioMachine<State, Event>, "handle">
   readonly loadingLabel: string
   readonly height?: number
@@ -48,7 +52,7 @@ function ScopedStudio<State extends Tagged, Event extends Tagged, Completion ext
   height = 620,
 }: ScopedStudioProps<State, Event, Completion>) {
   const [handle, setHandle] = React.useState<
-    Machine.MachineHandle<State, Event, Completion> | undefined
+    Machine.MachineHandle<State, Event, Completion, unknown> | undefined
   >(undefined)
 
   React.useEffect(() => {

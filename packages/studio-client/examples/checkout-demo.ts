@@ -11,7 +11,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
-import { Machine } from "effect-state-machine"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import * as Attach from "../src/Attach.js"
 import { StudioTransport } from "../src/Transport.js"
 import * as WebSocketTransport from "../src/WebSocketTransport.js"
@@ -49,6 +50,7 @@ const definition = checkout.define(
   {
     id: "checkout",
     description: "A checkout flow with expected payment failure and retry.",
+    idempotencyKey: () => "demo",
     initial: () => ({ _tag: "Browsing", items: 0 }),
   },
   {
@@ -83,6 +85,8 @@ const definition = checkout.define(
     }),
     PlacingOrder: checkout.invoke({
       name: "Orders.place",
+      success: Schema.String,
+      error: PaymentDeclined,
       effect: (state) => Effect.flatMap(Orders, ({ place }) => place(state.items)),
       onSuccess: {
         target: "Ordered",
@@ -132,7 +136,9 @@ const OrdersLive = Layer.effect(
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const handle = yield* Machine.run(definition, {}).pipe(Effect.provide(OrdersLive))
+    const handle = yield* definition
+      .run({})
+      .pipe(Effect.provide(OrdersLive), Effect.provide(MachineEngine.layerMemory()))
     yield* Attach.attach({
       definition,
       handle,

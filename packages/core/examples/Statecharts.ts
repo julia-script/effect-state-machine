@@ -21,7 +21,11 @@ const PlayerEvent = Schema.TaggedUnion({
 const player = Machine.builder({ input: Schema.Void, state: PlayerState, event: PlayerEvent })
 
 export const playerDefinition = player.define(
-  { id: "player", initial: () => ({ _tag: "Idle" }) },
+  {
+    id: "player",
+    initial: () => ({ _tag: "Idle" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Idle: player.state({
       Play: {
@@ -65,7 +69,11 @@ const editor = Machine.builder({
 })
 
 export const editorDefinition = editor.define(
-  { id: "editor", initial: ({ text }) => ({ _tag: "Typing", text }) },
+  {
+    id: "editor",
+    initial: ({ text }) => ({ _tag: "Typing", text }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Typing: editor.state(
       {
@@ -84,6 +92,8 @@ export const editorDefinition = editor.define(
     Saving: editor.invoke(
       {
         name: "save-document",
+        success: Schema.String,
+        error: Schema.Never,
         effect: (state) => Effect.succeed(state.text),
         onSuccess: { target: "Typing", reduce: ({ value }) => ({ text: value }) },
         onFailure: { target: "Typing", reduce: ({ state }) => ({ text: state.text }) },
@@ -112,13 +122,25 @@ const importer = Machine.builder({
 })
 
 export const importerDefinition = importer.define(
-  { id: "importer", initial: ({ url }) => ({ _tag: "Fetching", url }) },
+  {
+    id: "importer",
+    initial: ({ url }) => ({ _tag: "Fetching", url }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Fetching: importer.invoke.race({
       name: "fetch-fastest",
       tasks: {
-        cache: (state) => Effect.succeed(`cache:${state.url}`),
-        origin: (state) => Effect.succeed({ raw: `origin:${state.url}` }),
+        cache: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: (state) => Effect.succeed(`cache:${state.url}`),
+        },
+        origin: {
+          success: Schema.Struct({ raw: Schema.String }),
+          error: Schema.Never,
+          effect: (state) => Effect.succeed({ raw: `origin:${state.url}` }),
+        },
       },
       onSuccess: {
         target: "Enriching",
@@ -131,8 +153,16 @@ export const importerDefinition = importer.define(
       name: "enrich",
       concurrency: 2,
       tasks: {
-        geocode: () => Effect.succeed([0, 0] as const),
-        thumbnail: (state) => Effect.succeed(`preview:${state.raw}`),
+        geocode: {
+          success: Schema.Tuple([Schema.Number, Schema.Number]),
+          error: Schema.Never,
+          effect: () => Effect.succeed([0, 0] as readonly [number, number]),
+        },
+        thumbnail: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: (state) => Effect.succeed(`preview:${state.raw}`),
+        },
       },
       onSuccess: {
         target: "Ready",

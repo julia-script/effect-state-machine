@@ -1,0 +1,26 @@
+---
+title: API reference
+description: Generated public modules and their exported types, functions, errors, and services.
+---
+
+The API reference is generated from the public TypeScript entry points and their TSDoc comments on
+every docs build. It mirrors the package's supported import structure.
+
+- [Machine](/docs/reference/api/Machine) describes definitions, nodes, transitions, codecs,
+  definition-owned execution, handles, and inspection types.
+- [MachineEngine](/docs/reference/api/MachineEngine) describes engine configuration, persistent
+  store composition, and the explicit memory Layer.
+- [MachineStore](/docs/reference/api/MachineStore) describes aggregate identities and Schemas, the
+  atomic adapter contract, compare-and-set results, and the memory store.
+- [LocalStorageMachineStore](/docs/reference/api/LocalStorageMachineStore) describes coordinated
+  and explicitly single-context browser persistence.
+- [MachineWorkflow](/docs/reference/api/MachineWorkflow) describes the optional Effect Workflow
+  integration for machine-owned work.
+- [Graph](/docs/reference/api/Graph) describes renderer-independent definition projection and
+  activity overlays.
+- [Mermaid](/docs/reference/api/Mermaid) describes Mermaid rendering.
+- [SourceLocation](/docs/reference/api/SourceLocation) describes stack-frame parsing, source
+  mapping, and editor links.
+
+The generated pages are information-oriented reference. For a goal-oriented integration path, use
+[Run machine work through Effect Workflow](/docs/guides/durable-execution).

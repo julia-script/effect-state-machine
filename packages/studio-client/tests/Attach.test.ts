@@ -2,7 +2,8 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
-import { Machine } from "effect-state-machine"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import * as Attach from "../src/Attach.js"
 import * as MemoryTransport from "../src/MemoryTransport.js"
 import type * as Protocol from "../src/Protocol.js"
@@ -19,6 +20,7 @@ const childMachine = Machine.builder({ input: ChildInput, state: ChildState, eve
 const childDefinition = childMachine.define(
   {
     id: "attached-child",
+    idempotencyKey: () => "child",
     initial: () => ({ _tag: "ChildWaiting" }),
   },
   {
@@ -43,6 +45,7 @@ const parentMachine = Machine.builder({
 const parentDefinition = parentMachine.define(
   {
     id: "attached-parent",
+    idempotencyKey: () => "parent",
     initial: () => ({ _tag: "RunningChild" }),
   },
   {
@@ -79,7 +82,9 @@ describe("Attach", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { transport, studio } = yield* MemoryTransport.make
-        const handle = yield* Machine.run(parentDefinition, {})
+        const handle = yield* parentDefinition
+          .run({})
+          .pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({ definition: parentDefinition, handle }).pipe(
           Effect.provideService(StudioTransport, transport),
         )
@@ -128,7 +133,9 @@ describe("Attach", () => {
         const helloFor = (options?: { instanceKey?: string; appName?: string }) =>
           Effect.gen(function* () {
             const { transport, studio } = yield* MemoryTransport.make
-            const handle = yield* Machine.run(definition, {})
+            const handle = yield* definition
+              .run({})
+              .pipe(Effect.provide(MachineEngine.layerMemory()))
             yield* Attach.attach({ definition, handle, ...options }).pipe(
               Effect.provideService(StudioTransport, transport),
             )
@@ -156,7 +163,7 @@ describe("Attach", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { transport, studio } = yield* MemoryTransport.make
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({
           definition,
           handle,
@@ -215,7 +222,7 @@ describe("Attach", () => {
       Effect.gen(function* () {
         const { transport, studio } = yield* MemoryTransport.make
         yield* studio.setOnline(false)
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({
           definition,
           handle,
@@ -244,7 +251,7 @@ describe("Attach", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { transport, studio } = yield* MemoryTransport.make
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({
           definition,
           handle,
@@ -317,7 +324,7 @@ describe("Attach", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { transport, studio } = yield* MemoryTransport.make
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({
           definition,
           handle,
@@ -351,7 +358,7 @@ describe("Attach", () => {
       const { transport, studio } = yield* MemoryTransport.make
       const handle = yield* Effect.scoped(
         Effect.gen(function* () {
-          const inner = yield* Machine.run(definition, {})
+          const inner = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
           yield* Attach.attach({ definition, handle: inner }).pipe(
             Effect.provideService(StudioTransport, transport),
           )

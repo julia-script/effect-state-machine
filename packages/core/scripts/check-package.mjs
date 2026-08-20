@@ -25,13 +25,22 @@ try {
   const archive = join(packed, archiveName)
   const contents = execute("tar", ["-tf", archive])
   assert.match(contents, /package\/dist\/index\.d\.ts/)
+  assert.match(contents, /package\/dist\/MachineEngine\.d\.ts/)
+  assert.match(contents, /package\/dist\/MachineStore\.d\.ts/)
+  assert.match(contents, /package\/dist\/LocalStorageMachineStore\.d\.ts/)
+  assert.match(contents, /package\/dist\/MachineWorkflow\.d\.ts/)
   assert.match(contents, /package\/dist\/devtools\.js/)
+  assert.doesNotMatch(contents, /package\/dist\/Durable(?:Runner|Memory|Protocol|Conformance)?\./)
   assert.doesNotMatch(contents, /devtools-viewer/)
   assert.doesNotMatch(contents, /interactive-devtools|local-first-document|reference-workflow/)
   assert.doesNotMatch(contents, /prototype|src\/main|todo-effect-machine/)
 
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   assert.equal(manifest.publishConfig.exports["./Source"], undefined, "Source must stay private")
+  assert.equal(manifest.publishConfig.exports["./MachineRuntimeProtocol"], undefined)
+  assert.equal(manifest.publishConfig.exports["./Durable"], undefined)
+  assert.equal(manifest.publishConfig.exports["./MachinePlan"], undefined)
+  assert.doesNotMatch(await readFile(join(root, "dist/Machine.d.ts"), "utf8"), /_durableRuntime/)
   const packedFiles = new Set(contents.split("\n"))
   for (const [subpath, entry] of Object.entries(manifest.publishConfig.exports)) {
     if (typeof entry === "string") continue
@@ -51,7 +60,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          effect: "4.0.0-beta.106",
+          effect: manifest.peerDependencies.effect,
           "effect-state-machine": `file:${archive}`,
         },
         devDependencies: {
@@ -83,11 +92,21 @@ try {
   )
   await writeFile(
     join(consumer, "core.ts"),
-    `import { Context, Effect, Layer, Schema } from "effect"
+    `// Intentional aggregate-import smoke test for the published root contracts.
+import { Context, Effect, Layer, Schema } from "effect"
 import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
+import * as MachineStore from "effect-state-machine/MachineStore"
+import * as LocalStorageMachineStore from "effect-state-machine/LocalStorageMachineStore"
 
 // @ts-expect-error Source is internal and must not resolve through the export map
 import type * as PrivateSource from "effect-state-machine/Source"
+// @ts-expect-error MachineRuntimeProtocol is an implementation leaf, not a public subpath
+import type * as PrivateMachineRuntimeProtocol from "effect-state-machine/MachineRuntimeProtocol"
+// @ts-expect-error MachinePlan is an implementation leaf, not a public subpath
+import type * as PrivateMachinePlan from "effect-state-machine/MachinePlan"
+// @ts-expect-error the shared planner is package-private
+Machine._durableRuntime
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,
@@ -118,11 +137,14 @@ const greeting = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = greeting.define(
   {
     id: "consumer-greeting",
+    idempotencyKey: ({ name }) => name,
     initial: (input) => ({ _tag: "Loading", name: input.name }),
   },
   {
     Loading: greeting.invoke({
       name: "Greeter.greet",
+      success: Schema.String,
+      error: GreetFailed,
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: {
         target: "Done",
@@ -138,19 +160,23 @@ export const definition = greeting.define(
   },
 )
 
+const instanceId: MachineStore.MachineInstanceId = definition.instanceId({ name: "Effect" })
+void instanceId
+void LocalStorageMachineStore.layerSingleContext
+
 const GreeterLive = Layer.succeed(
   Greeter,
   Greeter.of({ greet: (name) => Effect.succeed(\`Hello, \${name}!\`) }),
 )
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const handle = yield* Machine.run(definition, { name: "Effect" })
+    const handle = yield* definition.run({ name: "Effect" })
     const completion = yield* handle.completion
     if (completion._tag !== "Done" || completion.message !== "Hello, Effect!") {
       throw new Error("unexpected completion")
     }
   }),
-).pipe(Effect.provide(GreeterLive))
+).pipe(Effect.provide(MachineEngine.layerMemory()), Effect.provide(GreeterLive))
 
 await Effect.runPromise(program)
 `,
@@ -158,9 +184,21 @@ await Effect.runPromise(program)
   await writeFile(
     join(consumer, "tooling.ts"),
     `import { Effect, Schema, Stream } from "effect"
-import { Machine } from "effect-state-machine"
+import {
+  LocalStorageMachineStore as RootLocalStorageMachineStore,
+  Machine,
+  MachineEngine as RootMachineEngine,
+  MachineStore as RootMachineStore,
+  MachineWorkflow as RootMachineWorkflow,
+} from "effect-state-machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import { Graph, Mermaid } from "effect-state-machine/devtools"
 import { definition } from "./core.js"
+
+void RootLocalStorageMachineStore
+void RootMachineEngine
+void RootMachineStore
+void RootMachineWorkflow
 
 const graph = Graph.fromDefinition(definition)
 const source = Mermaid.render(graph)
@@ -174,6 +212,7 @@ const counter = Machine.builder({ input: Input, state: State, event: Event })
 const counterDefinition = counter.define(
   {
     id: "packed-counter",
+    idempotencyKey: () => "counter",
     initial: () => ({ _tag: "Active", count: 0 }),
   },
   {
@@ -186,11 +225,11 @@ const counterDefinition = counter.define(
   },
 )
 await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-  const handle = yield* Machine.run(counterDefinition, {})
+  const handle = yield* counterDefinition.run({})
   yield* handle.send({ _tag: "Increment", amount: 2 })
   const observed = yield* Stream.runHead(handle.changes.pipe(Stream.filter((state) => state.count === 2)))
   if (observed._tag !== "Some") throw new Error("missing state change")
-})))
+})).pipe(Effect.provide(MachineEngine.layerMemory())))
 `,
   )
   execute("pnpm", ["install", "--offline"], consumer)
@@ -216,6 +255,10 @@ await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     coreInputs.filter((input) =>
       /effect-state-machine\/dist\/(Graph|Mermaid|devtools)\.js$/.test(input),
     ),
+    [],
+  )
+  assert.deepEqual(
+    coreInputs.filter((input) => /effect\/dist\/unstable\/workflow/.test(input)),
     [],
   )
   assert.doesNotMatch(await readFile(join(consumer, "core.mjs"), "utf8"), /stateDiagram-v2/)

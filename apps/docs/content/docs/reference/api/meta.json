@@ -1,0 +1,14 @@
+{
+  "title": "Generated API",
+  "pages": [
+    "index",
+    "Machine",
+    "MachineEngine",
+    "MachineStore",
+    "LocalStorageMachineStore",
+    "MachineWorkflow",
+    "Graph",
+    "Mermaid",
+    "SourceLocation"
+  ]
+}

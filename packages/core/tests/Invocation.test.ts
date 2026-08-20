@@ -1,23 +1,23 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
-class LoadFailed extends Data.TaggedError("LoadFailed")<{
-  readonly message: string
-}> {}
+class LoadFailed extends Schema.TaggedError<LoadFailed>()("LoadFailed", {
+  message: Schema.String,
+}) {}
 
-class NotFound extends Data.TaggedError("NotFound")<{
-  readonly message: string
-}> {}
+class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+  message: Schema.String,
+}) {}
+
+const LoadError = Schema.Union([LoadFailed, NotFound])
 
 class Documents extends Context.Service<
   Documents,
@@ -40,12 +40,18 @@ const Event = Schema.Union([Cancel]).pipe(Schema.toTaggedUnion("_tag"))
 
 const document = Machine.builder({ input: Input, state: State, event: Event })
 const definition = document.define(
-  { id: "load-document", initial: (input) => ({ _tag: "Loading", id: input.id }) },
+  {
+    id: "load-document",
+    initial: (input) => ({ _tag: "Loading", id: input.id }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Loading: document.invoke(
       {
         name: "Documents.load",
         description: "Load the requested document through an application-provided service.",
+        success: Schema.String,
+        error: LoadError,
         effect: (state) => Effect.flatMap(Documents, ({ load }) => load(state.id)),
         onSuccess: {
           target: "Loaded",
@@ -102,7 +108,7 @@ describe("invoked Effects", () => {
         Documents,
         Documents.of({ load: (id) => Effect.succeed(`document:${id}`) }),
       )
-      const handle = yield* Machine.run(definition, { id: "one" }).pipe(Effect.provide(documents))
+      const handle = yield* runMachine(definition, { id: "one" }).pipe(Effect.provide(documents))
 
       assert.deepStrictEqual(yield* handle.completion, {
         _tag: "Loaded",
@@ -127,7 +133,7 @@ describe("invoked Effects", () => {
         Documents,
         Documents.of({ load: () => Effect.fail(new NotFound({ message: "missing" })) }),
       )
-      const missing = yield* Machine.run(definition, { id: "missing" }).pipe(
+      const missing = yield* runMachine(definition, { id: "missing" }).pipe(
         Effect.provide(missingLayer),
       )
       assert.deepStrictEqual(yield* missing.completion, {
@@ -153,7 +159,7 @@ describe("invoked Effects", () => {
         Documents,
         Documents.of({ load: () => Effect.fail(new LoadFailed({ message: "offline" })) }),
       )
-      const failed = yield* Machine.run(definition, { id: "offline" }).pipe(
+      const failed = yield* runMachine(definition, { id: "offline" }).pipe(
         Effect.provide(failedLayer),
       )
       assert.deepStrictEqual(yield* failed.completion, {
@@ -165,20 +171,23 @@ describe("invoked Effects", () => {
 
   it.effect("interrupts state-owned work when an external event exits the invoked state", () =>
     Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
       const interrupted = yield* Deferred.make<void>()
       const documents = Layer.succeed(
         Documents,
         Documents.of({
           load: () =>
-            Effect.never.pipe(
+            Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(Effect.never),
               Effect.onInterrupt(() =>
                 Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
               ),
             ),
         }),
       )
-      const handle = yield* Machine.run(definition, { id: "slow" }).pipe(Effect.provide(documents))
+      const handle = yield* runMachine(definition, { id: "slow" }).pipe(Effect.provide(documents))
 
+      yield* Deferred.await(started)
       yield* handle.send({ _tag: "Cancel" })
       yield* Deferred.await(interrupted)
 
@@ -202,20 +211,53 @@ describe("invoked Effects", () => {
     Effect.gen(function* () {
       const boom = new Error("boom")
       const documents = Layer.succeed(Documents, Documents.of({ load: () => Effect.die(boom) }))
-      const handle = yield* Machine.run(definition, { id: "broken" }).pipe(
-        Effect.provide(documents),
-      )
+      const handle = yield* runMachine(definition, { id: "broken" }).pipe(Effect.provide(documents))
 
-      const exit = yield* Effect.exit(handle.completion)
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(Cause.hasDies(exit.cause), true)
-        assert.strictEqual(Cause.squash(exit.cause), boom)
-      }
+      const error = yield* Effect.flip(handle.completion)
+      assert.strictEqual(error._tag, "MachineInstanceDefect")
+      if (error._tag !== "MachineInstanceDefect") return
+      assert.strictEqual(String(error.instanceId), String(handle.instanceId))
+      assert.deepStrictEqual(error.defect, {
+        category: "activity",
+        name: "Error",
+        message: "boom",
+      })
       assert.deepStrictEqual(
         (yield* Stream.runCollect(Stream.take(handle.inspection, 3))).map(({ _tag }) => _tag),
         ["MachineStarted", "InvocationStarted", "InvocationDefected"],
       )
+    }),
+  )
+
+  it.effect("defects when an Effect violates either declared outcome Schema", () =>
+    Effect.gen(function* () {
+      const invalidSuccess = Layer.succeed(
+        Documents,
+        Documents.of({
+          load: () => Effect.succeed(42) as unknown as Effect.Effect<string, LoadFailed | NotFound>,
+        }),
+      )
+      const invalidFailure = Layer.succeed(
+        Documents,
+        Documents.of({
+          load: () =>
+            Effect.fail({ _tag: "Unexpected", message: "bad" }) as unknown as Effect.Effect<
+              string,
+              LoadFailed | NotFound
+            >,
+        }),
+      )
+
+      for (const layer of [invalidSuccess, invalidFailure]) {
+        const handle = yield* runMachine(definition, { id: "invalid" }).pipe(Effect.provide(layer))
+        const error = yield* Effect.flip(handle.completion)
+        assert.strictEqual(error._tag, "MachineInstanceDefect")
+        if (error._tag !== "MachineInstanceDefect") return
+        assert.strictEqual(String(error.instanceId), String(handle.instanceId))
+        assert.strictEqual(error.defect.category, "encoding")
+        assert.strictEqual(error.defect.name, "MachineEncodingError")
+        assert.match(error.defect.message, /string|LoadFailed|NotFound/)
+      }
     }),
   )
 
@@ -231,7 +273,7 @@ describe("invoked Effects", () => {
             }),
         }),
       )
-      const handle = yield* Machine.run(definition, { id: "late" }).pipe(Effect.provide(documents))
+      const handle = yield* runMachine(definition, { id: "late" }).pipe(Effect.provide(documents))
       yield* Effect.yieldNow
       if (resumeLate === undefined) {
         return yield* Effect.die("Invocation did not register its callback")
@@ -257,6 +299,10 @@ describe("invoked Effects", () => {
         name: "Documents.load",
         kind: "effect",
         description: "Load the requested document through an application-provided service.",
+        outcomes: {
+          success: { kind: "String" },
+          error: { kind: "Union" },
+        },
       },
     })
     assert.deepStrictEqual(

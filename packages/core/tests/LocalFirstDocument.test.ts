@@ -1,8 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
@@ -18,6 +16,7 @@ import {
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
 import * as Mermaid from "../src/Mermaid.js"
+import { runMachine } from "./runMachine.js"
 
 const documents = Layer.succeed(
   Documents,
@@ -37,7 +36,7 @@ const application = Layer.merge(documents, synchronizer)
 describe("local-first document reference workflow", () => {
   it.effect("opens, edits, saves, synchronizes, and closes one document", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(LocalFirstDocument.definition, {
+      const handle = yield* runMachine(LocalFirstDocument.definition, {
         documentId: "one",
       }).pipe(Effect.provide(application))
 
@@ -97,9 +96,11 @@ describe("local-first document reference workflow", () => {
             ),
         }),
       )
-      const handle = yield* Machine.run(LocalFirstDocument.definition, {
-        documentId: "retry",
-      }).pipe(Effect.provide(Layer.merge(documents, retryingSynchronizer)))
+      const handle = yield* runMachine(
+        LocalFirstDocument.definition,
+        { documentId: "retry" },
+        { activityLeaseMillis: 5 * 60_000, activityWorkerCount: 1 },
+      ).pipe(Effect.provide(Layer.merge(documents, retryingSynchronizer)))
 
       yield* Stream.runHead(handle.changes.pipe(Stream.filter((state) => state._tag === "Editing")))
       yield* handle.send({ _tag: "Edit", text: "retry me" })
@@ -153,7 +154,7 @@ describe("local-first document reference workflow", () => {
             ),
         }),
       )
-      const handle = yield* Machine.run(LocalFirstDocument.definition, {
+      const handle = yield* runMachine(LocalFirstDocument.definition, {
         documentId: "offline",
       }).pipe(Effect.provide(Layer.merge(slowDocuments, synchronizer)))
 
@@ -197,7 +198,7 @@ describe("local-first document reference workflow", () => {
             ),
         }),
       )
-      const handle = yield* Machine.run(LocalFirstDocument.definition, {
+      const handle = yield* runMachine(LocalFirstDocument.definition, {
         documentId: "conflict",
       }).pipe(Effect.provide(Layer.merge(documents, conflictingSynchronizer)))
 
@@ -239,7 +240,7 @@ describe("local-first document reference workflow", () => {
           save: ({ revision }) => Effect.succeed(revision + 1),
         }),
       )
-      const expected = yield* Machine.run(LocalFirstDocument.definition, {
+      const expected = yield* runMachine(LocalFirstDocument.definition, {
         documentId: "missing",
       }).pipe(Effect.provide(Layer.merge(failingDocuments, synchronizer)))
       assert.deepStrictEqual(yield* expected.completion, {
@@ -253,7 +254,7 @@ describe("local-first document reference workflow", () => {
         Synchronizer,
         Synchronizer.of({ sync: () => Effect.die(boom) }),
       )
-      const defected = yield* Machine.run(LocalFirstDocument.definition, {
+      const defected = yield* runMachine(LocalFirstDocument.definition, {
         documentId: "broken",
       }).pipe(Effect.provide(Layer.merge(documents, defectingSynchronizer)))
       yield* Stream.runHead(
@@ -261,11 +262,15 @@ describe("local-first document reference workflow", () => {
       )
       yield* defected.send({ _tag: "Edit", text: "changed" })
       yield* defected.send({ _tag: "Save" })
-      const exit = yield* Effect.exit(defected.completion)
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(Cause.squash(exit.cause), boom)
-      }
+      const error = yield* Effect.flip(defected.completion)
+      assert.strictEqual(error._tag, "MachineInstanceDefect")
+      if (error._tag !== "MachineInstanceDefect") return
+      assert.strictEqual(String(error.instanceId), String(defected.instanceId))
+      assert.deepStrictEqual(error.defect, {
+        category: "activity",
+        name: "Error",
+        message: "unexpected",
+      })
     }),
   )
 

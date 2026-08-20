@@ -16,6 +16,7 @@ const runner = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = runner.define(
   {
     id: "embedded-runner",
+    idempotencyKey: () => "runner",
     initial: () => ({ _tag: "Idle" }),
   },
   {
@@ -43,6 +44,7 @@ const regions = Machine.builder({ input: Schema.Void, state: RegionState, event:
 export const regionDefinition = regions.define(
   {
     id: "embedded-regions",
+    idempotencyKey: () => "regions",
     initial: () => ({
       _tag: "Active",
       playback: { _tag: "Playing" },

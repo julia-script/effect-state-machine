@@ -4,7 +4,10 @@
  * The types and values in this module exist only to test the proposed authoring
  * surface. They deliberately contain no interpreter.
  */
-import type { Effect, Schedule, Schema, Stream } from "effect"
+import type * as Effect from "effect/Effect"
+import type * as Schedule from "effect/Schedule"
+import type * as Schema from "effect/Schema"
+import type * as Stream from "effect/Stream"
 
 type Tagged = Readonly<{ _tag: string }>
 type TaggedSchema = Schema.Top & Readonly<{ Type: Tagged }>
@@ -167,6 +170,48 @@ type FailureTransition<
       }>
     : never
 
+export interface WorkExecution {
+  readonly id: string
+  readonly instanceId: string
+  readonly entryId: string
+  readonly ownerPath: string
+  readonly invocationName: string
+  readonly laneName?: string
+  readonly deliveryAttempt: number
+}
+
+type WorkSchema = Schema.Codec<unknown, unknown, unknown, unknown>
+
+type WorkSchemaRequirements<Value extends WorkSchema> =
+  | Value["DecodingServices"]
+  | Value["EncodingServices"]
+
+type WorkEffect<
+  State extends Tagged,
+  Current extends TagOf<State>,
+  Success extends WorkSchema,
+  Failure,
+  Requirements,
+> = (
+  state: ByTag<State, Current>,
+  execution: WorkExecution,
+) => Effect.Effect<Schema.Schema.Type<Success>, Failure, Requirements>
+
+type EffectOf<Value> = Value extends (...args: any[]) => infer Result ? Result : never
+type EffectSuccessOf<Value> = Effect.Success<EffectOf<Value>>
+type EffectFailureOf<Value> = Effect.Error<EffectOf<Value>>
+type EffectRequirementsOf<Value> = Effect.Services<EffectOf<Value>>
+
+type ValidateWorkEffect<EffectFn, Success extends WorkSchema, AllowedFailure extends WorkSchema> = [
+  EffectSuccessOf<EffectFn>,
+] extends [Schema.Schema.Type<Success>]
+  ? [Schema.Schema.Type<Success>] extends [EffectSuccessOf<EffectFn>]
+    ? [EffectFailureOf<EffectFn>] extends [Schema.Schema.Type<AllowedFailure>]
+      ? unknown
+      : never
+    : never
+  : never
+
 export interface RetryPolicy<
   Failure,
   Retry extends Schedule.Schedule<unknown, Failure, unknown, unknown>,
@@ -178,21 +223,133 @@ export interface RetryPolicy<
 
 type AnyRetry<Failure> = Schedule.Schedule<unknown, Failure, unknown, unknown>
 
+type RetrySchedule<Retry> =
+  Retry extends Readonly<{
+    schedule: infer Value extends Schedule.Schedule<any, any, any, any>
+  }>
+    ? Value
+    : never
+type RetryRequirements<Retry> = Schedule.Env<RetrySchedule<Retry>>
+type RetryError<Retry> = Schedule.Error<RetrySchedule<Retry>>
+
 export interface InvokeNode<
   State extends Tagged,
   Event extends Tagged,
   Current extends TagOf<State>,
-  Output,
-  Failure,
-  Requirements,
-> extends Node<Current, Requirements> {
+  Success extends WorkSchema,
+  AllowedFailure extends WorkSchema,
+  EffectFailure,
+  EffectRequirements,
+  Retry extends RetryPolicy<EffectFailure, AnyRetry<EffectFailure>> | undefined,
+> extends Node<
+    Current,
+    | EffectRequirements
+    | RetryRequirements<Retry>
+    | WorkSchemaRequirements<Success>
+    | WorkSchemaRequirements<AllowedFailure>
+  > {
   readonly kind: "invoke"
+  readonly workKind: "effect"
   readonly name: string
   readonly description?: string
-  readonly effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, Requirements>
-  readonly retry?: RetryPolicy<Failure, AnyRetry<Failure>>
-  readonly onSuccess: SuccessTransition<State, Current, Output>
-  readonly onFailure: FailureTransition<State, Current, Failure>
+  readonly success: Success
+  readonly error: AllowedFailure
+  readonly effect: WorkEffect<State, Current, Success, EffectFailure, EffectRequirements>
+  readonly retry?: Retry
+  readonly onSuccess: SuccessTransition<State, Current, Schema.Schema.Type<Success>>
+  readonly onFailure: FailureTransition<State, Current, Schema.Schema.Type<AllowedFailure>>
+  readonly on: EventHandlers<State, Event, Current>
+}
+
+type LaneShape<State extends Tagged, Current extends TagOf<State>> = Readonly<{
+  description?: string
+  success: WorkSchema
+  error: WorkSchema
+  effect: WorkEffect<State, Current, WorkSchema, unknown, unknown>
+}>
+
+type ValidateLane<State extends Tagged, Current extends TagOf<State>, Lane> =
+  Lane extends Readonly<{
+    success: infer Success extends WorkSchema
+    error: infer Failure extends WorkSchema
+    effect: (
+      state: ByTag<State, Current>,
+      execution: WorkExecution,
+    ) => Effect.Effect<infer Output, infer EffectFailure, unknown>
+  }>
+    ? [Output] extends [Schema.Schema.Type<Success>]
+      ? [Schema.Schema.Type<Success>] extends [Output]
+        ? [EffectFailure] extends [Schema.Schema.Type<Failure>]
+          ? Lane
+          : never
+        : never
+      : never
+    : never
+
+type ValidateLanes<State extends Tagged, Current extends TagOf<State>, Lanes> = Readonly<{
+  [Name in keyof Lanes]: ValidateLane<State, Current, Lanes[Name]>
+}>
+
+type LaneSuccess<Lane> =
+  Lane extends Readonly<{ success: infer Success extends WorkSchema }>
+    ? Schema.Schema.Type<Success>
+    : never
+
+type LaneFailure<Lane> =
+  Lane extends Readonly<{ error: infer Failure extends WorkSchema }>
+    ? Schema.Schema.Type<Failure>
+    : never
+
+type LaneRequirements<Lane> =
+  Lane extends Readonly<{
+    success: infer Success extends WorkSchema
+    error: infer Failure extends WorkSchema
+    effect: (...args: never[]) => Effect.Effect<unknown, unknown, infer Requirements>
+  }>
+    ? Requirements | WorkSchemaRequirements<Success> | WorkSchemaRequirements<Failure>
+    : never
+
+type LanesSuccess<Lanes> = Readonly<{
+  [Name in keyof Lanes]: LaneSuccess<Lanes[Name]>
+}>
+
+type LanesFailure<Lanes> = LaneFailure<Lanes[keyof Lanes]>
+type LanesRequirements<Lanes> = LaneRequirements<Lanes[keyof Lanes]>
+
+export type RaceOutcome<Lanes> = {
+  [Name in keyof Lanes]: Readonly<{ winner: Name; value: LaneSuccess<Lanes[Name]> }>
+}[keyof Lanes]
+
+export interface AllInvokeNode<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  Lanes extends Readonly<Record<string, LaneShape<State, Current>>>,
+> extends Node<Current, LanesRequirements<Lanes>> {
+  readonly kind: "invoke"
+  readonly workKind: "all"
+  readonly name: string
+  readonly description?: string
+  readonly concurrency?: number | "unbounded"
+  readonly tasks: Lanes
+  readonly onSuccess: SuccessTransition<State, Current, LanesSuccess<Lanes>>
+  readonly onFailure: FailureTransition<State, Current, LanesFailure<Lanes>>
+  readonly on: EventHandlers<State, Event, Current>
+}
+
+export interface RaceInvokeNode<
+  State extends Tagged,
+  Event extends Tagged,
+  Current extends TagOf<State>,
+  Lanes extends Readonly<Record<string, LaneShape<State, Current>>>,
+> extends Node<Current, LanesRequirements<Lanes>> {
+  readonly kind: "invoke"
+  readonly workKind: "race"
+  readonly name: string
+  readonly description?: string
+  readonly tasks: Lanes
+  readonly onSuccess: SuccessTransition<State, Current, RaceOutcome<Lanes>>
+  readonly onFailure: FailureTransition<State, Current, LanesFailure<Lanes>>
   readonly on: EventHandlers<State, Event, Current>
 }
 
@@ -326,42 +483,101 @@ const builder = <
 
   const invoke = <
     Current extends TagOf<State>,
-    Output,
-    Failure,
-    EffectRequirements,
-    Retry extends Schedule.Schedule<unknown, Failure, unknown, unknown> = Schedule.Schedule<
-      never,
-      Failure,
-      never,
-      never
-    >,
+    const Success extends WorkSchema,
+    const AllowedFailure extends WorkSchema,
+    const EffectFn extends (...args: any[]) => Effect.Effect<any, any, any>,
+    Retry extends
+      | RetryPolicy<EffectFailureOf<EffectFn>, AnyRetry<EffectFailureOf<EffectFn>>>
+      | undefined = undefined,
   >(
     tag: Current,
     config: Readonly<{
       name: string
       description?: string
-      effect: (state: ByTag<State, Current>) => Effect.Effect<Output, Failure, EffectRequirements>
-      retry?: RetryPolicy<Failure, Retry>
-      onSuccess: SuccessTransition<State, Current, Output>
-      onFailure: FailureTransition<State, Current, Failure>
+      success: Success
+      error: AllowedFailure
+      effect: EffectFn &
+        WorkEffect<State, Current, Success, Schema.Schema.Type<AllowedFailure>, unknown>
+      retry?: Retry
+      onSuccess: SuccessTransition<State, Current, Schema.Schema.Type<Success>>
+      onFailure: FailureTransition<State, Current, Schema.Schema.Type<AllowedFailure>>
       on?: EventHandlers<State, Event, Current>
-    }>,
+    }> &
+      ValidateWorkEffect<EffectFn, Success, AllowedFailure> &
+      ([RetryError<Retry>] extends [Schema.Schema.Type<AllowedFailure>]
+        ? unknown
+        : Readonly<{ retry?: never }>),
   ): InvokeNode<
     State,
     Event,
     Current,
-    Output,
-    Failure,
-    EffectRequirements | Schedule.Env<Retry>
+    Success,
+    AllowedFailure,
+    EffectFailureOf<EffectFn>,
+    EffectRequirementsOf<EffectFn>,
+    Retry
   > => ({
     kind: "invoke",
+    workKind: "effect",
     tag,
     name: config.name,
     description: config.description,
-    effect: config.effect as (
-      state: ByTag<State, Current>,
-    ) => Effect.Effect<Output, Failure, EffectRequirements | Schedule.Env<Retry>>,
+    success: config.success,
+    error: config.error,
+    effect: config.effect,
     retry: config.retry,
+    onSuccess: config.onSuccess,
+    onFailure: config.onFailure,
+    on: config.on ?? ({} as EventHandlers<State, Event, Current>),
+  })
+
+  const invokeAll = <
+    Current extends TagOf<State>,
+    const Lanes extends Readonly<Record<string, LaneShape<State, Current>>>,
+  >(
+    tag: Current,
+    config: Readonly<{
+      name: string
+      description?: string
+      concurrency?: number | "unbounded"
+      tasks: Lanes & ValidateLanes<State, Current, Lanes>
+      onSuccess: SuccessTransition<State, Current, LanesSuccess<Lanes>>
+      onFailure: FailureTransition<State, Current, LanesFailure<Lanes>>
+      on?: EventHandlers<State, Event, Current>
+    }>,
+  ): AllInvokeNode<State, Event, Current, Lanes> => ({
+    kind: "invoke",
+    workKind: "all",
+    tag,
+    name: config.name,
+    description: config.description,
+    concurrency: config.concurrency,
+    tasks: config.tasks,
+    onSuccess: config.onSuccess,
+    onFailure: config.onFailure,
+    on: config.on ?? ({} as EventHandlers<State, Event, Current>),
+  })
+
+  const invokeRace = <
+    Current extends TagOf<State>,
+    const Lanes extends Readonly<Record<string, LaneShape<State, Current>>>,
+  >(
+    tag: Current,
+    config: Readonly<{
+      name: string
+      description?: string
+      tasks: Lanes & ValidateLanes<State, Current, Lanes>
+      onSuccess: SuccessTransition<State, Current, RaceOutcome<Lanes>>
+      onFailure: FailureTransition<State, Current, LanesFailure<Lanes>>
+      on?: EventHandlers<State, Event, Current>
+    }>,
+  ): RaceInvokeNode<State, Event, Current, Lanes> => ({
+    kind: "invoke",
+    workKind: "race",
+    tag,
+    name: config.name,
+    description: config.description,
+    tasks: config.tasks,
     onSuccess: config.onSuccess,
     onFailure: config.onFailure,
     on: config.on ?? ({} as EventHandlers<State, Event, Current>),
@@ -405,7 +621,7 @@ const builder = <
     nodes: config.nodes,
   })
 
-  return { child, final, invoke, make, state }
+  return { child, final, invoke, invokeAll, invokeRace, make, state }
 }
 
 export const Machine = { builder } as const

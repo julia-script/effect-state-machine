@@ -1,5 +1,7 @@
 /** Compile-time rejection evidence for the throwaway public API prototype. */
-import { Schema } from "effect"
+import * as Effect from "effect/Effect"
+import type * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 import { Machine } from "./machine"
 
 const Input = Schema.Struct({})
@@ -14,6 +16,76 @@ const Event = Schema.TaggedUnion({
 })
 
 const parent = Machine.builder({ input: Input, state: State, event: Event })
+
+class WorkFailure extends Schema.TaggedError<WorkFailure>()("WorkFailure", {
+  message: Schema.String,
+}) {}
+
+class RetryTerminalFailure extends Schema.TaggedError<RetryTerminalFailure>()(
+  "RetryTerminalFailure",
+  { message: Schema.String },
+) {}
+
+const retryWithUndeclaredTerminalError = null as unknown as Schedule.Schedule<
+  number,
+  WorkFailure,
+  RetryTerminalFailure
+>
+
+parent.invoke(
+  "A",
+  // @ts-expect-error The allowed-failure Schema must cover the retry Schedule's terminal error.
+  {
+    name: "incomplete retry error schema",
+    success: Schema.String,
+    error: WorkFailure,
+    effect: () => Effect.fail(new WorkFailure({ message: "retry" })),
+    retry: { name: "terminal failure", schedule: retryWithUndeclaredTerminalError },
+    onSuccess: {
+      target: "B",
+      reduce: ({ value }: { value: string }) => ({ _tag: "B", value }),
+    },
+    onFailure: {
+      target: "C",
+      reduce: ({ error }: { error: WorkFailure }) => ({ _tag: "C", value: error.message }),
+    },
+  },
+)
+
+parent.invoke(
+  "A",
+  // @ts-expect-error The Effect success channel must exactly match the declared success Schema.
+  {
+    name: "wrong success schema",
+    success: Schema.Number,
+    error: Schema.Never,
+    effect: () => Effect.succeed("not a number"),
+    onSuccess: {
+      target: "B",
+      reduce: ({ value }: { value: number }) => ({ _tag: "B", value: String(value) }),
+    },
+    onFailure: {
+      target: "C",
+      reduce: () => ({ _tag: "C", value: "impossible" }),
+    },
+  },
+)
+
+parent.invokeAll("A", {
+  name: "direct function shorthand",
+  tasks: {
+    // @ts-expect-error Durable lane identity requires the Schema-backed object form.
+    unsupported: () => Effect.succeed("value"),
+  },
+  onSuccess: {
+    target: "B",
+    reduce: () => ({ _tag: "B", value: "done" }),
+  },
+  onFailure: {
+    target: "C",
+    reduce: () => ({ _tag: "C", value: "failed" }),
+  },
+})
 
 parent.state("A", {
   on: {

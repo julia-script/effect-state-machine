@@ -1,12 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
 const Input = Schema.Void
 const Ready = Schema.TaggedStruct("Ready", {})
@@ -24,7 +23,11 @@ const Event = Schema.Union([Decide, Ping]).pipe(Schema.toTaggedUnion("_tag"))
 
 const classifier = Machine.builder({ input: Input, state: State, event: Event })
 const definition = classifier.define(
-  { id: "classifier", initial: () => ({ _tag: "Ready" }) },
+  {
+    id: "classifier",
+    initial: () => ({ _tag: "Ready" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Ready: classifier.state({
       Decide: {
@@ -67,7 +70,11 @@ const definition = classifier.define(
 )
 
 const withoutFallback = classifier.define(
-  { id: "classifier-without-fallback", initial: () => ({ _tag: "Ready" }) },
+  {
+    id: "classifier-without-fallback",
+    initial: () => ({ _tag: "Ready" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Ready: classifier.state({
       Decide: {
@@ -92,7 +99,7 @@ const withoutFallback = classifier.define(
 describe("guarded transitions", () => {
   it.effect("selects the first matching named guard and inspects that branch", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       const inspectionFiber = yield* Effect.forkChild(
         Stream.runCollect(Stream.take(handle.inspection, 4)),
       )
@@ -119,11 +126,11 @@ describe("guarded transitions", () => {
 
   it.effect("uses later guards and the final fallback when earlier guards do not match", () =>
     Effect.gen(function* () {
-      const even = yield* Machine.run(definition, undefined)
+      const even = yield* runMachine(definition, undefined)
       yield* even.send({ _tag: "Decide", value: -2 })
       assert.deepStrictEqual(yield* even.snapshot, { _tag: "Even", value: -2 })
 
-      const other = yield* Machine.run(definition, undefined)
+      const other = yield* runMachine(definition, undefined)
       yield* other.send({ _tag: "Decide", value: -3 })
       assert.deepStrictEqual(yield* other.snapshot, { _tag: "Other", value: -3 })
     }),
@@ -131,19 +138,22 @@ describe("guarded transitions", () => {
 
   it.effect("defects when no guard matches and no fallback exists", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(withoutFallback, undefined)
-      const exit = yield* Effect.exit(handle.send({ _tag: "Decide", value: -1 }))
-
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(Cause.squash(exit.cause) instanceof Machine.ProtocolDefect, true)
-      }
+      const handle = yield* runMachine(withoutFallback, undefined)
+      const error = yield* Effect.flip(handle.send({ _tag: "Decide", value: -1 }))
+      assert.strictEqual(error._tag, "MachineInstanceDefect")
+      if (error._tag !== "MachineInstanceDefect") return
+      assert.strictEqual(String(error.instanceId), String(handle.instanceId))
+      assert.deepStrictEqual(error.defect, {
+        category: "protocol",
+        name: "Error",
+        message: "machine classifier-without-fallback does not accept Decide in Ready",
+      })
     }),
   )
 
   it.effect("makes an explicitly ignored event an observable no-op", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       const inspectionFiber = yield* Effect.forkChild(
         Stream.runCollect(Stream.take(handle.inspection, 3)),
       )

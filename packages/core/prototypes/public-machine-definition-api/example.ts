@@ -4,7 +4,11 @@
  * This definition is compile-checked to evaluate authoring ergonomics. It is
  * not the production machine implementation.
  */
-import { Context, Effect, Schedule, Schema, type Stream } from "effect"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
+import type * as Stream from "effect/Stream"
 import {
   type InspectionEvent,
   Machine,
@@ -26,6 +30,10 @@ class Documents extends Context.Service<
 >()("prototype/Documents") {}
 
 class InvalidResolution extends Schema.TaggedError<InvalidResolution>()("InvalidResolution", {
+  message: Schema.String,
+}) {}
+
+class RetryExhausted extends Schema.TaggedError<RetryExhausted>()("RetryExhausted", {
   message: Schema.String,
 }) {}
 
@@ -125,6 +133,8 @@ const conflictDefinition = conflict.make({
     conflict.invoke("Validating", {
       name: "ConflictPolicy.validate",
       description: "Validate the selected text with a dependency supplied at execution time.",
+      success: Schema.String,
+      error: InvalidResolution,
       effect: (state) =>
         Effect.flatMap(ConflictPolicy, (policy) => policy.validate(state.selectedText)),
       onSuccess: {
@@ -249,6 +259,151 @@ const document = Machine.builder({
   event: DocumentEvent,
 })
 
+const aggregateNode = document.invokeAll("Opening", {
+  name: "load document inputs",
+  concurrency: 2,
+  tasks: {
+    document: {
+      description: "Load the document body.",
+      success: Schema.String,
+      error: DocumentUnavailable,
+      effect: (state, execution) => {
+        const executionId: string = execution.id
+        void executionId
+        return Effect.flatMap(Documents, (documents) => documents.open(state.documentId))
+      },
+    },
+    cached: {
+      success: Schema.Boolean,
+      error: Schema.Never,
+      effect: () => Effect.succeed(true),
+    },
+  },
+  onSuccess: {
+    target: "Editing",
+    reduce: ({ state, value }) => {
+      const text: string = value.document
+      const cached: boolean = value.cached
+      return { _tag: "Editing", documentId: state.documentId, text, dirty: !cached }
+    },
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ state, error }) => {
+      const failure: DocumentUnavailable = error
+      return { _tag: "Failed", documentId: state.documentId, message: failure.message }
+    },
+  },
+})
+
+const raceNode = document.invokeRace("Opening", {
+  name: "load fastest document source",
+  tasks: {
+    document: {
+      success: Schema.String,
+      error: DocumentUnavailable,
+      effect: (state) => Effect.flatMap(Documents, (documents) => documents.open(state.documentId)),
+    },
+    cache: {
+      success: Schema.Boolean,
+      error: Schema.Never,
+      effect: () => Effect.succeed(true),
+    },
+  },
+  onSuccess: {
+    target: "Editing",
+    reduce: ({ state, value }) => {
+      const text = value.winner === "document" ? value.value : String(value.value)
+      if (value.winner === "document") {
+        const narrowed: string = value.value
+        void narrowed
+      } else {
+        const narrowed: boolean = value.value
+        void narrowed
+      }
+      return { _tag: "Editing", documentId: state.documentId, text, dirty: false }
+    },
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ state, error }) => ({
+      _tag: "Failed",
+      documentId: state.documentId,
+      message: error.message,
+    }),
+  },
+})
+
+const retrySchedule = null as unknown as Schedule.Schedule<
+  number,
+  DocumentUnavailable,
+  RetryExhausted,
+  ConflictPolicy
+>
+const RetryFailure = Schema.Union([DocumentUnavailable, RetryExhausted])
+type RetryFailureCoversTerminalError =
+  RetryExhausted extends Schema.Schema.Type<typeof RetryFailure> ? true : false
+const retryFailureCoversTerminalError: true = true as RetryFailureCoversTerminalError
+void retryFailureCoversTerminalError
+const retryNode = document.invoke("Opening", {
+  name: "load with durable-compatible errors",
+  success: Schema.String,
+  error: RetryFailure,
+  effect: (state) => Effect.flatMap(Documents, (documents) => documents.open(state.documentId)),
+  retry: { name: "retry with terminal error", schedule: retrySchedule },
+  onSuccess: {
+    target: "Editing",
+    reduce: ({ state, value }) => ({
+      _tag: "Editing",
+      documentId: state.documentId,
+      text: value,
+      dirty: false,
+    }),
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ state, error }) => ({
+      _tag: "Failed",
+      documentId: state.documentId,
+      message: error.message,
+    }),
+  },
+})
+
+class OutcomeEncoding extends Context.Service<OutcomeEncoding, Readonly<Record<never, never>>>()(
+  "prototype/OutcomeEncoding",
+) {}
+const ServiceEncodedString = Schema.String as Schema.Codec<string, string, never, OutcomeEncoding>
+const schemaRequirementNode = document.invoke("Opening", {
+  name: "schema service requirements",
+  success: ServiceEncodedString,
+  error: Schema.Never,
+  effect: () => Effect.succeed("encoded"),
+  onSuccess: {
+    target: "Editing",
+    reduce: ({ state, value }) => ({
+      _tag: "Editing",
+      documentId: state.documentId,
+      text: value,
+      dirty: false,
+    }),
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ state }) => ({
+      _tag: "Failed",
+      documentId: state.documentId,
+      message: "impossible",
+    }),
+  },
+})
+
+const schemaRequirementDefinition = document.make({
+  id: "schema-requirements",
+  initial: (input) => ({ _tag: "Opening", documentId: input.documentId }),
+  nodes: [schemaRequirementNode],
+})
+
 export const documentDefinition = document.make({
   id: "document-session",
   description: "Keeps one document session understandable in code and as a graph.",
@@ -274,6 +429,8 @@ export const documentDefinition = document.make({
     document.invoke("Opening", {
       name: "Documents.open",
       description: "Load the selected document through the provided Documents service.",
+      success: Schema.String,
+      error: DocumentUnavailable,
       effect: (state) => Effect.flatMap(Documents, (documents) => documents.open(state.documentId)),
       retry: {
         name: "retry transient open failures",
@@ -345,6 +502,8 @@ export const documentDefinition = document.make({
     document.invoke("Saving", {
       name: "Documents.save",
       description: "Persist the current contents through the provided Documents service.",
+      success: Schema.Void,
+      error: DocumentUnavailable,
       effect: (state) =>
         Effect.flatMap(Documents, (documents) => documents.save(state.documentId, state.text)),
       onSuccess: {
@@ -409,6 +568,23 @@ type CompletionIsFinalState = Assert<
 type RequirementsIncludeDocuments = Assert<
   Equal<MachineRequirements<typeof documentDefinition>, Documents | ConflictPolicy>
 >
+type AggregateRequirementsAreExact = Assert<
+  Equal<
+    MachineRequirements<
+      ReturnType<typeof document.make<readonly [typeof aggregateNode, typeof raceNode]>>
+    >,
+    Documents
+  >
+>
+type RetryRequirementsIncludeSchedule = Assert<
+  Equal<
+    MachineRequirements<ReturnType<typeof document.make<readonly [typeof retryNode]>>>,
+    Documents | ConflictPolicy
+  >
+>
+type SchemaEncodingRequirementsAreIncluded = Assert<
+  Equal<MachineRequirements<typeof schemaRequirementDefinition>, OutcomeEncoding>
+>
 
 type InspectionIsOnTheHandle = Assert<
   Equal<MachineHandle<typeof documentDefinition>["inspection"], Stream.Stream<InspectionEvent>>
@@ -416,4 +592,7 @@ type InspectionIsOnTheHandle = Assert<
 
 void (null as unknown as CompletionIsFinalState)
 void (null as unknown as RequirementsIncludeDocuments)
+void (null as unknown as AggregateRequirementsAreExact)
+void (null as unknown as RetryRequirementsIncludeSchedule)
+void (null as unknown as SchemaEncodingRequirementsAreIncluded)
 void (null as unknown as InspectionIsOnTheHandle)

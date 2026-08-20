@@ -21,6 +21,7 @@ const counter = Machine.builder({ input: CounterInput, state: CounterState, even
 export const counterDefinition = counter.define(
   {
     id: "counter",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A minimal serialized counter protocol.",
     initial: (input) => ({ _tag: "Active", count: input.count }),
   },

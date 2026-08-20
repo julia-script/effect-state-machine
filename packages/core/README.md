@@ -19,8 +19,12 @@ pnpm add effect-state-machine effect
 ## Quick start
 
 ```ts
-import { Context, Effect, Layer, Schema } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,
@@ -44,11 +48,14 @@ const greeting = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = greeting.define(
   {
     id: "greeting",
+    idempotencyKey: (input) => input.name,
     initial: (input) => ({ _tag: "Loading", name: input.name }),
   },
   {
     Loading: greeting.invoke({
       name: "Greeter.greet",
+      success: Schema.String,
+      error: GreetFailed,
       effect: (state) => Effect.flatMap(Greeter, ({ greet }) => greet(state.name)),
       onSuccess: { target: "Done", reduce: ({ value }) => ({ message: value }) },
       onFailure: { target: "Failed", reduce: ({ error }) => ({ message: error.message }) },
@@ -65,24 +72,69 @@ const GreeterLive = Layer.succeed(
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const machine = yield* Machine.run(definition, { name: "Effect" })
+    const machine = yield* definition.run({ name: "Effect" })
     return yield* machine.completion
   }),
-).pipe(Effect.provide(GreeterLive))
+).pipe(Effect.provide(GreeterLive), Effect.provide(MachineEngine.layerMemory()))
 
 const result = await Effect.runPromise(program)
 ```
 
-`Machine.run` infers `Greeter` from the definition; any test, server, or browser application can
+`definition.run` infers `Greeter` from the definition; any test, server, or browser application can
 provide a different Layer without changing the machine. The handle exposes `snapshot`, `changes`,
 `send`, `can`, `completion`, and a metadata-only `inspection` stream.
+
+## Restart-capable execution
+
+Every definition runs through `MachineEngine`. The definition derives its stable identity from its
+own `id` and `idempotencyKey`; the supplied `MachineStore` owns the complete revisioned aggregate:
+
+```ts
+import * as Effect from "effect/Effect"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
+
+const handle = yield* definition.run({ name: "Ada" }).pipe(
+  Effect.provide(MachineEngine.layerMemory()),
+)
+
+yield* handle.send({ _tag: "Cancel" }, { idempotencyKey: "cancel-request-42" })
+```
+
+An `after` duration is resolved once on entry and stored with an absolute deadline from the store's
+clock. If the process stops 30 seconds into a 60-second timer, resumption waits the remaining 30
+seconds; if it resumes after the deadline, the overdue timer is immediately eligible ahead of
+newer events. Stay updates preserve the entry and deadline, while explicit self-transitions create
+a new entry and timer.
+
+Invoked work is delivered at least once until its encoded outcome is committed. Every invocation
+receives a required `WorkExecution`; pass `execution.id` to Effect Workflow, an external task queue, or your
+own idempotency table when the side effect itself must be durable:
+
+```ts
+effect: (state, execution) =>
+  ExternalTasks.submit({
+    idempotencyKey: execution.id,
+    payload: state.request,
+  })
+```
+
+The library makes the activity command and outcome durable, but cannot promise exactly-once
+external side effects. Operational `Effect.Schedule` retry progress may restart after process loss;
+the execution key does not change. Scope closure, owner exit, and lease loss interrupt local work
+without encoding interruption as an authored failure or durable defect, leaving an uncommitted
+command eligible for fenced redelivery.
+
+Production adapters implement the minimal `MachineStore` load/time/compare-and-set contract and
+run `MachineStoreConformance`. Queueing, claims, timers, fencing, activities, migrations, and child
+machines remain engine behavior and are covered by `MachineEngineConformance`.
 
 ## Read-only graph
 
 Tooling is an opt-in entry point, not loaded by the core import:
 
 ```ts
-import { Graph, Mermaid } from "effect-state-machine/devtools"
+import * as Graph from "effect-state-machine/Graph"
+import * as Mermaid from "effect-state-machine/Mermaid"
 
 const graph = Graph.fromDefinition(definition)
 const mermaid = Mermaid.render(graph)

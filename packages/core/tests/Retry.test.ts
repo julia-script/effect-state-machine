@@ -1,17 +1,16 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { TestClock } from "effect/testing"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
-class TransientFailure extends Data.TaggedError("TransientFailure")<{
-  readonly attempt: number
-}> {}
+class TransientFailure extends Schema.TaggedError<TransientFailure>()("TransientFailure", {
+  attempt: Schema.Number,
+}) {}
 
 const Input = Schema.Void
 const Attempting = Schema.TaggedStruct("Attempting", {})
@@ -41,11 +40,17 @@ const makeOperationalDefinition = (options: {
 }) => {
   const machine = Machine.builder({ input: Input, state: State, event: Event })
   return machine.define(
-    { id: options.id, initial: () => ({ _tag: "Attempting" }) },
+    {
+      id: options.id,
+      initial: () => ({ _tag: "Attempting" }),
+      idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+    },
     {
       Attempting: machine.invoke(
         {
           name: "unstable-operation",
+          success: Schema.Number,
+          error: TransientFailure,
           effect: () =>
             Ref.updateAndGet(options.attempts, (attempt) => attempt + 1).pipe(
               Effect.flatMap((attempt) =>
@@ -96,7 +101,7 @@ describe("invocation retry", () => {
         schedule: Schedule.recurs(2),
       })
 
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Succeeded", attempts: 3 })
 
       const retryEvents = yield* Stream.runCollect(
@@ -125,7 +130,7 @@ describe("invocation retry", () => {
         schedule: Schedule.recurs(2),
       })
 
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Failed", attempts: 3 })
       assert.strictEqual(yield* Ref.get(attempts), 3)
     }),
@@ -140,7 +145,7 @@ describe("invocation retry", () => {
         succeedAt: 2,
         schedule: Schedule.recurs(1).pipe(Schedule.addDelay(() => Effect.succeed("1 hour"))),
       })
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
 
       const scheduled = yield* Stream.runHead(
         handle.inspection.pipe(Stream.filter((event) => event._tag === "InvocationRetryScheduled")),
@@ -151,9 +156,8 @@ describe("invocation retry", () => {
       }
 
       yield* handle.send({ _tag: "Cancel" })
-      yield* TestClock.adjust("2 hours")
-
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Cancelled" })
+      yield* Effect.yieldNow
       assert.strictEqual(yield* Ref.get(attempts), 1)
     }),
   )
@@ -185,10 +189,16 @@ describe("invocation retry", () => {
         event: ModeledEvent,
       })
       const definition = machine.define(
-        { id: "modeled-retry", initial: () => ({ _tag: "ModeledAttempting", attempt: 1 }) },
+        {
+          id: "modeled-retry",
+          initial: () => ({ _tag: "ModeledAttempting", attempt: 1 }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           ModeledAttempting: machine.invoke({
             name: "save-attempt",
+            success: Schema.Number,
+            error: TransientFailure,
             effect: (state) =>
               state.attempt < 2
                 ? Effect.fail(new TransientFailure({ attempt: state.attempt }))
@@ -215,7 +225,7 @@ describe("invocation retry", () => {
         },
       )
 
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       const waiting = yield* Stream.runHead(
         handle.changes.pipe(Stream.filter((state) => state._tag === "ModeledWaiting")),
       )

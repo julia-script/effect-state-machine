@@ -69,6 +69,7 @@ Place the child node beside every target node referenced by `onComplete` or `on`
 const definition = document.define(
   {
     id: "document-session",
+    idempotencyKey: ({ documentId }) => documentId,
     initial: ({ documentId }) => ({ _tag: "Resolving", documentId }),
   },
   {

@@ -11,7 +11,8 @@ import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as HttpServer from "effect/unstable/http/HttpServer"
-import { Machine } from "effect-state-machine"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import * as Server from "../src/server/Server.js"
 
 const Input = Schema.Struct({})
@@ -28,6 +29,7 @@ const runner = Machine.builder({ input: Input, state: State, event: Event })
 const definition = runner.define(
   {
     id: "server-test",
+    idempotencyKey: () => "server",
     initial: () => ({ _tag: "Idle" }),
   },
   {
@@ -207,7 +209,7 @@ describe("Server", () => {
       Effect.gen(function* () {
         const { appUrl, viewerUrl } = yield* startServer
 
-        const handleA = yield* Machine.run(definition, {})
+        const handleA = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         const attachedA = yield* Attach.attach({
           definition,
           handle: handleA,
@@ -220,7 +222,7 @@ describe("Server", () => {
         )
         yield* handleA.send({ _tag: "Start", speed: 7 })
 
-        const handleB = yield* Machine.run(definition, {})
+        const handleB = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({ definition, handle: handleB, appName: "app-b" }).pipe(
           Effect.provideService(
             Transport.StudioTransport,
@@ -385,7 +387,7 @@ describe("Server", () => {
         }
 
         // The same connection can still announce a supported session.
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({ definition, handle, appName: "healthy" }).pipe(
           Effect.provideService(
             Transport.StudioTransport,

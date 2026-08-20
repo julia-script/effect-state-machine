@@ -7,8 +7,9 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import * as Stream from "effect/Stream"
 import type * as Machine from "effect-state-machine/Machine"
-import * as MachineRuntime from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import type * as Card from "../game/Card.js"
 import * as Match from "../game/Match.js"
 import { definition } from "../game/MatchMachine.js"
@@ -24,6 +25,23 @@ type Handle = Machine.MachineHandle<
   Match.Event,
   Extract<Match.State, { readonly _tag: "Finished" }>
 >
+
+const infallibleHandle = <Error>(
+  handle: Machine.MachineHandle<
+    Match.State,
+    Match.Event,
+    Extract<Match.State, { readonly _tag: "Finished" }>,
+    Error
+  >,
+): Handle => ({
+  ...handle,
+  snapshot: handle.snapshot.pipe(Effect.orDie),
+  changes: handle.changes.pipe(Stream.orDie),
+  completion: handle.completion.pipe(Effect.orDie),
+  send: (event, options) => handle.send(event, options).pipe(Effect.orDie),
+  can: (event) => handle.can(event).pipe(Effect.orDie),
+  status: handle.status.pipe(Effect.orDie),
+})
 
 export interface AccountOwner {
   readonly _tag: "Account"
@@ -183,6 +201,7 @@ export interface Options {
 const make = (options?: Options) =>
   Effect.gen(function* () {
     const storage = yield* Storage
+    const machineEngine = yield* MachineEngine.MachineEngine
     const registryMutex = yield* Semaphore.make(1)
     const entries = new Map<string, Entry>()
     const queue = new Map<string, QueueEntry>()
@@ -327,9 +346,14 @@ const make = (options?: Options) =>
       mode: Identity.MatchMode,
     ) {
       const scope = yield* Scope.make()
-      const handle = yield* MachineRuntime.run(definition, Match.defaultInput(Date.now())).pipe(
-        Effect.provideService(Scope.Scope, scope),
-      )
+      const handle = yield* definition
+        .run(Match.defaultInput(Date.now()))
+        .pipe(
+          Effect.provideService(MachineEngine.MachineEngine, machineEngine),
+          Effect.provideService(Scope.Scope, scope),
+          Effect.orDie,
+          Effect.map(infallibleHandle),
+        )
       const active: ActiveMatch = {
         _tag: "Active",
         matchId: waiting.matchId,
@@ -1146,4 +1170,5 @@ const make = (options?: Options) =>
     })
   })
 
-export const layer = (options?: Options) => Layer.effect(Registry, make(options))
+export const layer = (options?: Options) =>
+  Layer.effect(Registry, make(options)).pipe(Layer.provide(MachineEngine.layerMemory()))

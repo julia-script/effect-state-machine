@@ -30,9 +30,9 @@ const machine = Machine.builder({
   event: Event,
 })
 
-interface WorkFailure {
-  readonly code: "failed"
-}
+class WorkFailure extends Schema.TaggedError<WorkFailure>()("WorkFailure", {
+  code: Schema.Literal("failed"),
+}) {}
 
 class WorkService extends Context.Service<
   WorkService,
@@ -40,7 +40,11 @@ class WorkService extends Context.Service<
 >()("Statechart.types/WorkService") {}
 
 machine.define(
-  { id: "missing-state", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "missing-state",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   // @ts-expect-error The keyed state record is exhaustive.
   {
     A: machine.state({}),
@@ -49,7 +53,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "target-fields", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "target-fields",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({
       // @ts-expect-error A transition must supply every field owned by B.
@@ -61,10 +69,16 @@ machine.define(
 )
 
 const inferred = machine.define(
-  { id: "inferred", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "inferred",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke({
       name: "typed-work",
+      success: Schema.Number,
+      error: WorkFailure,
       effect: (state) => {
         const current: "A" = state._tag
         void current
@@ -83,8 +97,8 @@ const inferred = machine.define(
         target: "C",
         reduce: ({ error }) => {
           const code: "failed" = error.code
-          // @ts-expect-error The typed failure has no message field.
-          error.message
+          // @ts-expect-error The typed failure has no arbitrary payload field.
+          error.payload
           return { value: code }
         },
       },
@@ -112,14 +126,18 @@ const inferred = machine.define(
   },
 )
 
-const dataFirstRun = Machine.run(inferred, { seed: "first" })
-const dataLastRun = Fn.pipe(inferred, Machine.run({ seed: "last" }))
+const dataFirstRun = inferred.run({ seed: "first" })
+const dataLastRun = Fn.pipe(inferred, (definition) => definition.run({ seed: "last" }))
 
 // @ts-expect-error The data-last input must match the definition's input Schema.
-Fn.pipe(inferred, Machine.run({ seed: 1 }))
+inferred.run({ seed: 1 })
 
 machine.define(
-  { id: "missing-region", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "missing-region",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({}),
     B: machine.regions({
@@ -131,7 +149,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "local-region-target", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "local-region-target",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({}),
     B: machine.regions({
@@ -148,11 +170,26 @@ machine.define(
 )
 
 machine.define(
-  { id: "all-product", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "all-product",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke.all({
       name: "join",
-      tasks: { text: () => Effect.succeed("ok"), count: () => Effect.succeed(1) },
+      tasks: {
+        text: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: () => Effect.succeed("ok"),
+        },
+        count: {
+          success: Schema.Number,
+          error: Schema.Never,
+          effect: () => Effect.succeed(1),
+        },
+      },
       onSuccess: {
         target: "C",
         reduce: ({ value }) => {
@@ -171,11 +208,26 @@ machine.define(
 )
 
 machine.define(
-  { id: "race-correlation", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "race-correlation",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke.race({
       name: "race",
-      tasks: { text: () => Effect.succeed("ok"), count: () => Effect.succeed({ count: 1 }) },
+      tasks: {
+        text: {
+          success: Schema.String,
+          error: Schema.Never,
+          effect: () => Effect.succeed("ok"),
+        },
+        count: {
+          success: Schema.Struct({ count: Schema.Number }),
+          error: Schema.Never,
+          effect: () => Effect.succeed({ count: 1 }),
+        },
+      },
       onSuccess: {
         target: "C",
         reduce: ({ winner, value }) => {

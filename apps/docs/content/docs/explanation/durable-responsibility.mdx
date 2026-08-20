@@ -1,0 +1,95 @@
+---
+title: How durable execution divides responsibility
+description: Why machine persistence and durable side-effect execution are separate contracts.
+---
+
+This page is about the boundary between durable state-machine execution and durable side-effect
+execution. It explains ownership, identity, interruption, and timer semantics; it does not describe
+Store adapter implementation or provide a setup recipe.
+
+The two systems solve different recovery problems. `effect-state-machine` coordinates visible
+application state; Effect Workflow coordinates the replay and completion of external work.
+Combining them does not merge their persistence models.
+
+## The machine Store owns orchestration state
+
+`MachineStore` persists the machine's encoded aggregate, serialized mailbox, absolute timer
+deadlines, activity commands and outcomes, leases, fences, and idempotency records. A runner can
+disappear and another runner can reconstruct the active machine state without calling the machine
+initializer again.
+
+The Store does not persist the continuation of an arbitrary Effect. An invocation is a durable
+command whose Effect may run more than once until its encoded terminal outcome commits.
+
+## Effect Workflow owns side-effect progress
+
+A Workflow engine persists Workflow execution state and the encoded results of Workflow
+Activities. During replay, a completed Activity contributes its recorded result instead of
+performing the external effect again.
+
+The Workflow engine does not own the state-machine checkpoint, choose machine transitions, or
+manage machine timer messages. Its completion becomes the typed success or failure of one machine
+invocation.
+
+| Concern | `MachineStore` | `WorkflowEngine` |
+| --- | --- | --- |
+| Machine state and revision | Owns | Does not own |
+| External event ordering | Owns | Does not own |
+| State-owned timer deadline | Owns | Does not own |
+| Machine activity delivery and fencing | Owns | Does not own |
+| Workflow replay | Does not own | Owns |
+| Workflow Activity result | Does not own | Owns |
+| External side-effect idempotency | Supplies a stable execution ID | Records Activity progress; the external API may still require the ID |
+
+## The execution ID joins the contracts
+
+Each active machine entry and invocation lane has a stable `WorkExecution.id`. Lease loss and
+redelivery preserve it; explicit state re-entry creates a new one. `MachineWorkflow.invoke`
+combines that ID with the Workflow name to address one explicit Workflow execution on every
+delivery.
+
+There are three related identities:
+
+1. The event dispatch key prevents one caller retry from becoming two machine events.
+2. The machine work execution ID identifies one state-owned invocation across activity redelivery.
+3. The Workflow engine derives its execution identity from that machine execution ID and records
+   its own Activities beneath it.
+
+Collapsing these into one ad hoc key loses their distinct lifetimes. An event can cause a new state
+entry, and that entry can own several named activity lanes.
+
+An alternative is to have one engine own both orchestration state and every side effect. That can
+be the better choice when the whole application already lives inside one Workflow system. The
+library's separate Store contract is more useful when machine state must remain portable across
+database and queue implementations or when existing external task systems already own work.
+
+## Interruption is not an allowed failure
+
+Allowed Workflow and machine failures are declared with Schemas and route through `onFailure`.
+Defects represent broken assumptions. Interruption represents unfinished work: scope closure,
+owner exit, lease loss, or cancellation must not be encoded as a business failure.
+
+If interruption happens before the machine activity outcome commits, the command remains eligible
+for redelivery with the same execution ID. A durable Workflow engine can then return or continue
+the matching Workflow execution.
+
+## Timers remain machine-owned
+
+A state-machine `after` transition is committed with its owning entry and an absolute deadline
+from Store-authoritative time. Restarting a runner does not recreate that entry, so it cannot reset
+the duration. An overdue message becomes eligible immediately and still passes through the normal
+serialized transition and stale-entry checks.
+
+Use Workflow clocks when waiting is internal to one Workflow. Use machine timers when the wait is a
+visible state with machine events and transitions. Persisting both is valid, but each timer remains
+owned by the system that declares it.
+
+## Exactly once remains an external claim
+
+The combination gives durable coordination and effectively-once accepted machine transitions. It
+does not make an arbitrary external API exactly once. If the API can commit a side effect before a
+worker records its Activity result, the API still needs idempotency or lookup by the supplied key.
+
+Use the [Effect Workflow integration guide](/docs/guides/durable-execution) for the complete wiring
+pattern and the generated [MachineEngine](/docs/reference/api/MachineEngine) and
+[MachineStore](/docs/reference/api/MachineStore) references for execution and persistence contracts.

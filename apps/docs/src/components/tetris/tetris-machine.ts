@@ -298,6 +298,7 @@ const tetris = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = tetris.define(
   {
     id: "tetris",
+    idempotencyKey: ({ seed }) => String(seed),
     description:
       "A complete Tetris game as one machine: gravity as a named timer, inputs as events, lock decisions as named guards.",
     initial: (input) => {

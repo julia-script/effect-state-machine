@@ -12,6 +12,12 @@ export interface Document {
 
 export interface SaveRequest extends Document {}
 
+const DocumentOutcome = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  revision: Schema.Number,
+})
+
 export class OpenFailed extends Schema.TaggedError<OpenFailed>()("OpenFailed", {
   message: Schema.String,
 }) {}
@@ -29,6 +35,7 @@ export class SyncConflict extends Schema.TaggedError<SyncConflict>()("SyncConfli
 }) {}
 
 export type SyncFailure = SyncOffline | SyncConflict
+const SyncError = Schema.Union([SyncOffline, SyncConflict])
 
 export class Documents extends Context.Service<
   Documents,
@@ -86,6 +93,7 @@ const conflict = Machine.builder({
 export const ConflictResolution = conflict.define(
   {
     id: "local-first-conflict-resolution",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "An interactive, state-owned conflict-resolution protocol.",
     initial: (input) => ({
       _tag: "ChoosingResolution",
@@ -229,6 +237,7 @@ const document = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = document.define(
   {
     id: "local-first-document",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A headless single-document local-first editing and synchronization session.",
     initial: (input) => ({ _tag: "Opening", documentId: input.documentId }),
   },
@@ -237,6 +246,8 @@ export const definition = document.define(
       {
         name: "Documents.open",
         description: "Load the local snapshot using the application-provided Documents service.",
+        success: DocumentOutcome,
+        error: OpenFailed,
         effect: (state) => Effect.flatMap(Documents, ({ open }) => open(state.documentId)),
         onSuccess: {
           target: "Editing",
@@ -299,6 +310,8 @@ export const definition = document.define(
       {
         name: "Documents.save",
         description: "Persist the current text locally before any remote synchronization.",
+        success: Schema.Number,
+        error: SaveFailed,
         effect: (state) =>
           Effect.flatMap(Documents, ({ save }) =>
             save({ id: state.documentId, text: state.text, revision: state.revision }),
@@ -374,6 +387,8 @@ export const definition = document.define(
       {
         name: "Synchronizer.sync",
         description: "Push the locally saved revision through the injected remote service.",
+        success: Schema.Number,
+        error: SyncError,
         effect: (state) =>
           Effect.flatMap(Synchronizer, ({ sync }) =>
             sync({ id: state.documentId, text: state.text, revision: state.revision }),

@@ -17,7 +17,7 @@ const Event = Machine.taggedUnion({
 })
 const runner = Machine.builder({ input: Input, state: State, event: Event })
 const definition = runner.define(
-  { id: "protocol-test", initial: () => ({ _tag: "Idle" }) },
+  { id: "protocol-test", idempotencyKey: () => "protocol", initial: () => ({ _tag: "Idle" }) },
   {
     Idle: runner.state({
       Start: {

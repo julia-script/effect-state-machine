@@ -193,7 +193,7 @@ export function BugEmporiumDemo() {
   const [lines, setLines] = React.useState<CartLines>({})
   const [wireText, setWireText] = React.useState(idleWireText)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `run` deliberately disposes the scope and starts a fresh Machine.run for "Run it again"
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `run` deliberately disposes the scope and starts a fresh definition.run for "Run it again"
   React.useEffect(() => {
     const scope = Effect.runSync(Scope.make())
     const nextHandle = Effect.runSync(emporiumStart.pipe(Effect.provideService(Scope.Scope, scope)))

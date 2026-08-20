@@ -18,6 +18,7 @@ const target = (index: number) => tags[(index + size) % size]
 export const definition = large.define(
   {
     id: "large-synthetic-machine",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A deterministic 100-state graph with branching, cycles, and self-transitions.",
     initial: () => ({ _tag: tags[0] }),
   },

@@ -9,6 +9,7 @@ import { TestClock } from "effect/testing"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
 import * as Mermaid from "../src/Mermaid.js"
+import { runMachine } from "./runMachine.js"
 
 const LifecycleState = Schema.TaggedUnion({
   Editing: { count: Schema.Number },
@@ -28,6 +29,7 @@ const lifecycle = Machine.builder({
 const lifecycleDefinition = lifecycle.define(
   {
     id: "entry-lifecycle",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     initial: ({ count }) => ({ _tag: "Editing", count }),
   },
   {
@@ -65,14 +67,18 @@ const WorkEvent = Schema.TaggedUnion({ Abort: {} })
 const work = Machine.builder({ input: Schema.Void, state: WorkState, event: WorkEvent })
 
 const allDefinition = work.define(
-  { id: "all-work", initial: () => ({ _tag: "Joining" }) },
+  {
+    id: "all-work",
+    initial: () => ({ _tag: "Joining" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Joining: work.invoke.all({
       name: "join",
       concurrency: 2,
       tasks: {
-        left: () => Effect.succeed("L"),
-        right: () => Effect.succeed(2),
+        left: { success: Schema.String, error: Schema.Never, effect: () => Effect.succeed("L") },
+        right: { success: Schema.Number, error: Schema.Never, effect: () => Effect.succeed(2) },
       },
       onSuccess: {
         target: "Ready",
@@ -90,14 +96,22 @@ const allDefinition = work.define(
 )
 
 const raceDefinition = work.define(
-  { id: "race-work", initial: () => ({ _tag: "Racing" }) },
+  {
+    id: "race-work",
+    initial: () => ({ _tag: "Racing" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Joining: work.state({}),
     Racing: work.invoke.race({
       name: "first-success",
       tasks: {
-        earlyFailure: () => Effect.fail("not-it"),
-        winner: () => Effect.succeed(42),
+        earlyFailure: {
+          success: Schema.Never,
+          error: Schema.String,
+          effect: () => Effect.fail("not-it"),
+        },
+        winner: { success: Schema.Number, error: Schema.Never, effect: () => Effect.succeed(42) },
       },
       onSuccess: {
         target: "Ready",
@@ -133,6 +147,7 @@ const parallel = Machine.builder({
 const parallelDefinition = parallel.define(
   {
     id: "parallel-regions",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     initial: () => ({
       _tag: "Active",
       left: { _tag: "LeftIdle" },
@@ -192,7 +207,11 @@ const regionTimer = Machine.builder({
   event: RegionTimerEvent,
 })
 const regionTimerDefinition = regionTimer.define(
-  { id: "region-timer", initial: () => ({ _tag: "Active", timer: { _tag: "Waiting", count: 0 } }) },
+  {
+    id: "region-timer",
+    initial: () => ({ _tag: "Active", timer: { _tag: "Waiting", count: 0 } }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Active: regionTimer.regions(
       {
@@ -232,6 +251,7 @@ describe("shallow statechart runtime", () => {
     const inspected = lifecycle.define(
       {
         id: "inspection-is-static",
+        idempotencyKey: (input) => JSON.stringify(input) ?? "default",
         initial: () => {
           callbackCalls += 1
           return { _tag: "Editing", count: 0 }
@@ -240,6 +260,8 @@ describe("shallow statechart runtime", () => {
       {
         Editing: lifecycle.invoke({
           name: "static-work",
+          success: Schema.Void,
+          error: Schema.Never,
           effect: () => {
             callbackCalls += 1
             return Effect.succeed(undefined)
@@ -262,10 +284,16 @@ describe("shallow statechart runtime", () => {
     assert.throws(
       () =>
         lifecycle.define(
-          { id: "blank-name", initial: () => ({ _tag: "Editing", count: 0 }) },
+          {
+            id: "blank-name",
+            initial: () => ({ _tag: "Editing", count: 0 }),
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+          },
           {
             Editing: lifecycle.invoke({
               name: " ",
+              success: Schema.Void,
+              error: Schema.Never,
               effect: () => Effect.succeed(undefined),
               onSuccess: { target: "Done", reduce: () => ({ count: 0 }) },
               onFailure: { target: "Done", reduce: () => ({ count: 0 }) },
@@ -278,12 +306,22 @@ describe("shallow statechart runtime", () => {
     assert.throws(
       () =>
         work.define(
-          { id: "bad-concurrency", initial: () => ({ _tag: "Joining" }) },
+          {
+            id: "bad-concurrency",
+            initial: () => ({ _tag: "Joining" }),
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+          },
           {
             Joining: work.invoke.all({
               name: "join",
               concurrency: 0,
-              tasks: { lane: () => Effect.succeed(undefined) },
+              tasks: {
+                lane: {
+                  success: Schema.Undefined,
+                  error: Schema.Never,
+                  effect: () => Effect.succeed(undefined),
+                },
+              },
               onSuccess: { target: "Ready", reduce: () => ({ summary: "" }) },
               onFailure: { target: "Failed", reduce: () => ({ message: "" }) },
             }),
@@ -297,7 +335,11 @@ describe("shallow statechart runtime", () => {
     assert.throws(
       () =>
         lifecycle.define(
-          { id: "blank-duration-name", initial: () => ({ _tag: "Editing", count: 0 }) },
+          {
+            id: "blank-duration-name",
+            initial: () => ({ _tag: "Editing", count: 0 }),
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+          },
           {
             Editing: lifecycle.state(
               {},
@@ -318,7 +360,7 @@ describe("shallow statechart runtime", () => {
 
   it.effect("commits the declared target tag even when a reducer leaks another tag", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(lifecycleDefinition, { count: 0 })
+      const handle = yield* runMachine(lifecycleDefinition, { count: 0 })
       yield* handle.send({ _tag: "Finish" })
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Done", count: 99 })
     }),
@@ -326,13 +368,13 @@ describe("shallow statechart runtime", () => {
 
   it.effect("keeps a timer through stay and restarts it on explicit self-target", () =>
     Effect.gen(function* () {
-      const stay = yield* Machine.run(lifecycleDefinition, { count: 0 })
+      const stay = yield* runMachine(lifecycleDefinition, { count: 0 })
       yield* TestClock.adjust("500 millis")
       yield* stay.send({ _tag: "Stay" })
       yield* TestClock.adjust("500 millis")
       assert.deepStrictEqual(yield* stay.completion, { _tag: "Done", count: 1 })
 
-      const restart = yield* Machine.run(lifecycleDefinition, { count: 0 })
+      const restart = yield* runMachine(lifecycleDefinition, { count: 0 })
       yield* TestClock.adjust("500 millis")
       yield* restart.send({ _tag: "Restart" })
       yield* TestClock.adjust("500 millis")
@@ -346,7 +388,11 @@ describe("shallow statechart runtime", () => {
     Effect.gen(function* () {
       const computedFrom: Array<number> = []
       const definition = lifecycle.define(
-        { id: "dynamic-guarded-after", initial: () => ({ _tag: "Editing", count: 0 }) },
+        {
+          id: "dynamic-guarded-after",
+          initial: () => ({ _tag: "Editing", count: 0 }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           Editing: lifecycle.state(
             {
@@ -399,7 +445,7 @@ describe("shallow statechart runtime", () => {
       )
       assert.match(Mermaid.render(graph), /@after "editing-deadline" \[1: edited\]/)
 
-      const handle = yield* Machine.run(definition, { count: 0 })
+      const handle = yield* runMachine(definition, { count: 0 })
       yield* TestClock.adjust("500 millis")
       yield* handle.send({ _tag: "Stay" })
       yield* TestClock.adjust("500 millis")
@@ -427,7 +473,7 @@ describe("shallow statechart runtime", () => {
           targetStateTag: "Done",
           eventTag: "@after",
           ownerPath: "Editing",
-          macrostep: 0,
+          macrostep: 2,
           branch: { kind: "guard", index: 0, name: "edited" },
         },
       )
@@ -438,11 +484,17 @@ describe("shallow statechart runtime", () => {
     Effect.gen(function* () {
       const result = yield* Deferred.make<number>()
       const definition = lifecycle.define(
-        { id: "stay-preserves-work", initial: () => ({ _tag: "Editing", count: 0 }) },
+        {
+          id: "stay-preserves-work",
+          initial: () => ({ _tag: "Editing", count: 0 }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           Editing: lifecycle.invoke(
             {
               name: "pending",
+              success: Schema.Number,
+              error: Schema.Never,
               effect: () => Deferred.await(result),
               onSuccess: {
                 target: "Done",
@@ -455,7 +507,7 @@ describe("shallow statechart runtime", () => {
           Done: lifecycle.final(),
         },
       )
-      const handle = yield* Machine.run(definition, { count: 0 })
+      const handle = yield* runMachine(definition, { count: 0 })
       yield* handle.send({ _tag: "Stay" })
       yield* Deferred.succeed(result, 2)
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Done", count: 3 })
@@ -467,11 +519,17 @@ describe("shallow statechart runtime", () => {
       const interrupted = yield* Deferred.make<void>()
       const pending = yield* Deferred.make<number>()
       const definition = lifecycle.define(
-        { id: "invoke-timeout", initial: () => ({ _tag: "Editing", count: 4 }) },
+        {
+          id: "invoke-timeout",
+          initial: () => ({ _tag: "Editing", count: 4 }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           Editing: lifecycle.invoke(
             {
               name: "slow-work",
+              success: Schema.Number,
+              error: Schema.Never,
               effect: () =>
                 Deferred.await(pending).pipe(
                   Effect.onInterrupt(() =>
@@ -493,7 +551,7 @@ describe("shallow statechart runtime", () => {
           Done: lifecycle.final(),
         },
       )
-      const handle = yield* Machine.run(definition, { count: 0 })
+      const handle = yield* runMachine(definition, { count: 0 })
       yield* TestClock.adjust("1 second")
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Done", count: 4 })
       yield* Deferred.await(interrupted)
@@ -502,7 +560,7 @@ describe("shallow statechart runtime", () => {
 
   it.effect("records timer ownership and cancellation across entry changes", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(lifecycleDefinition, { count: 0 })
+      const handle = yield* runMachine(lifecycleDefinition, { count: 0 })
       yield* TestClock.adjust("500 millis")
       yield* handle.send({ _tag: "Restart" })
       yield* TestClock.adjust("1 second")
@@ -527,13 +585,13 @@ describe("shallow statechart runtime", () => {
 
   it.effect("owns timers per region entry, preserving stay and restarting self-targets", () =>
     Effect.gen(function* () {
-      const stayed = yield* Machine.run(regionTimerDefinition, undefined)
+      const stayed = yield* runMachine(regionTimerDefinition, undefined)
       yield* TestClock.adjust("500 millis")
       yield* stayed.send({ _tag: "Stay" })
       yield* TestClock.adjust("500 millis")
       assert.deepStrictEqual(yield* stayed.completion, { _tag: "Completed", count: 1 })
 
-      const restarted = yield* Machine.run(regionTimerDefinition, undefined)
+      const restarted = yield* runMachine(regionTimerDefinition, undefined)
       yield* TestClock.adjust("500 millis")
       yield* restarted.send({ _tag: "Restart" })
       yield* TestClock.adjust("500 millis")
@@ -549,6 +607,7 @@ describe("shallow statechart runtime", () => {
       const definition = regionTimer.define(
         {
           id: "guarded-region-timer",
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
           initial: () => ({ _tag: "Active", timer: { _tag: "Waiting", count: 0 } }),
         },
         {
@@ -611,7 +670,7 @@ describe("shallow statechart runtime", () => {
           { kind: "otherwise", index: 1 },
         ],
       )
-      const handle = yield* Machine.run(definition, undefined)
+      const handle = yield* runMachine(definition, undefined)
       yield* TestClock.adjust("500 millis")
       yield* handle.send({ _tag: "Stay" })
       yield* TestClock.adjust("500 millis")
@@ -636,6 +695,7 @@ describe("shallow statechart runtime", () => {
       const stable = regionTimer.define(
         {
           id: "stable-completed-regions",
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
           initial: () => ({ _tag: "Active", timer: { _tag: "SlotDone", count: 1 } }),
         },
         {
@@ -648,7 +708,7 @@ describe("shallow statechart runtime", () => {
           Completed: regionTimer.final(),
         },
       )
-      const handle = yield* Machine.run(stable, undefined)
+      const handle = yield* runMachine(stable, undefined)
       yield* Effect.yieldNow
       assert.deepStrictEqual(yield* handle.snapshot, {
         _tag: "Active",
@@ -671,6 +731,7 @@ describe("shallow statechart runtime", () => {
       const retried = parent.define(
         {
           id: "region-retry",
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
           initial: () => ({ _tag: "Active", base: 40, job: { _tag: "Loading" } }),
         },
         {
@@ -679,6 +740,8 @@ describe("shallow statechart runtime", () => {
               job: {
                 Loading: parent.region.invoke({
                   name: "load",
+                  success: Schema.Number,
+                  error: Schema.String,
                   effect: (_slot, owner): Effect.Effect<number, string> =>
                     Ref.updateAndGet(attempts, (value) => value + 1).pipe(
                       Effect.flatMap((attempt) =>
@@ -706,15 +769,17 @@ describe("shallow statechart runtime", () => {
           Cancelled: parent.final(),
         },
       )
-      const completed = yield* Machine.run(retried, undefined)
+      const completed = yield* runMachine(retried, undefined)
       assert.deepStrictEqual(yield* completed.completion, { _tag: "Complete", value: 42 })
       assert.strictEqual(yield* Ref.get(attempts), 2)
 
       const interrupted = yield* Deferred.make<void>()
+      const started = yield* Deferred.make<void>()
       const pendingResult = yield* Deferred.make<number>()
       const pending = parent.define(
         {
           id: "region-parent-exit",
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
           initial: () => ({ _tag: "Active", base: 0, job: { _tag: "Loading" } }),
         },
         {
@@ -723,8 +788,11 @@ describe("shallow statechart runtime", () => {
               job: {
                 Loading: parent.region.invoke({
                   name: "pending",
+                  success: Schema.Number,
+                  error: Schema.Never,
                   effect: () =>
-                    Deferred.await(pendingResult).pipe(
+                    Deferred.succeed(started, undefined).pipe(
+                      Effect.andThen(Deferred.await(pendingResult)),
                       Effect.onInterrupt(() =>
                         Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
                       ),
@@ -741,7 +809,8 @@ describe("shallow statechart runtime", () => {
           Cancelled: parent.final(),
         },
       )
-      const cancelled = yield* Machine.run(pending, undefined)
+      const cancelled = yield* runMachine(pending, undefined)
+      yield* Deferred.await(started)
       yield* cancelled.send({ _tag: "Cancel" })
       assert.strictEqual((yield* cancelled.completion)._tag, "Cancelled")
       yield* Deferred.await(interrupted)
@@ -750,10 +819,10 @@ describe("shallow statechart runtime", () => {
 
   it.effect("joins all named lanes and races for the first success", () =>
     Effect.gen(function* () {
-      const joined = yield* Machine.run(allDefinition, undefined)
+      const joined = yield* runMachine(allDefinition, undefined)
       assert.deepStrictEqual(yield* joined.completion, { _tag: "Ready", summary: "L2" })
 
-      const raced = yield* Machine.run(raceDefinition, undefined)
+      const raced = yield* runMachine(raceDefinition, undefined)
       assert.deepStrictEqual(yield* raced.completion, {
         _tag: "Ready",
         summary: "winner:42",
@@ -763,7 +832,7 @@ describe("shallow statechart runtime", () => {
 
   it.effect("commits sibling region transitions atomically and completes after all are final", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(parallelDefinition, undefined)
+      const handle = yield* runMachine(parallelDefinition, undefined)
       yield* handle.send({ _tag: "Step" })
       assert.deepStrictEqual(yield* handle.completion, {
         _tag: "Finished",
@@ -797,7 +866,7 @@ describe("shallow statechart runtime", () => {
       )
       assert.deepStrictEqual(
         regionSelections.map(({ ownerPath }) => ownerPath),
-        ["Active/left", "Active/right"],
+        ["Active/left/LeftIdle", "Active/right/RightIdle"],
       )
       assert.strictEqual(regionSelections[0]?.macrostep, regionSelections[1]?.macrostep)
     }),
@@ -805,11 +874,11 @@ describe("shallow statechart runtime", () => {
 
   it.effect("lets child ignore suppress the parent and otherwise falls back to the parent", () =>
     Effect.gen(function* () {
-      const ignored = yield* Machine.run(parallelDefinition, undefined)
+      const ignored = yield* runMachine(parallelDefinition, undefined)
       yield* ignored.send({ _tag: "Outer" })
       assert.strictEqual((yield* ignored.snapshot)._tag, "Active")
 
-      const fallback = yield* Machine.run(parallelDefinition, undefined)
+      const fallback = yield* runMachine(parallelDefinition, undefined)
       yield* fallback.send({ _tag: "Stop" })
       assert.deepStrictEqual(yield* fallback.completion, {
         _tag: "Finished",
@@ -856,6 +925,12 @@ describe("shallow statechart runtime", () => {
       kind: "all",
       lanes: ["left", "right"],
       concurrency: 2,
+      outcomes: {
+        lanes: {
+          left: { success: { kind: "String" }, error: { kind: "Never" } },
+          right: { success: { kind: "Number" }, error: { kind: "Never" } },
+        },
+      },
     })
     assert.match(Mermaid.render(parallelGraph), /Active\/left\/LeftIdle/)
   })
@@ -864,18 +939,30 @@ describe("shallow statechart runtime", () => {
     Effect.gen(function* () {
       const interrupted = yield* Deferred.make<void>()
       const failing = work.define(
-        { id: "all-failure", initial: () => ({ _tag: "Joining" }) },
+        {
+          id: "all-failure",
+          initial: () => ({ _tag: "Joining" }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           Joining: work.invoke.all({
             name: "failure",
             tasks: {
-              fail: () => Effect.yieldNow.pipe(Effect.andThen(Effect.fail("boom"))),
-              pending: () =>
-                Effect.never.pipe(
-                  Effect.onInterrupt(() =>
-                    Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
+              fail: {
+                success: Schema.Never,
+                error: Schema.String,
+                effect: () => Effect.yieldNow.pipe(Effect.andThen(Effect.fail("boom"))),
+              },
+              pending: {
+                success: Schema.Never,
+                error: Schema.Never,
+                effect: () =>
+                  Effect.never.pipe(
+                    Effect.onInterrupt(() =>
+                      Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
+                    ),
                   ),
-                ),
+              },
             },
             onSuccess: { target: "Ready", reduce: () => ({ summary: "impossible" }) },
             onFailure: { target: "Failed", reduce: ({ error }) => ({ message: String(error) }) },
@@ -885,7 +972,7 @@ describe("shallow statechart runtime", () => {
           Failed: work.final(),
         },
       )
-      const handle = yield* Machine.run(failing, undefined)
+      const handle = yield* runMachine(failing, undefined)
       assert.deepStrictEqual(yield* handle.completion, { _tag: "Failed", message: "boom" })
       yield* Deferred.await(interrupted)
     }),
@@ -905,15 +992,19 @@ describe("shallow statechart runtime", () => {
           Effect.ensuring(Ref.update(active, (count) => count - 1)),
         )
       const limited = work.define(
-        { id: "all-concurrency", initial: () => ({ _tag: "Joining" }) },
+        {
+          id: "all-concurrency",
+          initial: () => ({ _tag: "Joining" }),
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+        },
         {
           Joining: work.invoke.all({
             name: "limited",
             concurrency: 2,
             tasks: {
-              first: () => lane(first),
-              second: () => lane(second),
-              third: () => lane(third),
+              first: { success: Schema.String, error: Schema.Never, effect: () => lane(first) },
+              second: { success: Schema.Number, error: Schema.Never, effect: () => lane(second) },
+              third: { success: Schema.Boolean, error: Schema.Never, effect: () => lane(third) },
             },
             onSuccess: {
               target: "Ready",
@@ -928,7 +1019,7 @@ describe("shallow statechart runtime", () => {
           Failed: work.final(),
         },
       )
-      const handle = yield* Machine.run(limited, undefined)
+      const handle = yield* runMachine(limited, undefined)
       yield* Effect.yieldNow
       assert.strictEqual(yield* Ref.get(active), 2)
       yield* Deferred.succeed(first, "one")
@@ -949,20 +1040,36 @@ describe("shallow statechart runtime", () => {
       Effect.gen(function* () {
         const loserInterrupted = yield* Deferred.make<void>()
         const raced = work.define(
-          { id: "race-cancellation", initial: () => ({ _tag: "Racing" }) },
+          {
+            id: "race-cancellation",
+            initial: () => ({ _tag: "Racing" }),
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+          },
           {
             Joining: work.state({}),
             Racing: work.invoke.race({
               name: "race",
               tasks: {
-                failed: () => Effect.fail("early"),
-                winner: () => Effect.yieldNow.pipe(Effect.as(7)),
-                loser: () =>
-                  Effect.never.pipe(
-                    Effect.onInterrupt(() =>
-                      Deferred.succeed(loserInterrupted, undefined).pipe(Effect.asVoid),
+                failed: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("early"),
+                },
+                winner: {
+                  success: Schema.Number,
+                  error: Schema.Never,
+                  effect: () => Effect.yieldNow.pipe(Effect.as(7)),
+                },
+                loser: {
+                  success: Schema.Never,
+                  error: Schema.Never,
+                  effect: () =>
+                    Effect.never.pipe(
+                      Effect.onInterrupt(() =>
+                        Deferred.succeed(loserInterrupted, undefined).pipe(Effect.asVoid),
+                      ),
                     ),
-                  ),
+                },
               },
               onSuccess: {
                 target: "Ready",
@@ -974,17 +1081,32 @@ describe("shallow statechart runtime", () => {
             Failed: work.final(),
           },
         )
-        const winner = yield* Machine.run(raced, undefined)
+        const winner = yield* runMachine(raced, undefined)
         assert.deepStrictEqual(yield* winner.completion, { _tag: "Ready", summary: "winner:7" })
         yield* Deferred.await(loserInterrupted)
 
         const failed = work.define(
-          { id: "race-all-failed", initial: () => ({ _tag: "Racing" }) },
+          {
+            id: "race-all-failed",
+            initial: () => ({ _tag: "Racing" }),
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+          },
           {
             Joining: work.state({}),
             Racing: work.invoke.race({
               name: "race",
-              tasks: { first: () => Effect.fail("one"), last: () => Effect.fail("two") },
+              tasks: {
+                first: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("one"),
+                },
+                last: {
+                  success: Schema.Never,
+                  error: Schema.String,
+                  effect: () => Effect.fail("two"),
+                },
+              },
               onSuccess: { target: "Ready", reduce: () => ({ summary: "impossible" }) },
               onFailure: { target: "Failed", reduce: ({ error }) => ({ message: String(error) }) },
             }),
@@ -992,7 +1114,7 @@ describe("shallow statechart runtime", () => {
             Failed: work.final(),
           },
         )
-        const allFailed = yield* Machine.run(failed, undefined)
+        const allFailed = yield* runMachine(failed, undefined)
         assert.strictEqual((yield* allFailed.completion)._tag, "Failed")
       }),
   )

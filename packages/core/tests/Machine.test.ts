@@ -1,12 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
-import * as Fn from "effect/Function"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
 const CounterInput = Schema.Struct({ count: Schema.Number })
 
@@ -49,6 +48,7 @@ const counter = Machine.builder({
 const counterDefinition = counter.define(
   {
     id: "counter",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A minimal serialized counter protocol.",
     initial: (input) => ({ _tag: "Active", count: input.count }),
   },
@@ -79,7 +79,7 @@ const counterDefinition = counter.define(
 describe("Machine", () => {
   it.effect("runs a Schema-first machine through an Effect-only handle", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(counterDefinition, { count: 1 })
+      const handle = yield* runMachine(counterDefinition, { count: 1 })
       const changesFiber = yield* Effect.forkChild(
         Stream.runCollect(Stream.take(handle.changes, 3)),
       )
@@ -103,7 +103,7 @@ describe("Machine", () => {
 
   it.effect("runs in data-last style", () =>
     Effect.gen(function* () {
-      const handle = yield* Fn.pipe(counterDefinition, Machine.run({ count: 2 }))
+      const handle = yield* runMachine(counterDefinition, { count: 2 })
 
       yield* handle.send({ _tag: "Increment", amount: 3 })
       assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Active", count: 5 })
@@ -112,7 +112,7 @@ describe("Machine", () => {
 
   it.effect("replays one ordered actor-tree journal for a root-only machine", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(counterDefinition, { count: 1 })
+      const handle = yield* runMachine(counterDefinition, { count: 1 })
 
       yield* handle.send({ _tag: "Increment", amount: 2 })
       const records = yield* Stream.runCollect(Stream.take(handle.tree.records, 7))
@@ -149,17 +149,21 @@ describe("Machine", () => {
 
   it.effect("terminates on a known event rejected by the live state", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(counterDefinition, { count: 1 })
-      const exit = yield* Effect.exit(handle.send({ _tag: "Resume" }))
+      const handle = yield* runMachine(counterDefinition, { count: 1 })
+      const error = yield* Effect.flip(handle.send({ _tag: "Resume" }))
+      assert.strictEqual(error._tag, "MachineInstanceDefect")
+      if (error._tag !== "MachineInstanceDefect") return
+      assert.strictEqual(String(error.instanceId), String(handle.instanceId))
+      assert.deepStrictEqual(error.defect, {
+        category: "protocol",
+        name: "Error",
+        message: "machine counter does not accept Resume in Active",
+      })
 
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(Cause.hasDies(exit.cause), true)
-        assert.strictEqual(Cause.squash(exit.cause) instanceof Machine.ProtocolDefect, true)
-      }
-
-      const afterTermination = yield* Effect.exit(handle.send({ _tag: "Increment", amount: 1 }))
-      assert.strictEqual(Exit.isFailure(afterTermination), true)
+      const afterTermination = yield* Effect.flip(handle.send({ _tag: "Increment", amount: 1 }))
+      assert.strictEqual(afterTermination._tag, "CompletedInstance")
+      if (afterTermination._tag !== "CompletedInstance") return
+      assert.strictEqual(String(afterTermination.instanceId), String(handle.instanceId))
     }),
   )
 
@@ -167,6 +171,7 @@ describe("Machine", () => {
     const invalidDefinition = counter.define(
       {
         id: "invalid-initial",
+        idempotencyKey: (input) => JSON.stringify(input) ?? "default",
         initial: () =>
           ({ _tag: "Missing", count: 0 }) as unknown as { _tag: "Active"; count: number },
       },
@@ -177,15 +182,14 @@ describe("Machine", () => {
     )
 
     return Effect.gen(function* () {
-      const exit = yield* Effect.exit(Machine.run(invalidDefinition, { count: 0 }))
-
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(
-          Cause.squash(exit.cause) instanceof Machine.MachineDefinitionDefect,
-          true,
-        )
-      }
+      const error = yield* Effect.flip(runMachine(invalidDefinition, { count: 0 }))
+      assert.strictEqual(error._tag, "MachineEncodingError")
+      if (error._tag !== "MachineEncodingError") return
+      assert.strictEqual(error.operation, "initialize")
+      assert.strictEqual(
+        error.message,
+        "machine invalid-initial initialized to missing state Missing",
+      )
     })
   })
 
@@ -195,6 +199,7 @@ describe("Machine", () => {
         counter.define(
           {
             id: "missing-target",
+            idempotencyKey: (input) => JSON.stringify(input) ?? "default",
             initial: (input) => ({ _tag: "Active", count: input.count }),
           },
           {
@@ -213,7 +218,7 @@ describe("Machine", () => {
 
   it.effect("inspects semantic decisions without application payloads", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(counterDefinition, { count: 41 })
+      const handle = yield* runMachine(counterDefinition, { count: 41 })
       const inspectionFiber = yield* Effect.forkChild(
         Stream.runCollect(Stream.take(handle.inspection, 4)),
       )

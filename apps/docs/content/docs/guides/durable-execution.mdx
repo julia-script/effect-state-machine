@@ -1,0 +1,167 @@
+---
+title: Run machine work through Effect Workflow
+description: Compose the machine engine with Effect Workflow without sharing persistence protocols.
+---
+
+This guide connects invoked machine work to Effect Workflow. It assumes you know Effect, Schema,
+Layer, and the basic machine builder.
+
+The integration has two durability boundaries:
+
+- `MachineStore` owns the machine aggregate: state, mailbox, absolute timer deadlines, claims,
+  dispatch records, and encoded work outcomes.
+- `WorkflowEngine` owns Workflow execution and the results of its Activities.
+
+They can share infrastructure dependencies, but they do not share a storage protocol.
+`MachineWorkflow.invoke` joins them with a stable execution ID derived from the machine work
+execution. If a machine worker is redelivered, it observes the same Workflow execution.
+
+## Start from the verified example
+
+The complete example below is compiled with the package and executed by the test suite. Its memory
+layers keep it self-contained; replace both layers with persistent implementations in production.
+
+<include cwd lang="ts" meta='title="packages/core/examples/DurableWorkflow.ts"'>
+  ../../packages/core/examples/DurableWorkflow.ts
+</include>
+
+## Declare the Workflow's allowed error Schema
+
+Use the same Schema for the Workflow, its Activity, and the machine failure reducer:
+
+```ts
+class ChargeFailed extends Schema.TaggedError<ChargeFailed>()("ChargeFailed", {
+  message: Schema.String,
+}) {}
+```
+
+Use a union when the Workflow has several allowed business errors. Do not add defects or
+interruptions to the allowed-error Schema: defects terminate the machine as defects, while an
+interrupted machine worker remains eligible for redelivery.
+
+## Keep side effects inside Workflow Activities
+
+Declare a Workflow in the usual Effect style. Its own `idempotencyKey` remains useful when the
+Workflow is executed directly; the machine integration supplies an explicit execution ID derived
+from machine work identity.
+
+```ts
+const ChargeOrder = Workflow.make("ChargeOrder", {
+  payload: { orderId: Schema.String },
+  success: Schema.String,
+  error: ChargeFailed,
+  idempotencyKey: ({ orderId }) => orderId,
+})
+
+const ChargeOrderLive = ChargeOrder.toLayer(
+  Effect.fnUntraced(function* ({ orderId }) {
+    const payments = yield* Payments
+    return yield* Activity.make({
+      name: "Payments.charge",
+      success: Schema.String,
+      error: ChargeFailed,
+      execute: payments.charge(orderId),
+    })
+  }),
+)
+```
+
+Keep replay-sensitive external calls inside Activities. The Workflow body can run again during
+replay; the Workflow engine records an Activity's encoded result and substitutes it on replay.
+
+## Declare Workflow-backed machine work
+
+Use `MachineWorkflow.invoke` where you would otherwise call `builder.invoke`:
+
+```ts
+Charging: MachineWorkflow.invoke(order, {
+  workflow: ChargeOrder,
+  payload: ({ state }) => ({ orderId: state.orderId }),
+  onSuccess: {
+    target: "Charged",
+    reduce: ({ value }) => ({ receiptId: value }),
+  },
+  onFailure: {
+    target: "Failed",
+    reduce: ({ error }) => ({ message: error.message }),
+  },
+})
+```
+
+The payload, success value, allowed error, and required `WorkflowEngine` service are inferred from
+the Workflow definition. There is no optional metadata branch. Under every machine engine, invoked
+work receives a required `WorkExecution`; the integration uses its stable `id` internally.
+
+## Derive machine identity from logical input
+
+Machine identity belongs to the definition. Choose the smallest stable logical key in the input:
+
+```ts
+const definition = order.define(
+  {
+    id: "workflow-order",
+    idempotencyKey: ({ orderId }) => orderId,
+    version: "1",
+    initial: ({ orderId }) => ({ _tag: "Waiting", orderId }),
+  },
+  states,
+)
+```
+
+`definition.instanceId(input)` combines the definition ID and this key with a versioned,
+collision-safe encoding. The application no longer supplies an instance ID or persistence version
+to each run. Put migrations and version changes on the definition so every runner agrees.
+
+## Provide both engines at the application boundary
+
+Run and resume through the definition, then provide the machine and Workflow layers once around the
+application scope:
+
+```ts
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    const handle = yield* definition.run({ orderId: "42" })
+    yield* handle.send(
+      { _tag: "Start" },
+      { idempotencyKey: "start:order:42" },
+    )
+    return yield* handle.completion
+  }),
+).pipe(
+  Effect.provide(MachineEngine.layerMemory()),
+  Effect.provide(WorkflowLive),
+)
+```
+
+`MachineEngine.layerMemory()` is explicit because memory is still a persistence choice. One Layer
+value owns one volatile database and is shared by every run beneath that provision. For durable
+resumption, compose `MachineEngine.layer()` with a persistent `MachineStore` adapter instead.
+
+The caller-supplied key on `send` identifies one external dispatch. It is separate from both the
+machine instance identity and the work execution identity. Supply it when a caller may retry after
+losing a response; omit it when each call is intentionally a fresh event.
+
+## Timers resume from their original deadline
+
+The example's `Waiting` state owns a 60-second timer. Entry commits both its resolved duration and
+an absolute store-time deadline. If the process stops after 30 seconds, reopening the definition
+waits only the remaining 30 seconds. If the deadline passed while no runner was active, the timer
+is eligible immediately. It neither restarts nor disappears.
+
+## Production checklist
+
+- Run the `MachineStore` primitive conformance corpus against every store adapter.
+- Use persistent implementations for both `MachineStore` and `WorkflowEngine`.
+- Keep machine definition IDs, logical input keys, Workflow names, Activity names, and Schema
+  encodings stable.
+- Supply caller dispatch keys for retry-safe event delivery.
+- Put replay-sensitive effects inside Workflow Activities.
+- Treat `WorkExecution.id` as an idempotency primitive, not a promise that arbitrary external
+  effects run exactly once.
+- Deploy definition migrations before changing persisted state encodings.
+
+For the responsibility boundary, read
+[How durable execution divides responsibility](/docs/explanation/durable-responsibility). For exact
+signatures, use the generated [Machine API](/docs/reference/api/Machine),
+[MachineEngine API](/docs/reference/api/MachineEngine), and
+[MachineStore API](/docs/reference/api/MachineStore).

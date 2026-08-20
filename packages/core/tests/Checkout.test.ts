@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import { Checkout, Orders, PaymentDeclined } from "../examples/Checkout.js"
-import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
 describe("checkout proof", () => {
   it.effect("drives failure, retry, and terminal success through the handle", () =>
@@ -24,7 +24,7 @@ describe("checkout proof", () => {
               ),
           }),
         )
-        const handle = yield* Machine.run(Checkout.definition, {}).pipe(Effect.provide(orders))
+        const handle = yield* runMachine(Checkout.definition, {}).pipe(Effect.provide(orders))
 
         yield* handle.send({ _tag: "AddItem", amount: 2 })
         yield* handle.send({ _tag: "BeginCheckout" })
