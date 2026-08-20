@@ -66,7 +66,9 @@
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json && node scripts/build.mjs",
     "dev": "tsc --noEmit --watch",
-    "check": "pnpm typecheck && pnpm test && pnpm check:api-prototype && pnpm check:package",
+    "check": "pnpm typecheck && pnpm test && pnpm check:quality && pnpm check:boundaries && pnpm check:api-prototype && pnpm check:package",
+    "check:boundaries": "node scripts/check-internal-boundaries.mjs",
+    "check:quality": "biome check . --error-on-warnings",
     "check:api-prototype": "node scripts/check-api-prototype.mjs",
     "check:package": "pnpm build && node scripts/check-package.mjs",
     "graph:reference": "pnpm build",

@@ -4,7 +4,10 @@
  * The types and values in this module exist only to test the proposed authoring
  * surface. They deliberately contain no interpreter.
  */
-import type { Effect, Schedule, Schema, Stream } from "effect"
+import type * as Effect from "effect/Effect"
+import type * as Schedule from "effect/Schedule"
+import type * as Schema from "effect/Schema"
+import type * as Stream from "effect/Stream"
 
 type Tagged = Readonly<{ _tag: string }>
 type TaggedSchema = Schema.Top & Readonly<{ Type: Tagged }>

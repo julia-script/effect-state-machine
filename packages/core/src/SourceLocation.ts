@@ -1,3 +1,4 @@
+import { encodeWellFormedUri } from "./Internal.js"
 import type * as Source from "./Source.js"
 
 /**
@@ -139,7 +140,7 @@ export const resolve = (
 
 const editorLink = (scheme: "vscode" | "cursor", source: Location): string => {
   const path = source.file.startsWith("/") ? source.file : `/${source.file}`
-  return `${scheme}://file${encodeURI(path)}:${source.line}:${source.column}`
+  return `${scheme}://file${encodeWellFormedUri(path)}:${source.line}:${source.column}`
 }
 
 /**

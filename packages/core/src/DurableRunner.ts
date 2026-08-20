@@ -8,10 +8,11 @@ import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 import {
-  type ActivityCommand,
-  type ActivityOutcome,
-  type Checkpoint,
+  ActivityCommand,
+  ActivityOutcome,
+  Checkpoint,
   CompatibilityError,
+  DispatchRecord,
   type DurableDefectSummary,
   DurableEncodingError,
   type DurableError,
@@ -27,7 +28,7 @@ import {
   type Json,
   type MachineCommit,
   type MachineDelivery,
-  type MachineMessage,
+  MachineMessage,
   MigrationDocument,
   MigrationError,
   messageId,
@@ -35,10 +36,13 @@ import {
   type RunOptions,
   revision,
   Store,
+  StoreError,
   type StoreService,
   validateDefinition,
-} from "./Durable.js"
+} from "./DurableProtocol.js"
+import { recordFromEntries } from "./Internal.js"
 import * as Machine from "./Machine.js"
+import * as MachinePlan from "./MachinePlan.js"
 
 interface Tagged {
   readonly _tag: string
@@ -64,8 +68,8 @@ interface RuntimeTask {
 
 interface RuntimeRegionNode {
   readonly final?: true
-  readonly on?: Readonly<Record<string, unknown>>
-  readonly after?: Readonly<{ duration: unknown }>
+  readonly on?: Readonly<Record<string, MachinePlan.RegionEventHandler<Tagged, Tagged>>>
+  readonly after?: MachinePlan.RegionAfter<Tagged>
   readonly invoke?: Readonly<{
     name: string
     success: Schema.Top
@@ -76,16 +80,16 @@ interface RuntimeRegionNode {
       metadata?: Machine.WorkExecutionMetadata,
     ) => Effect.Effect<unknown, unknown, unknown>
     retry?: Readonly<{ schedule: Schedule.Schedule<unknown, unknown, unknown, unknown> }>
-    onSuccess: unknown
-    onFailure: unknown
+    onSuccess: MachinePlan.RegionOutcome<Tagged, "value">
+    onFailure: MachinePlan.RegionOutcome<Tagged, "error">
   }>
 }
 
 interface RuntimeNode {
   readonly kind: "state" | "invoke" | "regions" | "final"
   readonly tag: string
-  readonly on?: Readonly<Record<string, unknown>>
-  readonly after?: Readonly<{ duration: unknown }>
+  readonly on?: Readonly<Record<string, MachinePlan.EventHandler<Tagged, Tagged>>>
+  readonly after?: MachinePlan.After<Tagged>
   readonly name?: string
   readonly workKind?: "effect" | "all" | "race"
   readonly success?: Schema.Top
@@ -97,8 +101,8 @@ interface RuntimeNode {
   readonly tasks?: Readonly<Record<string, RuntimeTask>>
   readonly concurrency?: number | "unbounded"
   readonly retry?: Readonly<{ schedule: Schedule.Schedule<unknown, unknown, unknown, unknown> }>
-  readonly onSuccess?: unknown
-  readonly onFailure?: unknown
+  readonly onSuccess?: MachinePlan.OutcomeHandler<Tagged, unknown, "value">
+  readonly onFailure?: MachinePlan.OutcomeHandler<Tagged, unknown, "error">
   readonly regions?: Readonly<
     Record<string, Readonly<{ states: Readonly<Record<string, RuntimeRegionNode>> }>>
   >
@@ -123,27 +127,100 @@ let workerSequence = 0
 const workerId = (kind: "machine" | "activity", instance: InstanceId): string =>
   `${kind}:${instance}:${++workerSequence}`
 
-const asJson = (value: unknown): Json => value as Json
-
-const encodeJson = (
+const encodeJson: (
   schema: Schema.Top,
   value: unknown,
   operation: string,
-): Effect.Effect<Json, DurableEncodingError, unknown> =>
-  Schema.encodeUnknownEffect(Schema.toCodecJson(schema))(value).pipe(
-    Effect.map(asJson),
-    Effect.mapError((error) => new DurableEncodingError({ operation, message: String(error) })),
-  )
+) => Effect.Effect<Json, DurableEncodingError, unknown> = Effect.fnUntraced(
+  function* (schema, value, operation) {
+    return yield* Schema.encodeUnknownEffect(Schema.toCodecJson(schema))(value).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+      Effect.mapError(
+        (error) => new DurableEncodingError({ operation, message: String(error), cause: error }),
+      ),
+    )
+  },
+)
 
+// This caller-selected generic result cannot retain its signature through Effect.fnUntraced.
 const decodeJson = <Value>(
   schema: Schema.Top,
   value: Json,
   operation: string,
 ): Effect.Effect<Value, DurableEncodingError, unknown> =>
   Schema.decodeUnknownEffect(Schema.toCodecJson(schema))(value).pipe(
+    // The owning Schema has validated the decoded value at this single generic erasure boundary.
     Effect.map((decoded) => decoded as Value),
-    Effect.mapError((error) => new DurableEncodingError({ operation, message: String(error) })),
+    Effect.mapError(
+      (error) => new DurableEncodingError({ operation, message: String(error), cause: error }),
+    ),
   )
+
+const validateEnvelope: (
+  schema: Schema.Top,
+  value: unknown,
+  operation: string,
+) => Effect.Effect<void, DurableEncodingError, unknown> = Effect.fnUntraced(
+  function* (schema, value, operation) {
+    yield* Schema.decodeUnknownEffect(schema)(value).pipe(
+      Effect.asVoid,
+      Effect.mapError(
+        (error) => new DurableEncodingError({ operation, message: String(error), cause: error }),
+      ),
+    )
+  },
+)
+
+const commitMachine: (
+  store: StoreService,
+  commit: MachineCommit,
+) => Effect.Effect<void, DurableError, unknown> = Effect.fnUntraced(function* (store, commit) {
+  yield* validateEnvelope(Checkpoint, commit.checkpoint, "validate committed checkpoint")
+  yield* Effect.forEach(
+    commit.publishMessages,
+    (message) => validateEnvelope(MachineMessage, message, "validate published message"),
+    { discard: true },
+  )
+  yield* Effect.forEach(
+    commit.publishActivities,
+    (activity) => validateEnvelope(ActivityCommand, activity, "validate published activity"),
+    { discard: true },
+  )
+  if (commit.dispatch !== undefined) {
+    yield* validateEnvelope(DispatchRecord, commit.dispatch, "validate dispatch record")
+  }
+  yield* store.commitMachine(commit)
+})
+
+const createInstance: (
+  store: StoreService,
+  request: Parameters<StoreService["create"]>[0],
+) => Effect.Effect<boolean, DurableError, unknown> = Effect.fnUntraced(function* (store, request) {
+  yield* validateEnvelope(Checkpoint, request.checkpoint, "validate initial checkpoint")
+  yield* Effect.forEach(
+    request.messages,
+    (message) => validateEnvelope(MachineMessage, message, "validate initial message"),
+    { discard: true },
+  )
+  yield* Effect.forEach(
+    request.activities,
+    (activity) => validateEnvelope(ActivityCommand, activity, "validate initial activity"),
+    { discard: true },
+  )
+  return yield* store.create(request)
+})
+
+const completeActivity: (
+  store: StoreService,
+  id: ReturnType<typeof deliveryId>,
+  fence: number,
+  message: MachineMessage,
+) => Effect.Effect<void, DurableError, unknown> = Effect.fnUntraced(
+  function* (store, id, fence, message) {
+    yield* validateEnvelope(MachineMessage, message, "validate activity outcome message")
+    yield* store.completeActivity(id, fence, message)
+  },
+)
 
 const canonicalJson = (value: Json): string => {
   const normalize = (part: Json): Json => {
@@ -204,19 +281,19 @@ const activityCommand = (
   }
 }
 
-const timerWork = (
+const timerWork = <DurationState>(
   instance: InstanceId,
   targetRevision: number,
   ownerEntryId: string,
   ownerPath: string,
-  after: Readonly<{ duration: unknown }>,
-  durationState: unknown,
+  after: Readonly<{ duration: MachinePlan.DurationSpec<DurationState> }>,
+  durationState: DurationState,
   now: number,
 ): Readonly<{
   timer: Checkpoint["timers"][number]
   message: MachineMessage
 }> => {
-  const resolved = Machine._durableRuntime.resolveDuration(after.duration, durationState)
+  const resolved = MachinePlan.resolveDuration(after.duration, durationState)
   const id = deriveMessageId(
     instance,
     revision(targetRevision),
@@ -245,7 +322,7 @@ const timerWork = (
   }
 }
 
-const planRegionSlot = (
+const planRegionSlot: (
   instance: InstanceId,
   targetRevision: number,
   parent: Tagged,
@@ -253,180 +330,208 @@ const planRegionSlot = (
   node: RuntimeNode,
   slot: string,
   now: number,
-): Omit<EntryWork, "rootEntryId"> => {
-  const local = (parent as unknown as Readonly<Record<string, unknown>>)[slot]
-  if (typeof local !== "object" || local === null || !("_tag" in local)) {
-    return { regionEntryIds: {}, timers: [], aggregates: [], messages: [], activities: [] }
-  }
-  const tagged = local as Tagged
-  const regionNode = node.regions?.[slot]?.states[tagged._tag]
-  if (regionNode === undefined || regionNode.final === true) {
-    return { regionEntryIds: {}, timers: [], aggregates: [], messages: [], activities: [] }
-  }
-  const ownerPath = `${parent._tag}/${slot}/${tagged._tag}`
-  const durableEntry = deriveEntryId(instance, revision(targetRevision), ownerPath)
-  const timers: Array<Checkpoint["timers"][number]> = []
-  const messages: Array<MachineMessage> = []
-  const activities: Array<ActivityCommand> = []
-  if (regionNode.after !== undefined) {
-    const planned = timerWork(
-      instance,
-      targetRevision,
-      durableEntry,
-      ownerPath,
-      regionNode.after,
-      { state: tagged, parent },
-      now,
-    )
-    timers.push(planned.timer)
-    messages.push(planned.message)
-  }
-  if (regionNode.invoke !== undefined) {
-    const encodedLocal =
-      typeof encodedParent === "object" && encodedParent !== null && !Array.isArray(encodedParent)
-        ? ((encodedParent as Readonly<Record<string, Json>>)[slot] ?? asJson(tagged))
-        : asJson(tagged)
-    activities.push(
-      activityCommand(
+) => Effect.Effect<Omit<EntryWork, "rootEntryId">, DurableEncodingError> = Effect.fnUntraced(
+  function* (instance, targetRevision, parent, encodedParent, node, slot, now) {
+    const local = (parent as unknown as Readonly<Record<string, unknown>>)[slot]
+    if (typeof local !== "object" || local === null || !("_tag" in local)) {
+      return { regionEntryIds: {}, timers: [], aggregates: [], messages: [], activities: [] }
+    }
+    const tagged = local as Tagged
+    const regionNode = node.regions?.[slot]?.states[tagged._tag]
+    if (regionNode === undefined || regionNode.final === true) {
+      return { regionEntryIds: {}, timers: [], aggregates: [], messages: [], activities: [] }
+    }
+    const ownerPath = `${parent._tag}/${slot}/${tagged._tag}`
+    const durableEntry = deriveEntryId(instance, revision(targetRevision), ownerPath)
+    const timers: Array<Checkpoint["timers"][number]> = []
+    const messages: Array<MachineMessage> = []
+    const activities: Array<ActivityCommand> = []
+    if (regionNode.after !== undefined) {
+      const planned = timerWork(
         instance,
+        targetRevision,
         durableEntry,
         ownerPath,
-        regionNode.invoke.name,
-        "",
-        encodedLocal,
-        encodedParent,
-        `${instance}:${durableEntry}:${regionNode.invoke.name}`,
-        1,
-      ),
-    )
-  }
-  return {
-    regionEntryIds: { [slot]: durableEntry },
-    timers,
-    aggregates: [],
-    messages,
-    activities,
-  }
-}
+        regionNode.after,
+        { state: tagged, parent },
+        now,
+      )
+      timers.push(planned.timer)
+      messages.push(planned.message)
+    }
+    if (regionNode.invoke !== undefined) {
+      if (
+        typeof encodedParent !== "object" ||
+        encodedParent === null ||
+        Array.isArray(encodedParent) ||
+        !Object.hasOwn(encodedParent, slot)
+      ) {
+        return yield* new DurableEncodingError({
+          operation: "plan region activity",
+          message: `encoded state is missing active region slot ${slot}`,
+        })
+      }
+      const encodedLocal = (encodedParent as Readonly<Record<string, Json>>)[slot]
+      if (encodedLocal === undefined) {
+        return yield* new DurableEncodingError({
+          operation: "plan region activity",
+          message: `encoded state has undefined active region slot ${slot}`,
+        })
+      }
+      activities.push(
+        activityCommand(
+          instance,
+          durableEntry,
+          ownerPath,
+          regionNode.invoke.name,
+          "",
+          encodedLocal,
+          encodedParent,
+          `${instance}:${durableEntry}:${regionNode.invoke.name}`,
+          1,
+        ),
+      )
+    }
+    return {
+      regionEntryIds: recordFromEntries([[slot, durableEntry]]),
+      timers,
+      aggregates: [],
+      messages,
+      activities,
+    }
+  },
+)
 
-const planEntry = (
+const planEntry: (
   nodes: ReadonlyMap<string, RuntimeNode>,
   instance: InstanceId,
   targetRevision: number,
   state: Tagged,
   encodedState: Json,
   now: number,
-): EntryWork => {
-  const node = nodes.get(state._tag)
-  const rootEntry = deriveEntryId(instance, revision(targetRevision), state._tag)
-  const timers: Array<Checkpoint["timers"][number]> = []
-  const aggregates: Array<Checkpoint["aggregates"][number]> = []
-  const messages: Array<MachineMessage> = []
-  const activities: Array<ActivityCommand> = []
-  const regionEntryIds: Record<string, string> = {}
+) => Effect.Effect<EntryWork, DurableEncodingError> = Effect.fnUntraced(
+  function* (nodes, instance, targetRevision, state, encodedState, now) {
+    const node = nodes.get(state._tag)
+    const rootEntry = deriveEntryId(instance, revision(targetRevision), state._tag)
+    const timers: Array<Checkpoint["timers"][number]> = []
+    const aggregates: Array<Checkpoint["aggregates"][number]> = []
+    const messages: Array<MachineMessage> = []
+    const activities: Array<ActivityCommand> = []
+    const regionEntryIds = new Map<string, string>()
 
-  if (node?.after !== undefined) {
-    const planned = timerWork(
-      instance,
-      targetRevision,
-      rootEntry,
-      state._tag,
-      node.after,
-      state,
-      now,
-    )
-    timers.push(planned.timer)
-    messages.push(planned.message)
-  }
-
-  if (node?.kind === "invoke" && node.name !== undefined) {
-    const workKind = node.workKind ?? "effect"
-    if (workKind === "effect") {
-      activities.push(
-        activityCommand(
-          instance,
-          rootEntry,
-          state._tag,
-          node.name,
-          "",
-          encodedState,
-          null,
-          `${instance}:${rootEntry}:${node.name}`,
-          1,
-        ),
+    if (node?.after !== undefined) {
+      const planned = timerWork(
+        instance,
+        targetRevision,
+        rootEntry,
+        state._tag,
+        node.after,
+        state,
+        now,
       )
-    } else {
-      const lanes = Object.keys(node.tasks ?? {})
-      const concurrency =
-        workKind === "race" || node.concurrency === "unbounded" || node.concurrency === undefined
-          ? lanes.length
-          : Math.min(node.concurrency, lanes.length)
-      const running = lanes.slice(0, concurrency)
-      const pending = lanes.slice(concurrency)
-      aggregates.push({
-        kind: workKind,
-        entryId: rootEntry,
-        ownerPath: state._tag,
-        invocation: node.name,
-        state: encodedState,
-        parentState: null,
-        pending,
-        running,
-        completed: {},
-        failures: {},
-      })
-      for (const lane of running) {
+      timers.push(planned.timer)
+      messages.push(planned.message)
+    }
+
+    if (node?.kind === "invoke" && node.name !== undefined) {
+      const workKind = node.workKind ?? "effect"
+      if (workKind === "effect") {
         activities.push(
           activityCommand(
             instance,
             rootEntry,
             state._tag,
             node.name,
-            lane,
+            "",
             encodedState,
             null,
             `${instance}:${rootEntry}:${node.name}`,
-            Math.max(1, concurrency),
+            1,
           ),
         )
+      } else {
+        const lanes = Object.keys(node.tasks ?? {})
+        const concurrency =
+          workKind === "race" || node.concurrency === "unbounded" || node.concurrency === undefined
+            ? lanes.length
+            : Math.min(node.concurrency, lanes.length)
+        const running = lanes.slice(0, concurrency)
+        const pending = lanes.slice(concurrency)
+        aggregates.push({
+          kind: workKind,
+          entryId: rootEntry,
+          ownerPath: state._tag,
+          invocation: node.name,
+          state: encodedState,
+          parentState: null,
+          pending,
+          running,
+          completed: {},
+          failures: {},
+        })
+        for (const lane of running) {
+          activities.push(
+            activityCommand(
+              instance,
+              rootEntry,
+              state._tag,
+              node.name,
+              lane,
+              encodedState,
+              null,
+              `${instance}:${rootEntry}:${node.name}`,
+              Math.max(1, concurrency),
+            ),
+          )
+        }
       }
     }
-  }
 
-  if (node?.kind === "regions") {
-    for (const slot of Object.keys(node.regions ?? {})) {
-      const planned = planRegionSlot(instance, targetRevision, state, encodedState, node, slot, now)
-      Object.assign(regionEntryIds, planned.regionEntryIds)
-      timers.push(...planned.timers)
-      messages.push(...planned.messages)
-      activities.push(...planned.activities)
-    }
-    if (node.onComplete !== undefined && Machine._durableRuntime.regionsComplete(node, state)) {
-      messages.push({
-        _tag: "RegionsComplete",
-        messageId: deriveMessageId(
+    if (node?.kind === "regions") {
+      for (const slot of Object.keys(node.regions ?? {})) {
+        const planned = yield* planRegionSlot(
           instance,
-          revision(targetRevision),
-          state._tag,
-          "regions-complete",
-        ),
-        instanceId: instance,
-        availableAtEpochMillis: now,
-        entryId: rootEntry,
-        ownerPath: state._tag,
-      })
+          targetRevision,
+          state,
+          encodedState,
+          node,
+          slot,
+          now,
+        )
+        for (const [plannedSlot, plannedEntryId] of Object.entries(planned.regionEntryIds)) {
+          regionEntryIds.set(plannedSlot, plannedEntryId)
+        }
+        timers.push(...planned.timers)
+        messages.push(...planned.messages)
+        activities.push(...planned.activities)
+      }
+      if (node.onComplete !== undefined && MachinePlan.regionsComplete(node, state)) {
+        messages.push({
+          _tag: "RegionsComplete",
+          messageId: deriveMessageId(
+            instance,
+            revision(targetRevision),
+            state._tag,
+            "regions-complete",
+          ),
+          instanceId: instance,
+          availableAtEpochMillis: now,
+          entryId: rootEntry,
+          ownerPath: state._tag,
+        })
+      }
     }
-  }
 
-  return {
-    rootEntryId: rootEntry,
-    regionEntryIds,
-    timers,
-    aggregates,
-    messages,
-    activities,
-  }
-}
+    return {
+      rootEntryId: rootEntry,
+      regionEntryIds: recordFromEntries(regionEntryIds),
+      timers,
+      aggregates,
+      messages,
+      activities,
+    }
+  },
+)
 
 const oldExecutionKeys = (
   nodes: ReadonlyMap<string, RuntimeNode>,
@@ -502,7 +607,7 @@ const makeCheckpoint = (
   defect,
 })
 
-const commitTransition = (
+const commitTransition: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
@@ -510,8 +615,8 @@ const commitTransition = (
   previousState: Tagged,
   nextState: Tagged,
   dispatch: MachineCommit["dispatch"],
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, delivery, previousState, nextState, dispatch) {
     const encoded = yield* encodeJson(definition.schemas.state, nextState, "encode state")
     if (!nodes.has(nextState._tag)) {
       return yield* new DurableEncodingError({
@@ -534,7 +639,7 @@ const commitTransition = (
           messages: [],
           activities: [],
         }
-      : planEntry(
+      : yield* planEntry(
           nodes,
           delivery.checkpoint.instanceId as InstanceId,
           delivery.checkpoint.revision + 1,
@@ -548,7 +653,7 @@ const commitTransition = (
       isFinal ? "completed" : "running",
       entry,
     )
-    yield* store.commitMachine({
+    yield* commitMachine(store, {
       instanceId: delivery.checkpoint.instanceId as InstanceId,
       deliveryId: deliveryId(delivery.message.messageId),
       fence: delivery.claim.fence,
@@ -566,52 +671,70 @@ const commitTransition = (
       dispatch,
     })
     return checkpoint
-  })
+  },
+)
 
-const commitPreservingEntry = (
+const commitPreservingEntry: (
   store: StoreService,
   delivery: MachineDelivery,
   encodedState: Json,
   dispatch: MachineCommit["dispatch"],
+  aggregates?: Checkpoint["aggregates"],
+  publishActivities?: ReadonlyArray<ActivityCommand>,
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(function* (
+  store,
+  delivery,
+  encodedState,
+  dispatch,
   aggregates = delivery.checkpoint.aggregates,
-  publishActivities: ReadonlyArray<ActivityCommand> = [],
-): Effect.Effect<Checkpoint, DurableError> =>
-  Effect.gen(function* () {
-    const checkpoint: Checkpoint = {
-      ...delivery.checkpoint,
-      revision: delivery.checkpoint.revision + 1,
-      state: encodedState,
-      aggregates,
-    }
-    yield* store.commitMachine({
-      instanceId: delivery.checkpoint.instanceId as InstanceId,
-      deliveryId: deliveryId(delivery.message.messageId),
-      fence: delivery.claim.fence,
-      expectedRevision: revision(delivery.checkpoint.revision),
-      checkpoint,
-      publishMessages: [],
-      publishActivities,
-      cancelMessageIds: [],
-      cancelExecutionKeys: [],
-      dispatch,
-    })
-    return checkpoint
+  publishActivities = [],
+) {
+  const checkpoint: Checkpoint = {
+    ...delivery.checkpoint,
+    revision: delivery.checkpoint.revision + 1,
+    state: encodedState,
+    aggregates,
+  }
+  yield* commitMachine(store, {
+    instanceId: delivery.checkpoint.instanceId as InstanceId,
+    deliveryId: deliveryId(delivery.message.messageId),
+    fence: delivery.claim.fence,
+    expectedRevision: revision(delivery.checkpoint.revision),
+    checkpoint,
+    publishMessages: [],
+    publishActivities,
+    cancelMessageIds: [],
+    cancelExecutionKeys: [],
+    dispatch,
   })
+  return checkpoint
+})
 
-const commitDefect = (
+const commitDefect: (
+  definition: DurableDefinition,
+  nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
   delivery: MachineDelivery,
   defect: DurableDefectSummary,
-): Effect.Effect<Checkpoint, DurableError> => {
-  const checkpoint = makeCheckpoint(
-    delivery.checkpoint,
-    delivery.checkpoint.state,
-    "defected",
-    undefined,
-    defect,
-  )
-  return store
-    .commitMachine({
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, delivery, defect) {
+    const state = yield* decodeJson<Tagged>(
+      definition.schemas.state,
+      delivery.checkpoint.state,
+      "decode defected checkpoint state",
+    )
+    const checkpoint: Checkpoint = {
+      ...makeCheckpoint(
+        delivery.checkpoint,
+        delivery.checkpoint.state,
+        "defected",
+        undefined,
+        defect,
+      ),
+      timers: [],
+      aggregates: [],
+    }
+    yield* commitMachine(store, {
       instanceId: delivery.checkpoint.instanceId as InstanceId,
       deliveryId: deliveryId(delivery.message.messageId),
       fence: delivery.claim.fence,
@@ -620,31 +743,47 @@ const commitDefect = (
       publishMessages: [],
       publishActivities: [],
       cancelMessageIds: delivery.checkpoint.timers.map((timer) => messageId(timer.messageId)),
-      cancelExecutionKeys: [],
+      cancelExecutionKeys: oldExecutionKeys(
+        nodes,
+        delivery.checkpoint.instanceId as InstanceId,
+        delivery.checkpoint,
+        state,
+      ),
       dispatch:
         delivery.message._tag === "External"
           ? dispatchFor(checkpoint, delivery.message, "rejected", defect.message)
           : undefined,
     })
-    .pipe(Effect.as(checkpoint))
-}
+    return checkpoint
+  },
+)
 
-const activityOutcome = (
+const activityOutcome: (
   schema: Schema.Top,
   channel: "Success" | "Failure",
   value: unknown,
-): Effect.Effect<ActivityOutcome, never, unknown> =>
-  encodeJson(schema, value, `encode activity ${channel.toLowerCase()}`).pipe(
-    Effect.map((encoded) =>
-      channel === "Success"
-        ? ({ _tag: "Success", encodedValue: encoded } as const)
-        : ({ _tag: "Failure", encodedError: encoded } as const),
-    ),
-    Effect.catchCause((cause) =>
-      Effect.succeed({
-        _tag: "Defect" as const,
-        defect: defectSummary("encoding", Cause.squash(cause)),
-      }),
+) => Effect.Effect<ActivityOutcome, never, unknown> = Effect.fnUntraced(
+  function* (schema, channel, value) {
+    return yield* encodeJson(schema, value, `encode activity ${channel.toLowerCase()}`).pipe(
+      Effect.map((encoded) =>
+        channel === "Success"
+          ? ({ _tag: "Success", encodedValue: encoded } as const)
+          : ({ _tag: "Failure", encodedError: encoded } as const),
+      ),
+      Effect.catchTag("DurableEncodingError", (error) =>
+        Effect.succeed({
+          _tag: "Defect" as const,
+          defect: defectSummary("encoding", error),
+        }),
+      ),
+    )
+  },
+)
+
+const nonFailureCause = (cause: Cause.Cause<unknown>): Cause.Cause<never> =>
+  Cause.fromReasons(
+    cause.reasons.filter(
+      (reason): reason is Cause.Die | Cause.Interrupt => !Cause.isFailReason(reason),
     ),
   )
 
@@ -711,29 +850,34 @@ const findActivity = (
   }
 }
 
-const outcomeMessage = (
+const outcomeMessage: (
   command: ActivityCommand,
   outcome: ActivityOutcome,
   now: number,
-): MachineMessage => ({
-  _tag: "ActivityOutcome",
-  messageId: deriveMessageId(
-    command.instanceId as InstanceId,
-    revision(0),
-    command.ownerPath,
-    `outcome:${command.executionKey}`,
-  ),
-  instanceId: command.instanceId,
-  availableAtEpochMillis: now,
-  executionKey: command.executionKey,
-  entryId: command.entryId,
-  ownerPath: command.ownerPath,
-  invocation: command.invocation,
-  lane: command.lane,
-  outcome: asJson(outcome),
-})
+) => Effect.Effect<MachineMessage, DurableEncodingError, unknown> = Effect.fnUntraced(
+  function* (command, outcome, now) {
+    const encodedOutcome = yield* encodeJson(ActivityOutcome, outcome, "encode activity outcome")
+    return {
+      _tag: "ActivityOutcome",
+      messageId: deriveMessageId(
+        command.instanceId as InstanceId,
+        revision(0),
+        command.ownerPath,
+        `outcome:${command.executionKey}`,
+      ),
+      instanceId: command.instanceId,
+      availableAtEpochMillis: now,
+      executionKey: command.executionKey,
+      entryId: command.entryId,
+      ownerPath: command.ownerPath,
+      invocation: command.invocation,
+      lane: command.lane,
+      outcome: encodedOutcome,
+    }
+  },
+)
 
-const runActivity = (
+const runActivity: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
@@ -741,8 +885,8 @@ const runActivity = (
   claimFence: number,
   claimAttempt: number,
   preserveCause: (cause: Cause.Cause<never>) => void,
-): Effect.Effect<void, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, command, claimFence, claimAttempt, preserveCause) {
     const located = findActivity(definition, nodes, command, claimAttempt)
     let outcome: ActivityOutcome
     if (located === undefined) {
@@ -763,11 +907,15 @@ const runActivity = (
           : Effect.retry(metadataOperation, located.retry)
       outcome = yield* Effect.matchCauseEffect(operation, {
         onFailure: (cause) => {
+          if (Cause.hasInterrupts(cause)) {
+            return Effect.failCause(nonFailureCause(cause))
+          }
           const failure = Cause.findErrorOption(cause)
-          return Option.isSome(failure)
+          return !Cause.hasDies(cause) && Option.isSome(failure)
             ? activityOutcome(located.error, "Failure", failure.value)
             : Effect.sync(() => {
-                preserveCause(cause as Cause.Cause<never>)
+                const defectCause = nonFailureCause(cause)
+                preserveCause(defectCause)
                 return {
                   _tag: "Defect" as const,
                   defect: defectSummary("activity", Cause.squash(cause)),
@@ -778,19 +926,20 @@ const runActivity = (
       })
     }
     const now = yield* store.now
-    const message = outcomeMessage(command, outcome, now)
-    yield* store.completeActivity(deliveryId(command.deliveryId), claimFence, message)
-  })
+    const message = yield* outcomeMessage(command, outcome, now)
+    yield* completeActivity(store, deliveryId(command.deliveryId), claimFence, message)
+  },
+)
 
-const processActivityOutcome = (
+const processActivityOutcome: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
   delivery: MachineDelivery,
   state: Tagged,
   message: Extract<MachineMessage, { readonly _tag: "ActivityOutcome" }>,
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, delivery, state, message) {
     const node = nodes.get(state._tag)
     const regionParts = message.ownerPath.split("/")
     const isRegion = regionParts.length === 3
@@ -802,7 +951,13 @@ const processActivityOutcome = (
     }
     const encodedOutcome = message.outcome as Readonly<Record<string, unknown>>
     if (encodedOutcome._tag === "Defect") {
-      return yield* commitDefect(store, delivery, encodedOutcome.defect as DurableDefectSummary)
+      return yield* commitDefect(
+        definition,
+        nodes,
+        store,
+        delivery,
+        encodedOutcome.defect as DurableDefectSummary,
+      )
     }
 
     if (isRegion && node?.kind === "regions") {
@@ -824,7 +979,7 @@ const processActivityOutcome = (
         (success ? encodedOutcome.encodedValue : encodedOutcome.encodedError) as Json,
         "decode region activity outcome",
       )
-      const nextLocal = Machine._durableRuntime.planRegionOutcome(
+      const nextLocal = MachinePlan.planRegionOutcome(
         success ? invoke.onSuccess : invoke.onFailure,
         state,
         local as Tagged,
@@ -849,6 +1004,8 @@ const processActivityOutcome = (
     const task = message.lane === "" ? node : node.tasks?.[message.lane]
     if (task?.success === undefined || task.error === undefined) {
       return yield* commitDefect(
+        definition,
+        nodes,
         store,
         delivery,
         defectSummary("definition", new Error(`activity lane ${message.lane} is missing`)),
@@ -862,7 +1019,7 @@ const processActivityOutcome = (
     )
     const workKind = node.workKind ?? "effect"
     if (workKind === "effect") {
-      const planned = Machine._durableRuntime.planOutcome(
+      const planned = MachinePlan.planOutcome(
         succeeded ? node.onSuccess : node.onFailure,
         state,
         succeeded ? "success" : "failure",
@@ -870,6 +1027,8 @@ const processActivityOutcome = (
       )
       if (planned === undefined) {
         return yield* commitDefect(
+          definition,
+          nodes,
           store,
           delivery,
           defectSummary("protocol", new Error("no activity outcome transition matched")),
@@ -902,7 +1061,7 @@ const processActivityOutcome = (
     }
 
     if ((workKind === "race" && succeeded) || (workKind === "all" && !succeeded)) {
-      const planned = Machine._durableRuntime.planOutcome(
+      const planned = MachinePlan.planOutcome(
         succeeded ? node.onSuccess : node.onFailure,
         state,
         succeeded ? "success" : "failure",
@@ -911,6 +1070,8 @@ const processActivityOutcome = (
       )
       if (planned === undefined) {
         return yield* commitDefect(
+          definition,
+          nodes,
           store,
           delivery,
           defectSummary("protocol", new Error("no aggregate outcome transition matched")),
@@ -953,7 +1114,7 @@ const processActivityOutcome = (
               ),
             )
           : value
-      const planned = Machine._durableRuntime.planOutcome(
+      const planned = MachinePlan.planOutcome(
         workKind === "all" ? node.onSuccess : node.onFailure,
         state,
         workKind === "all" ? "success" : "failure",
@@ -961,6 +1122,8 @@ const processActivityOutcome = (
       )
       if (planned === undefined) {
         return yield* commitDefect(
+          definition,
+          nodes,
           store,
           delivery,
           defectSummary("protocol", new Error("no terminal aggregate transition matched")),
@@ -1015,9 +1178,10 @@ const processActivityOutcome = (
       aggregates,
       commands,
     )
-  })
+  },
+)
 
-const commitRegionUpdate = (
+const commitRegionUpdate: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
@@ -1026,12 +1190,12 @@ const commitRegionUpdate = (
   next: Tagged,
   reenteredSlots: ReadonlySet<string>,
   dispatch?: MachineCommit["dispatch"],
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, delivery, previous, next, reenteredSlots, dispatch) {
     const encoded = yield* encodeJson(definition.schemas.state, next, "encode region state")
     const node = nodes.get(next._tag)
     const now = yield* store.now
-    const regionEntryIds = { ...delivery.checkpoint.regionEntryIds }
+    const regionEntryIds = new Map(Object.entries(delivery.checkpoint.regionEntryIds))
     const timers = delivery.checkpoint.timers.filter(
       (timer) =>
         ![...reenteredSlots].some((slot) => timer.ownerPath.startsWith(`${next._tag}/${slot}/`)),
@@ -1064,7 +1228,7 @@ const commitRegionUpdate = (
             )
           }
         }
-        const planned = planRegionSlot(
+        const planned = yield* planRegionSlot(
           delivery.checkpoint.instanceId as InstanceId,
           delivery.checkpoint.revision + 1,
           next,
@@ -1073,12 +1237,14 @@ const commitRegionUpdate = (
           slot,
           now,
         )
-        Object.assign(regionEntryIds, planned.regionEntryIds)
+        for (const [plannedSlot, plannedEntryId] of Object.entries(planned.regionEntryIds)) {
+          regionEntryIds.set(plannedSlot, plannedEntryId)
+        }
         timers.push(...planned.timers)
         publishMessages.push(...planned.messages)
         publishActivities.push(...planned.activities)
       }
-      if (node.onComplete !== undefined && Machine._durableRuntime.regionsComplete(node, next)) {
+      if (node.onComplete !== undefined && MachinePlan.regionsComplete(node, next)) {
         publishMessages.push({
           _tag: "RegionsComplete",
           messageId: deriveMessageId(
@@ -1098,10 +1264,10 @@ const commitRegionUpdate = (
       ...delivery.checkpoint,
       revision: delivery.checkpoint.revision + 1,
       state: encoded,
-      regionEntryIds,
+      regionEntryIds: recordFromEntries(regionEntryIds),
       timers,
     }
-    yield* store.commitMachine({
+    yield* commitMachine(store, {
       instanceId: delivery.checkpoint.instanceId as InstanceId,
       deliveryId: deliveryId(delivery.message.messageId),
       fence: delivery.claim.fence,
@@ -1114,75 +1280,171 @@ const commitRegionUpdate = (
       dispatch,
     })
     return checkpoint
-  })
+  },
+)
 
-const processDelivery = (
+const processDelivery: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   store: StoreService,
   delivery: MachineDelivery,
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
-    const state = yield* decodeJson<Tagged>(
-      definition.schemas.state,
-      delivery.checkpoint.state,
-      "decode checkpoint state",
-    )
-    const node = nodes.get(state._tag)
-    const message = delivery.message
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, store, delivery) {
+    return yield* Effect.gen(function* () {
+      if (delivery.checkpoint.status !== "running") {
+        return yield* new StoreError({
+          operation: "processDelivery",
+          message: `store returned work for ${delivery.checkpoint.status} instance ${delivery.checkpoint.instanceId}`,
+        })
+      }
+      const state = yield* decodeJson<Tagged>(
+        definition.schemas.state,
+        delivery.checkpoint.state,
+        "decode checkpoint state",
+      )
+      const node = nodes.get(state._tag)
+      const message = delivery.message
 
-    if (message._tag === "ActivityOutcome") {
-      return yield* processActivityOutcome(definition, nodes, store, delivery, state, message)
-    }
+      if (message._tag === "ActivityOutcome") {
+        return yield* processActivityOutcome(definition, nodes, store, delivery, state, message)
+      }
 
-    if (message._tag === "Timer") {
-      const parts = message.ownerPath.split("/")
-      if (parts.length === 3 && node?.kind === "regions") {
-        const slot = parts[1] ?? ""
-        const local = (state as unknown as Readonly<Record<string, unknown>>)[slot]
-        const regionNode = node.regions?.[slot]?.states[parts[2] ?? ""]
-        if (
-          delivery.checkpoint.regionEntryIds[slot] !== message.entryId ||
-          regionNode?.after === undefined ||
-          typeof local !== "object" ||
-          local === null ||
-          !("_tag" in local)
-        ) {
-          return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, undefined)
-        }
-        const planned = Machine._durableRuntime.planRegionAfter(
-          regionNode.after,
-          state,
-          local as Tagged,
-        )
-        if (planned === undefined) {
-          return yield* commitDefect(
+      if (message._tag === "Timer") {
+        const parts = message.ownerPath.split("/")
+        if (parts.length === 3 && node?.kind === "regions") {
+          const slot = parts[1] ?? ""
+          const local = (state as unknown as Readonly<Record<string, unknown>>)[slot]
+          const regionNode = node.regions?.[slot]?.states[parts[2] ?? ""]
+          if (
+            delivery.checkpoint.regionEntryIds[slot] !== message.entryId ||
+            regionNode?.after === undefined ||
+            typeof local !== "object" ||
+            local === null ||
+            !("_tag" in local)
+          ) {
+            return yield* commitPreservingEntry(
+              store,
+              delivery,
+              delivery.checkpoint.state,
+              undefined,
+            )
+          }
+          const planned = MachinePlan.planRegionAfter(regionNode.after, state, local as Tagged)
+          if (planned === undefined) {
+            return yield* commitDefect(
+              definition,
+              nodes,
+              store,
+              delivery,
+              defectSummary("protocol", new Error("no region timer transition matched")),
+            )
+          }
+          const next = { ...state, [slot]: planned.next } as Tagged
+          return yield* commitRegionUpdate(
+            definition,
+            nodes,
             store,
             delivery,
-            defectSummary("protocol", new Error("no region timer transition matched")),
+            state,
+            next,
+            new Set([slot]),
           )
         }
-        const next = { ...state, [slot]: planned.next } as Tagged
-        return yield* commitRegionUpdate(
+        if (delivery.checkpoint.rootEntryId !== message.entryId || node?.after === undefined) {
+          return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, undefined)
+        }
+        const planned = MachinePlan.planAfter(node.after, state)
+        if (planned === undefined) {
+          return yield* commitDefect(
+            definition,
+            nodes,
+            store,
+            delivery,
+            defectSummary("protocol", new Error("no timer transition matched")),
+          )
+        }
+        return yield* commitTransition(
           definition,
           nodes,
           store,
           delivery,
           state,
-          next,
-          new Set([slot]),
+          planned.next,
+          undefined,
         )
       }
-      if (delivery.checkpoint.rootEntryId !== message.entryId || node?.after === undefined) {
-        return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, undefined)
+
+      if (message._tag === "RegionsComplete") {
+        if (
+          message.entryId !== delivery.checkpoint.rootEntryId ||
+          node?.kind !== "regions" ||
+          node.onComplete === undefined ||
+          !MachinePlan.regionsComplete(node, state)
+        ) {
+          return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, undefined)
+        }
+        const transition = node.onComplete as {
+          target: string
+          reduce: (args: { state: Tagged }) => Readonly<Record<string, unknown>>
+        }
+        const next = { ...transition.reduce({ state }), _tag: transition.target } as Tagged
+        return yield* commitTransition(definition, nodes, store, delivery, state, next, undefined)
       }
-      const planned = Machine._durableRuntime.planAfter(node.after, state)
+
+      const event = yield* decodeJson<Tagged>(
+        definition.schemas.event,
+        message.event,
+        "decode external event",
+      )
+      if (node?.kind === "regions") {
+        const regionPlan = MachinePlan.planRegionEvent(node, state, event)
+        if (regionPlan !== undefined) {
+          const next = regionPlan.next
+          return yield* commitRegionUpdate(
+            definition,
+            nodes,
+            store,
+            delivery,
+            state,
+            next,
+            regionPlan.reenteredSlots,
+            dispatchFor(
+              { ...delivery.checkpoint, revision: delivery.checkpoint.revision + 1 },
+              message,
+              "committed",
+            ),
+          )
+        }
+      }
+      const planned = MachinePlan.planEvent(node?.on?.[event._tag], state, event)
       if (planned === undefined) {
         return yield* commitDefect(
+          definition,
+          nodes,
           store,
           delivery,
-          defectSummary("protocol", new Error("no timer transition matched")),
+          defectSummary(
+            "protocol",
+            new Error(`machine ${definition.id} does not accept ${event._tag} in ${state._tag}`),
+          ),
         )
+      }
+      const targetRevision = delivery.checkpoint.revision + 1
+      const dispatch = dispatchFor(
+        { ...delivery.checkpoint, revision: targetRevision },
+        message,
+        "committed",
+      )
+      if (planned.kind === "ignore") {
+        return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, dispatch)
+      }
+      if (planned.kind === "stay") {
+        const encoded = yield* encodeJson(
+          definition.schemas.state,
+          planned.next,
+          "encode stay state",
+        )
+        return yield* commitPreservingEntry(store, delivery, encoded, dispatch)
       }
       return yield* commitTransition(
         definition,
@@ -1191,102 +1453,24 @@ const processDelivery = (
         delivery,
         state,
         planned.next,
-        undefined,
+        dispatch,
       )
-    }
-
-    if (message._tag === "RegionsComplete") {
-      if (
-        message.entryId !== delivery.checkpoint.rootEntryId ||
-        node?.kind !== "regions" ||
-        node.onComplete === undefined ||
-        !Machine._durableRuntime.regionsComplete(node, state)
-      ) {
-        return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, undefined)
-      }
-      const transition = node.onComplete as {
-        target: string
-        reduce: (args: { state: Tagged }) => Readonly<Record<string, unknown>>
-      }
-      const next = { ...transition.reduce({ state }), _tag: transition.target } as Tagged
-      return yield* commitTransition(definition, nodes, store, delivery, state, next, undefined)
-    }
-
-    const event = yield* decodeJson<Tagged>(
-      definition.schemas.event,
-      message.event,
-      "decode external event",
+    }).pipe(
+      Effect.catchTag("DurableEncodingError", (error) =>
+        commitDefect(definition, nodes, store, delivery, defectSummary("encoding", error)),
+      ),
     )
-    if (node?.kind === "regions") {
-      const regionPlan = Machine._durableRuntime.planRegionEvent(node, state, event)
-      if (regionPlan !== undefined) {
-        const next = regionPlan.next
-        const nextEncoded = yield* encodeJson(definition.schemas.state, next, "encode region state")
-        const result = yield* commitRegionUpdate(
-          definition,
-          nodes,
-          store,
-          delivery,
-          state,
-          next,
-          regionPlan.reenteredSlots,
-          dispatchFor(
-            { ...delivery.checkpoint, revision: delivery.checkpoint.revision + 1 },
-            message,
-            "committed",
-          ),
-        )
-        void nextEncoded
-        return result
-      }
-    }
-    const planned = Machine._durableRuntime.planEvent(node?.on?.[event._tag], state, event)
-    if (planned === undefined) {
-      return yield* commitDefect(
-        store,
-        delivery,
-        defectSummary(
-          "protocol",
-          new Error(`machine ${definition.id} does not accept ${event._tag} in ${state._tag}`),
-        ),
-      )
-    }
-    const targetRevision = delivery.checkpoint.revision + 1
-    const dispatch = dispatchFor(
-      { ...delivery.checkpoint, revision: targetRevision },
-      message,
-      "committed",
-    )
-    if (planned.kind === "ignore") {
-      return yield* commitPreservingEntry(store, delivery, delivery.checkpoint.state, dispatch)
-    }
-    if (planned.kind === "stay") {
-      const encoded = yield* encodeJson(definition.schemas.state, planned.next, "encode stay state")
-      return yield* commitPreservingEntry(store, delivery, encoded, dispatch)
-    }
-    return yield* commitTransition(
-      definition,
-      nodes,
-      store,
-      delivery,
-      state,
-      planned.next,
-      dispatch,
-    )
-  }).pipe(
-    Effect.catchTag("DurableEncodingError", (error) =>
-      commitDefect(store, delivery, defectSummary("encoding", error)),
-    ),
-  )
+  },
+)
 
-const initialize = (
+const initialize: (
   definition: DurableDefinition,
   nodes: ReadonlyMap<string, RuntimeNode>,
   input: unknown,
   options: RunOptions,
   store: StoreService,
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, nodes, input, options, store) {
     const state = definition.initial(input as never)
     if (!nodes.has(state._tag)) {
       return yield* new DurableEncodingError({
@@ -1306,7 +1490,7 @@ const initialize = (
           messages: [],
           activities: [],
         }
-      : planEntry(nodes, options.instanceId, 0, state, encoded, now)
+      : yield* planEntry(nodes, options.instanceId, 0, state, encoded, now)
     const checkpoint: Checkpoint = {
       formatVersion: checkpointFormatVersion,
       definitionId: definition.id,
@@ -1322,7 +1506,7 @@ const initialize = (
       nextSequence: 0,
       defect: null,
     }
-    const created = yield* store.create({
+    const created = yield* createInstance(store, {
       checkpoint,
       messages: entry.messages,
       activities: entry.activities,
@@ -1336,44 +1520,61 @@ const initialize = (
       })
     }
     return loaded.value
-  })
+  },
+)
 
-const validateCompatibility = (
+const validateCompatibility: (
   definition: DurableDefinition,
   options: RunOptions,
   checkpoint: Checkpoint,
-): Effect.Effect<void, CompatibilityError> => {
-  if (
-    checkpoint.formatVersion !== checkpointFormatVersion ||
-    checkpoint.definitionId !== definition.id
-  ) {
-    return Effect.fail(
-      new CompatibilityError({
-        instanceId: options.instanceId,
-        expected: persistenceVersion(`${definition.id}:format-${checkpointFormatVersion}`),
-        actual: persistenceVersion(`${checkpoint.definitionId}:format-${checkpoint.formatVersion}`),
-      }),
-    )
-  }
-  if (checkpoint.persistenceVersion !== options.persistenceVersion) {
-    return Effect.fail(
-      new CompatibilityError({
-        instanceId: options.instanceId,
-        expected: options.persistenceVersion,
-        actual: persistenceVersion(checkpoint.persistenceVersion),
-      }),
-    )
-  }
-  return Effect.void
-}
+) => Effect.Effect<void, CompatibilityError> = Effect.fnUntraced(
+  function* (definition, options, checkpoint) {
+    if (checkpoint.formatVersion !== checkpointFormatVersion) {
+      return yield* Effect.fail(
+        new CompatibilityError({
+          instanceId: options.instanceId,
+          reason: {
+            _tag: "CheckpointFormatMismatch",
+            expectedFormatVersion: checkpointFormatVersion,
+            actualFormatVersion: checkpoint.formatVersion,
+          },
+        }),
+      )
+    }
+    if (checkpoint.definitionId !== definition.id) {
+      return yield* Effect.fail(
+        new CompatibilityError({
+          instanceId: options.instanceId,
+          reason: {
+            _tag: "DefinitionMismatch",
+            expectedDefinitionId: definition.id,
+            actualDefinitionId: checkpoint.definitionId,
+          },
+        }),
+      )
+    }
+    if (checkpoint.persistenceVersion !== options.persistenceVersion) {
+      return yield* Effect.fail(
+        new CompatibilityError({
+          instanceId: options.instanceId,
+          reason: {
+            _tag: "PersistenceVersionMismatch",
+            expected: options.persistenceVersion,
+            actual: persistenceVersion(checkpoint.persistenceVersion),
+          },
+        }),
+      )
+    }
+  },
+)
 
-const migrateCheckpoint = (
+const migrateCheckpoint: (
   definition: DurableDefinition,
   options: RunOptions,
   store: StoreService,
   checkpoint: Checkpoint,
-): Effect.Effect<Checkpoint, DurableError, unknown> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Checkpoint, DurableError, unknown> = Effect.fnUntraced(
+  function* (definition, options, store, checkpoint) {
     if (checkpoint.persistenceVersion === options.persistenceVersion) return checkpoint
     const loaded = yield* store.loadDocument(options.instanceId)
     if (Option.isNone(loaded)) {
@@ -1388,6 +1589,7 @@ const migrateCheckpoint = (
           new MigrationError({
             instanceId: options.instanceId,
             message: `stored migration document is invalid: ${String(error)}`,
+            cause: error,
           }),
       ),
     )
@@ -1405,8 +1607,11 @@ const migrateCheckpoint = (
       if (migration === undefined) {
         return yield* new CompatibilityError({
           instanceId: options.instanceId,
-          expected: options.persistenceVersion,
-          actual: current,
+          reason: {
+            _tag: "MissingMigration",
+            from: current,
+            target: options.persistenceVersion,
+          },
         })
       }
       document = yield* migration.migrate(document)
@@ -1416,6 +1621,7 @@ const migrateCheckpoint = (
             new MigrationError({
               instanceId: options.instanceId,
               message: `migration ${migration.from} -> ${migration.to} returned an invalid document: ${String(error)}`,
+              cause: error,
             }),
         ),
       )
@@ -1437,6 +1643,7 @@ const migrateCheckpoint = (
           new MigrationError({
             instanceId: options.instanceId,
             message: error.message,
+            cause: error,
           }),
       ),
     )
@@ -1447,14 +1654,85 @@ const migrateCheckpoint = (
           new MigrationError({
             instanceId: options.instanceId,
             message: `final migration document is invalid: ${String(error)}`,
+            cause: error,
           }),
       ),
     )
     yield* store.commitMigration(options.instanceId, revision(checkpoint.revision), migrated)
     return migratedCheckpoint
-  })
+  },
+)
 
-/** Starts an absent durable instance or resumes its compatible checkpoint. */
+/**
+ * Starts an absent durable machine instance or resumes its compatible checkpoint.
+ *
+ * **When to use**
+ *
+ * Use when machine state, absolute timer deadlines, event dispatch, and Schema-encoded activity
+ * outcomes must survive the lifetime of one process. Use `Machine.run` for process-local execution.
+ *
+ * **Details**
+ *
+ * The returned Effect requires a {@link Store} and a Scope. It atomically initializes a missing
+ * instance, or loads and validates an existing checkpoint without calling the initializer again.
+ * Scoped workers serialize machine messages, lease activities concurrently, renew live claims,
+ * and publish committed snapshots through the returned {@link Handle}.
+ *
+ * **Gotchas**
+ *
+ * The input is ignored when resuming an existing instance. A persistence-version change needs a
+ * complete migration path. Invoked Effects are delivered at least once until their encoded outcome
+ * commits, so external side effects must use their stable execution key for idempotency. Invoked
+ * child machines are not supported by the initial durable interpreter.
+ *
+ * **Example** (Running an idempotent durable transition)
+ *
+ * ```ts
+ * import * as Effect from "effect/Effect"
+ * import * as Schema from "effect/Schema"
+ * import * as Durable from "effect-state-machine/Durable"
+ * import * as Machine from "effect-state-machine/Machine"
+ *
+ * const State = Machine.taggedUnion({
+ *   Waiting: { fields: { value: Schema.String } },
+ *   Done: { fields: { value: Schema.String } },
+ * })
+ * const Event = Machine.taggedUnion({
+ *   Finish: { fields: {} },
+ * })
+ * const machine = Machine.builder({ input: Schema.String, state: State, event: Event })
+ * const definition = machine.define(
+ *   { id: "durable-greeting", initial: (value) => ({ _tag: "Waiting", value }) },
+ *   {
+ *     Waiting: machine.state({
+ *       Finish: {
+ *         target: "Done",
+ *         reduce: ({ state }) => ({ value: state.value }),
+ *       },
+ *     }),
+ *     Done: machine.final(),
+ *   },
+ * )
+ *
+ * const program = Effect.scoped(
+ *   Effect.gen(function* () {
+ *     const store = yield* Durable.makeMemoryStore()
+ *     const handle = yield* Durable.run(definition, "hello", {
+ *       instanceId: Durable.instanceId("greeting:ada"),
+ *       persistenceVersion: Durable.persistenceVersion("1"),
+ *     }).pipe(Effect.provideService(Durable.Store, store))
+ *
+ *     yield* handle.send({ _tag: "Finish" }, { idempotencyKey: "finish:request-1" })
+ *     return yield* handle.completion
+ *   }),
+ * )
+ * ```
+ *
+ * @see {@link Handle} for snapshots, event dispatch, and completion.
+ * @see {@link Store} for providing an adapter to the runner.
+ * @category running
+ * @since 0.2.0
+ */
 export const run = <Definition extends DurableDefinition>(
   definition: Definition,
   input: Machine.MachineInput<Definition>,
@@ -1500,32 +1778,30 @@ export const run = <Definition extends DurableDefinition>(
     const completion = yield* Deferred.make<Machine.MachineCompletion<Definition>, DurableError>()
     let liveCause: Cause.Cause<never> | undefined
 
-    const publishCheckpoint = (
+    const publishCheckpoint: (
       checkpoint: Checkpoint,
-    ): Effect.Effect<void, DurableError, unknown> =>
-      Effect.gen(function* () {
-        const decoded = yield* decodeJson<Machine.MachineState<Definition>>(
-          definition.schemas.state,
-          checkpoint.state,
-          "decode committed state",
+    ) => Effect.Effect<void, DurableError, unknown> = Effect.fnUntraced(function* (checkpoint) {
+      const decoded = yield* decodeJson<Machine.MachineState<Definition>>(
+        definition.schemas.state,
+        checkpoint.state,
+        "decode committed state",
+      )
+      yield* SubscriptionRef.set(stateRef, decoded)
+      yield* SubscriptionRef.set(statusRef, checkpoint.status)
+      if (checkpoint.status === "completed") {
+        yield* Deferred.succeed(completion, decoded as Machine.MachineCompletion<Definition>)
+      } else if (checkpoint.status === "defected") {
+        yield* Deferred.fail(
+          completion,
+          new DurableInstanceDefect({
+            instanceId: options.instanceId,
+            defect:
+              checkpoint.defect ?? defectSummary("unknown", new Error("durable instance defected")),
+            ...(liveCause === undefined ? {} : { cause: liveCause }),
+          }),
         )
-        yield* SubscriptionRef.set(stateRef, decoded)
-        yield* SubscriptionRef.set(statusRef, checkpoint.status)
-        if (checkpoint.status === "completed") {
-          yield* Deferred.succeed(completion, decoded as Machine.MachineCompletion<Definition>)
-        } else if (checkpoint.status === "defected") {
-          yield* Deferred.fail(
-            completion,
-            new DurableInstanceDefect({
-              instanceId: options.instanceId,
-              defect:
-                checkpoint.defect ??
-                defectSummary("unknown", new Error("durable instance defected")),
-              ...(liveCause === undefined ? {} : { cause: liveCause }),
-            }),
-          )
-        }
-      })
+      }
+    })
 
     yield* publishCheckpoint(initialCheckpoint)
     const machineWorker = workerId("machine", options.instanceId)
@@ -1568,8 +1844,8 @@ export const run = <Definition extends DurableDefinition>(
       while (worked) worked = yield* processMachineOnce
     })
 
-    const processActivityOnce = (activityWorker: string) =>
-      Effect.gen(function* () {
+    const processActivityOnce = Effect.fnUntraced(function* (activityWorker: string) {
+      return yield* Effect.gen(function* () {
         const claimed = yield* store.claimActivity(
           options.instanceId,
           activityWorker,
@@ -1604,6 +1880,7 @@ export const run = <Definition extends DurableDefinition>(
         yield* drainMachine
         return true
       }).pipe(Effect.catchTag("LeaseLost", () => Effect.succeed(true)))
+    })
 
     const loop = (step: Effect.Effect<boolean, DurableError, unknown>) =>
       Effect.forever(
@@ -1645,33 +1922,30 @@ export const run = <Definition extends DurableDefinition>(
       if (Option.isSome(latest)) yield* publishCheckpoint(latest.value)
     })
 
-    const can = (event: Machine.MachineEvent<Definition>) =>
-      Effect.gen(function* () {
-        yield* sync
-        const state = yield* SubscriptionRef.get(stateRef)
-        const node = nodes.get((state as Tagged)._tag)
-        if (node?.kind === "regions") {
-          const region = Machine._durableRuntime.planRegionEvent(
-            node,
-            state as Tagged,
-            event as Tagged,
-          )
-          if (region !== undefined) return true
-        }
-        return (
-          Machine._durableRuntime.planEvent(
-            node?.on?.[(event as Tagged)._tag],
-            state as Tagged,
-            event as Tagged,
-          ) !== undefined
-        )
-      })
+    const can: (
+      event: Machine.MachineEvent<Definition>,
+    ) => Effect.Effect<boolean, DurableError, unknown> = Effect.fnUntraced(function* (event) {
+      yield* sync
+      const state = yield* SubscriptionRef.get(stateRef)
+      const node = nodes.get((state as Tagged)._tag)
+      if (node?.kind === "regions") {
+        const region = MachinePlan.planRegionEvent(node, state as Tagged, event as Tagged)
+        if (region !== undefined) return true
+      }
+      return (
+        MachinePlan.planEvent(
+          node?.on?.[(event as Tagged)._tag],
+          state as Tagged,
+          event as Tagged,
+        ) !== undefined
+      )
+    })
 
-    const send = (
+    const send: (
       event: Machine.MachineEvent<Definition>,
       sendOptions: Readonly<{ idempotencyKey: string }>,
-    ) =>
-      Effect.gen(function* () {
+    ) => Effect.Effect<void, DurableError, unknown> = Effect.fnUntraced(
+      function* (event, sendOptions) {
         const encoded = yield* encodeJson(definition.schemas.event, event, "encode event")
         const now = yield* store.now
         const id = deriveMessageId(
@@ -1689,6 +1963,7 @@ export const run = <Definition extends DurableDefinition>(
           payloadFingerprint: canonicalJson(encoded),
           event: encoded,
         }
+        yield* validateEnvelope(MachineMessage, message, "validate offered message")
         yield* store.offer({
           instanceId: options.instanceId,
           idempotencyKey: sendOptions.idempotencyKey,
@@ -1708,7 +1983,8 @@ export const run = <Definition extends DurableDefinition>(
             defect: defect ?? defectSummary("protocol", new Error(result.reason)),
           })
         }
-      })
+      },
+    )
 
     return {
       instanceId: options.instanceId,

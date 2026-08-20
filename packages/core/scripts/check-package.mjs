@@ -33,6 +33,9 @@ try {
 
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   assert.equal(manifest.publishConfig.exports["./Source"], undefined, "Source must stay private")
+  assert.equal(manifest.publishConfig.exports["./DurableProtocol"], undefined)
+  assert.equal(manifest.publishConfig.exports["./MachinePlan"], undefined)
+  assert.doesNotMatch(await readFile(join(root, "dist/Machine.d.ts"), "utf8"), /_durableRuntime/)
   const packedFiles = new Set(contents.split("\n"))
   for (const [subpath, entry] of Object.entries(manifest.publishConfig.exports)) {
     if (typeof entry === "string") continue
@@ -84,12 +87,20 @@ try {
   )
   await writeFile(
     join(consumer, "core.ts"),
-    `import { Context, Effect, Layer, Schema } from "effect"
+    `// Intentional aggregate-import smoke test for the published root contracts.
+import { Context, Effect, Layer, Schema } from "effect"
 import * as Machine from "effect-state-machine/Machine"
 import * as Durable from "effect-state-machine/Durable"
 
 // @ts-expect-error Source is internal and must not resolve through the export map
 import type * as PrivateSource from "effect-state-machine/Source"
+// @ts-expect-error DurableProtocol is an implementation leaf, not a public subpath
+import type * as PrivateDurableProtocol from "effect-state-machine/DurableProtocol"
+// @ts-expect-error MachinePlan is an implementation leaf, not a public subpath
+import type * as PrivateMachinePlan from "effect-state-machine/MachinePlan"
+
+// @ts-expect-error the shared planner is package-private
+Machine._durableRuntime
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,

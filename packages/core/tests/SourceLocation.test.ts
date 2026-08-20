@@ -103,4 +103,12 @@ describe("SourceLocation", () => {
       `editor://${location.line}:${location.column}`
     assert.strictEqual(custom(source), "editor://12:7")
   })
+
+  it("creates deterministic editor links for malformed UTF-16 paths", () => {
+    const source = { file: "/workspace/bad\ud800 file.ts", line: 1, column: 2 }
+    assert.strictEqual(
+      SourceLocation.vscode(source),
+      "vscode://file/workspace/bad%EF%BF%BD%20file.ts:1:2",
+    )
+  })
 })

@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Option from "effect/Option"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
 import { TestClock } from "effect/testing"
@@ -217,6 +218,12 @@ describe("Durable runner", () => {
         ),
       )
       assert.strictEqual(error._tag, "CompatibilityError")
+      if (error._tag !== "CompatibilityError") return
+      assert.deepStrictEqual(error.reason, {
+        _tag: "MissingMigration",
+        from: Durable.persistenceVersion("1"),
+        target: Durable.persistenceVersion("2"),
+      })
     }),
   )
 
@@ -540,6 +547,7 @@ describe("Durable runner", () => {
         },
       )
       const store = yield* Durable.makeMemoryStore()
+      const defectId = Durable.instanceId("defect")
 
       yield* Effect.scoped(
         Effect.gen(function* () {
@@ -547,7 +555,7 @@ describe("Durable runner", () => {
             definition,
             {},
             {
-              instanceId: Durable.instanceId("defect"),
+              instanceId: defectId,
               persistenceVersion: Durable.persistenceVersion("1"),
             },
           ).pipe(Effect.provideService(Durable.Store, store))
@@ -561,6 +569,8 @@ describe("Durable runner", () => {
           )
         }),
       )
+      assert.strictEqual(Option.isNone(yield* store.claimMachine(defectId, "late", 100)), true)
+      assert.strictEqual(Option.isNone(yield* store.claimActivity(defectId, "late", 100)), true)
     }),
   )
 

@@ -153,6 +153,17 @@ const successStore = Layer.succeed(
 )
 
 describe("scoped child machines", () => {
+  it("constructs stable total definition paths for well-formed and malformed names", () => {
+    assert.strictEqual(
+      Machine.DefinitionPath.child(Machine.DefinitionPath.root, "Resolving state", "work/item"),
+      "root/Resolving%20state:work%2Fitem",
+    )
+    assert.strictEqual(
+      Machine.DefinitionPath.child(Machine.DefinitionPath.root, "state\ud800", "work\udc00"),
+      "root/state%EF%BF%BD:work%EF%BF%BD",
+    )
+  })
+
   it.effect("addresses a child through the root tree and retains causal actor history", () =>
     Effect.gen(function* () {
       const handle = yield* Machine.run(definition, { documentId: "tree" }).pipe(

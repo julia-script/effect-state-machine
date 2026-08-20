@@ -1,5 +1,7 @@
 /** Compile-time rejection evidence for the throwaway public API prototype. */
-import { Effect, Schedule, Schema } from "effect"
+import * as Effect from "effect/Effect"
+import type * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
 import { Machine } from "./machine"
 
 const Input = Schema.Struct({})

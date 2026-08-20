@@ -184,7 +184,7 @@ Entering a final state SHALL atomically persist the final encoded state and comp
 
 ### Requirement: Store adapters share one behavioral contract
 
-The durable execution module SHALL publish a store interface, an in-memory adapter suitable for deterministic tests, and a reusable conformance suite covering idempotency, delayed visibility, leasing, fencing, optimistic revision checks, and atomic commits. Every adapter advertised as a durable store MUST pass that suite without exposing its database, queue, or transaction mechanism to machine definitions.
+The durable execution module SHALL publish a store interface, an in-memory adapter suitable for deterministic tests, and one reusable framework-neutral conformance corpus covering every behavior required by the bundled adapter: instance creation and terminal rejection, payload-sensitive idempotency and duplicate observation, delayed visibility and ordering, machine serialization, activity concurrency, claim expiry, renewal and release, fencing, optimistic revision checks, both atomic commit forms, execution tombstones, and migration-document replacement. The bundled in-memory adapter and every adapter advertised as a durable store MUST run the same public corpus without exposing its database, queue, or transaction mechanism to machine definitions.
 
 #### Scenario: Adapter combines independent infrastructure
 
@@ -193,8 +193,23 @@ The durable execution module SHALL publish a store interface, an in-memory adapt
 
 #### Scenario: In-memory adapter is tested with virtual time
 
-- **WHEN** a test advances its supplied clock across a delayed message deadline
-- **THEN** the in-memory adapter exposes the same eligibility and claim behavior required of production adapters
+- **WHEN** a test advances its supplied clock across a delayed message or lease deadline
+- **THEN** the public conformance corpus observes the same eligibility, renewal, expiry, and fencing behavior required of production adapters
+
+#### Scenario: Third-party adapter uses the published corpus
+
+- **WHEN** an adapter author supplies a Store factory to every exported conformance case
+- **THEN** the adapter is checked against the complete behavior corpus used by the bundled in-memory adapter
+
+#### Scenario: Completed instance receives an offer
+
+- **WHEN** the conformance corpus offers a new keyed event to a completed instance
+- **THEN** it verifies rejection without creating a message or replacing the existing dispatch result
+
+#### Scenario: Activity completion is repeated
+
+- **WHEN** the conformance corpus repeats or supersedes an activity completion attempt
+- **THEN** it verifies fencing, single outcome publication, and execution tombstone retention
 
 ### Requirement: Durable definitions reject unsupported child machines
 
@@ -218,3 +233,98 @@ The existing scoped `Machine.run` interface SHALL continue to execute without a 
 
 - **WHEN** an existing consumer uses `Machine.run` without importing the durable module
 - **THEN** its handle and process-local execution semantics remain compatible with the pre-change behavior
+
+### Requirement: Durable activity exit classification preserves Cause semantics
+
+An activity worker SHALL route only a terminal Cause containing typed failure values and no defects or interruptions through the authored allowed-failure Schema. A Cause containing interruption MUST leave the activity outcome uncommitted so the same command can be redelivered with its stable execution key. A Cause containing a defect MUST be represented as a durable defect outcome and MUST NOT be reduced as an authored failure, including when the Cause also contains a typed failure.
+
+#### Scenario: Activity fails only in the typed channel
+
+- **WHEN** an activity terminates with a typed failure and no defect or interruption
+- **THEN** the worker encodes that failure with the declared error Schema and publishes a failure outcome
+
+#### Scenario: Activity is interrupted by scope shutdown
+
+- **WHEN** an activity worker is interrupted before its outcome commit succeeds
+- **THEN** it does not acknowledge the activity or publish a failure or defect outcome, and the command remains eligible for redelivery
+
+#### Scenario: Parallel activity has a compound failure and defect
+
+- **WHEN** an activity terminates with a Cause containing both a typed failure and a defect
+- **THEN** the durable instance observes a defect outcome and does not select the authored failure transition
+
+### Requirement: Terminal checkpoints isolate owned durable work
+
+A checkpoint committed as completed or defected SHALL atomically make all timers, activity commands, aggregate progress, and queued outcomes owned by its former active entry ineligible. No later delivery from that entry MAY advance, revive, or otherwise update the terminal instance.
+
+#### Scenario: Another lane finishes after a defect
+
+- **WHEN** one aggregate lane defects the instance while another activity for the same entry is still running
+- **THEN** the other activity cannot publish an applicable outcome or advance the defected checkpoint
+
+#### Scenario: Terminal instance is polled
+
+- **WHEN** machine and activity workers poll an instance whose authoritative checkpoint is completed or defected
+- **THEN** the store returns no claim for work owned by that instance
+
+#### Scenario: Already claimed outcome arrives after termination
+
+- **WHEN** a delivery that was claimed before termination attempts to commit afterward
+- **THEN** fencing or terminal-state validation rejects it without changing the terminal checkpoint
+
+### Requirement: Every durable envelope is validated at the persistence boundary
+
+Every checkpoint, machine message, activity command, activity outcome, dispatch record, and migration document passed to a Store SHALL conform to its published Schema and the canonical JSON-compatible persisted-value representation. A decoded application value MUST NOT be substituted for its encoded representation by assertion or fallback. Validation failure SHALL produce a typed durable encoding error before any delivery is acknowledged or checkpoint revision advances.
+
+#### Scenario: Transformed state encodes a region differently
+
+- **WHEN** a state Schema decodes a rich runtime value but encodes its region slot into a different persisted representation
+- **THEN** the activity command contains only the encoded slot derived from the persisted parent state
+
+#### Scenario: Encoded parent omits an active region slot
+
+- **WHEN** entry planning cannot locate a required region slot in the Schema-encoded parent state
+- **THEN** planning fails with a typed durable encoding error and no command or checkpoint is committed
+
+#### Scenario: Activity outcome envelope is not canonical JSON
+
+- **WHEN** a constructed activity outcome fails its published Schema or canonical JSON validation
+- **THEN** the activity delivery remains unacknowledged and no invalid outcome message is offered
+
+### Requirement: Compatibility failures identify the mismatched dimension
+
+A checkpoint compatibility failure SHALL expose a machine-readable reason that distinguishes checkpoint-format mismatch, definition-identity mismatch, persistence-version mismatch, and missing migration path. Each reason SHALL carry fields specific to that dimension. Boundary errors MAY retain an opaque live cause for diagnostics, but persisted defect summaries MUST remain sanitized and restart-safe.
+
+#### Scenario: Checkpoint format is unsupported
+
+- **WHEN** resume loads a checkpoint with an unsupported format version
+- **THEN** it fails with a format-mismatch reason containing the supported and stored format versions
+
+#### Scenario: Definition identity differs
+
+- **WHEN** resume loads a checkpoint written for another machine definition
+- **THEN** it fails with a definition-mismatch reason containing both definition identities
+
+#### Scenario: Migration path is incomplete
+
+- **WHEN** the stored persistence version differs and no migration continues the path to the requested version
+- **THEN** it fails with a missing-migration reason containing the current and target persistence versions
+
+#### Scenario: Adapter wraps an external failure
+
+- **WHEN** a Store adapter translates a database or queue failure into the durable error channel
+- **THEN** the semantic operation fields remain branchable and the live error may retain the original failure as an opaque cause
+
+### Requirement: Durable identities are total for caller and author strings
+
+Durable identity derivation SHALL return a deterministic identity for every JavaScript string accepted by the public identity and definition APIs, including strings containing malformed UTF-16. It MUST NOT synchronously throw from URI encoding, and distinct well-formed identity components MUST remain distinguishable.
+
+#### Scenario: Instance identity contains an unpaired surrogate
+
+- **WHEN** a caller derives durable entry, message, or execution keys from an instance ID containing an unpaired surrogate
+- **THEN** each helper returns a deterministic branded identity without throwing
+
+#### Scenario: Durable region key overlaps the object prototype
+
+- **WHEN** a durable machine enters a region slot named `__proto__`
+- **THEN** its checkpoint records the exact slot as own data without changing any record prototype

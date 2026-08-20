@@ -19,8 +19,11 @@ pnpm add effect-state-machine effect
 ## Quick start
 
 ```ts
-import { Context, Effect, Layer, Schema } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as Machine from "effect-state-machine/Machine"
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,
@@ -86,7 +89,7 @@ checkpoint, serialized machine mailbox, absolute timer deadlines, concurrent act
 leases, fences, and idempotency records as one atomic service:
 
 ```ts
-import { Effect } from "effect"
+import * as Effect from "effect/Effect"
 import * as Durable from "effect-state-machine/Durable"
 
 const store = yield* Durable.makeMemoryStore()
@@ -122,19 +125,29 @@ effect: (state, metadata) =>
 
 The library makes the activity command and outcome durable, but cannot promise exactly-once
 external side effects. Operational `Effect.Schedule` retry progress may restart after process loss;
-the execution key does not change.
+the execution key does not change. Scope closure, owner exit, and lease loss interrupt local work
+without encoding interruption as an authored failure or durable defect, leaving an uncommitted
+command eligible for fenced redelivery.
 
 Production adapters implement `Durable.Store` and should register every framework-neutral case
-returned by `Durable.storeConformance`. Adapter transactions must preserve atomic create, offer,
-machine commit, activity completion, and migration replacement; use store-authoritative time,
-retain idempotency tombstones for the instance lifetime, and reject expired or superseded fences.
+returned by `Durable.storeConformance`, constructing an isolated Store for each case. The exported
+corpus is the same contract used to certify the bundled in-memory adapter and must be run in full.
+Adapter transactions must preserve atomic create, offer, machine commit, activity completion, and
+migration replacement; use store-authoritative time, retain idempotency tombstones for the instance
+lifetime, and reject expired or superseded fences.
+
+Pre-release compatibility note: `CompatibilityError` now exposes `instanceId` and a tagged
+`reason` instead of top-level `expected`/`actual` strings. Existing recovery code should switch on
+`error.reason._tag` (`CheckpointFormatMismatch`, `DefinitionMismatch`,
+`PersistenceVersionMismatch`, or `MissingMigration`) and then read that reason's specific fields.
 
 ## Read-only graph
 
 Tooling is an opt-in entry point, not loaded by the core import:
 
 ```ts
-import { Graph, Mermaid } from "effect-state-machine/devtools"
+import * as Graph from "effect-state-machine/Graph"
+import * as Mermaid from "effect-state-machine/Mermaid"
 
 const graph = Graph.fromDefinition(definition)
 const mermaid = Mermaid.render(graph)

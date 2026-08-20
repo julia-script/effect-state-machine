@@ -17,6 +17,30 @@ const definition = (states: Readonly<Record<string, unknown>>): Machine.Definiti
 })
 
 describe("Durable", () => {
+  it("derives stable total identities for well-formed and malformed strings", () => {
+    const instance = Durable.instanceId("acme:1")
+    const entry = Durable.deriveEntryId(instance, Durable.revision(2), "Active/slot")
+    assert.strictEqual(entry, "acme%3A1:2:Active%2Fslot")
+    assert.strictEqual(
+      Durable.deriveMessageId(instance, Durable.revision(2), "Active/slot", "timer one"),
+      "acme%3A1:2:Active%2Fslot:timer%20one",
+    )
+    assert.strictEqual(
+      Durable.deriveExecutionKey(instance, entry, "Active/slot", "work", "lane"),
+      "acme%3A1:acme%253A1%3A2%3AActive%252Fslot:Active%2Fslot:work:lane",
+    )
+
+    const malformed = Durable.instanceId("instance\ud800")
+    assert.strictEqual(
+      Durable.deriveEntryId(malformed, Durable.revision(0), "state\udc00"),
+      "instance%EF%BF%BD:0:state%EF%BF%BD",
+    )
+    assert.strictEqual(
+      Durable.deriveMessageId(malformed, Durable.revision(0), "state\udc00", "timer\ud800"),
+      "instance%EF%BF%BD:0:state%EF%BF%BD:timer%EF%BF%BD",
+    )
+  })
+
   it.effect("accepts state, invoke, regions, and final nodes", () =>
     Durable.validateDefinition(
       definition({

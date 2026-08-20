@@ -4,7 +4,11 @@
  * This definition is compile-checked to evaluate authoring ergonomics. It is
  * not the production machine implementation.
  */
-import { Context, Effect, Schedule, Schema, type Stream } from "effect"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Schedule from "effect/Schedule"
+import * as Schema from "effect/Schema"
+import type * as Stream from "effect/Stream"
 import {
   type InspectionEvent,
   Machine,
