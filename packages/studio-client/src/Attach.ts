@@ -2,7 +2,7 @@ import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
-import * as Schema from "effect/Schema"
+import type * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { Machine } from "effect-state-machine"
@@ -45,7 +45,7 @@ export type QuickEvent<Event> =
  */
 export interface AttachOptions<State extends Tagged, Event extends Tagged> {
   readonly definition: Machine.DefinitionMetadata
-  readonly handle: Machine.MachineHandle<State, Event, State>
+  readonly handle: Machine.MachineHandle<State, Event, State, unknown>
   readonly quickEvents?: ReadonlyArray<QuickEvent<NoInfer<Event>>>
   readonly quickEventsByDefinition?: Readonly<Record<string, ReadonlyArray<QuickEvent<Tagged>>>>
   /**
@@ -251,44 +251,13 @@ export const attach = <State extends Tagged, Event extends Tagged>(
           if (metadata._tag !== "EventReceived" || record.body.event === undefined) {
             return Effect.succeed({ _tag: "Inspection", event: metadata })
           }
-          let details: unknown
-          try {
-            // Definition metadata erases codec services at the devtools serialization boundary.
-            details = Schema.encodeUnknownSync(
-              definition.schemas.event as unknown as Schema.Codec<unknown>,
-            )(record.body.event)
-          } catch {
-            details = undefined
-          }
           return Effect.succeed({
             _tag: "Inspection",
-            event: { ...metadata, ...(details === undefined ? {} : { details }) },
+            event: { ...metadata, details: record.body.event },
           })
         }
-        case "StateSnapshot": {
-          const stateSnapshot = record.body.state
-          // Definition metadata erases codec services at the devtools serialization boundary.
-          return Schema.encodeUnknownEffect(
-            definition.schemas.state as unknown as Schema.Codec<unknown>,
-          )(stateSnapshot).pipe(
-            Effect.match({
-              onFailure: (cause): Protocol.FactBodyMessage => ({
-                _tag: "StateEncodingFailed",
-                stateTag:
-                  typeof stateSnapshot === "object" &&
-                  stateSnapshot !== null &&
-                  "_tag" in stateSnapshot
-                    ? String(stateSnapshot._tag)
-                    : "unknown",
-                message: String(cause),
-              }),
-              onSuccess: (state): Protocol.FactBodyMessage => ({
-                _tag: "StateCommitted",
-                state,
-              }),
-            }),
-          )
-        }
+        case "StateSnapshot":
+          return Effect.succeed({ _tag: "StateCommitted", state: record.body.state })
       }
     }
 

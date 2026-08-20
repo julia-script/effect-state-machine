@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,
@@ -47,6 +48,7 @@ const greeting = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = greeting.define(
   {
     id: "greeting",
+    idempotencyKey: (input) => input.name,
     initial: (input) => ({ _tag: "Loading", name: input.name }),
   },
   {
@@ -70,36 +72,29 @@ const GreeterLive = Layer.succeed(
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const machine = yield* Machine.run(definition, { name: "Effect" })
+    const machine = yield* definition.run({ name: "Effect" })
     return yield* machine.completion
   }),
-).pipe(Effect.provide(GreeterLive))
+).pipe(Effect.provide(GreeterLive), Effect.provide(MachineEngine.layerMemory()))
 
 const result = await Effect.runPromise(program)
 ```
 
-`Machine.run` infers `Greeter` from the definition; any test, server, or browser application can
+`definition.run` infers `Greeter` from the definition; any test, server, or browser application can
 provide a different Layer without changing the machine. The handle exposes `snapshot`, `changes`,
 `send`, `can`, `completion`, and a metadata-only `inspection` stream.
 
-## Durable execution
+## Restart-capable execution
 
-`Durable.run` starts an absent instance or resumes its encoded checkpoint. The store owns the
-checkpoint, serialized machine mailbox, absolute timer deadlines, concurrent activity queue,
-leases, fences, and idempotency records as one atomic service:
+Every definition runs through `MachineEngine`. The definition derives its stable identity from its
+own `id` and `idempotencyKey`; the supplied `MachineStore` owns the complete revisioned aggregate:
 
 ```ts
 import * as Effect from "effect/Effect"
-import * as Durable from "effect-state-machine/Durable"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
-const store = yield* Durable.makeMemoryStore()
-const options = {
-  instanceId: Durable.instanceId("greeting:ada"),
-  persistenceVersion: Durable.persistenceVersion("1"),
-}
-
-const handle = yield* Durable.run(definition, { name: "Ada" }, options).pipe(
-  Effect.provideService(Durable.Store, store),
+const handle = yield* definition.run({ name: "Ada" }).pipe(
+  Effect.provide(MachineEngine.layerMemory()),
 )
 
 yield* handle.send({ _tag: "Cancel" }, { idempotencyKey: "cancel-request-42" })
@@ -112,13 +107,13 @@ newer events. Stay updates preserve the entry and deadline, while explicit self-
 a new entry and timer.
 
 Invoked work is delivered at least once until its encoded outcome is committed. Every invocation
-receives `metadata.executionKey`; pass that key to Effect Workflow, an external task queue, or your
+receives a required `WorkExecution`; pass `execution.id` to Effect Workflow, an external task queue, or your
 own idempotency table when the side effect itself must be durable:
 
 ```ts
-effect: (state, metadata) =>
+effect: (state, execution) =>
   ExternalTasks.submit({
-    idempotencyKey: metadata?.executionKey ?? "missing-key",
+    idempotencyKey: execution.id,
     payload: state.request,
   })
 ```
@@ -129,17 +124,9 @@ the execution key does not change. Scope closure, owner exit, and lease loss int
 without encoding interruption as an authored failure or durable defect, leaving an uncommitted
 command eligible for fenced redelivery.
 
-Production adapters implement `Durable.Store` and should register every framework-neutral case
-returned by `Durable.storeConformance`, constructing an isolated Store for each case. The exported
-corpus is the same contract used to certify the bundled in-memory adapter and must be run in full.
-Adapter transactions must preserve atomic create, offer, machine commit, activity completion, and
-migration replacement; use store-authoritative time, retain idempotency tombstones for the instance
-lifetime, and reject expired or superseded fences.
-
-Pre-release compatibility note: `CompatibilityError` now exposes `instanceId` and a tagged
-`reason` instead of top-level `expected`/`actual` strings. Existing recovery code should switch on
-`error.reason._tag` (`CheckpointFormatMismatch`, `DefinitionMismatch`,
-`PersistenceVersionMismatch`, or `MissingMigration`) and then read that reason's specific fields.
+Production adapters implement the minimal `MachineStore` load/time/compare-and-set contract and
+run `MachineStoreConformance`. Queueing, claims, timers, fencing, activities, migrations, and child
+machines remain engine behavior and are covered by `MachineEngineConformance`.
 
 ## Read-only graph
 

@@ -2,7 +2,8 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
-import { Machine } from "effect-state-machine"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import { createRoot } from "react-dom/client"
 import { Studio } from "../src/index.js"
 
@@ -40,7 +41,9 @@ const definition = runner.define(
 
 const scope = Effect.runSync(Scope.make())
 const handle = Effect.runSync(
-  Machine.run(definition, {}).pipe(Effect.provideService(Scope.Scope, scope)),
+  definition
+    .run({})
+    .pipe(Effect.provideService(Scope.Scope, scope), Effect.provide(MachineEngine.layerMemory())),
 )
 const rootElement = document.getElementById("root")
 if (rootElement === null) throw new Error("example root element is missing")

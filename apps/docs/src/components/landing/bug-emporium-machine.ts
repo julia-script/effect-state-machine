@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
 import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 class PaymentDeclined extends Schema.TaggedError<PaymentDeclined>()("PaymentDeclined", {
   message: Schema.String,
@@ -47,6 +48,7 @@ export type EmporiumEvent = typeof Event.Type
 export const emporiumDefinition = checkout.define(
   {
     id: "checkout",
+    idempotencyKey: () => "checkout",
     description: "A checkout flow with expected payment failure and retry.",
     initial: () => ({ _tag: "Browsing", items: 0 }),
   },
@@ -138,7 +140,9 @@ const OrdersLive = Layer.effect(
   }),
 )
 
-export const emporiumStart = Machine.run(emporiumDefinition, {}).pipe(Effect.provide(OrdersLive))
+export const emporiumStart = emporiumDefinition
+  .run({})
+  .pipe(Effect.provide(OrdersLive), Effect.provide(MachineEngine.layerMemory()))
 
 export interface Product {
   readonly sku: string

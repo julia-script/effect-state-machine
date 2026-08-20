@@ -93,6 +93,7 @@ const conflict = Machine.builder({
 export const ConflictResolution = conflict.define(
   {
     id: "local-first-conflict-resolution",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "An interactive, state-owned conflict-resolution protocol.",
     initial: (input) => ({
       _tag: "ChoosingResolution",
@@ -236,6 +237,7 @@ const document = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = document.define(
   {
     id: "local-first-document",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A headless single-document local-first editing and synchronization session.",
     initial: (input) => ({ _tag: "Opening", documentId: input.documentId }),
   },

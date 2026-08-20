@@ -8,7 +8,7 @@ package). `packages/core` is the reference implementation of these rules.
 One module per concept, named after its singular subject (`Machine.ts`,
 `Graph.ts`, `Mermaid.ts`, `SourceLocation.ts`). Each module holds the concept's
 data type and sibling functions that take that value as their first parameter
-(`Graph.focus(graph, …)`, `Machine.run(definition, …)`). Barrels (`src/index.ts`,
+(`Graph.focus(graph, …)`, `definition.run(input)`). Barrels (`src/index.ts`,
 `src/devtools.ts`) only re-export namespaces (`export * as Graph from
 "./Graph.js"`). No `utils.ts`/`helpers.ts` god-modules, no class-per-entity. A
 new concept means a new module plus one barrel line.
@@ -27,11 +27,11 @@ import { Effect } from "effect"
 import { Machine } from "effect-state-machine"
 ```
 
-`effect-state-machine` publicly exports `.`, `./devtools`, `./Machine`, `./Durable`,
-`./Graph`, `./Mermaid`, and `./SourceLocation` — mirrored in `publishConfig`
-and verified by `check-package.mjs`. `Source` is internal; adding a public
-module means adding it to both export maps. Never import another package's
-private implementation files (`dist/internal/...`).
+`effect-state-machine` publicly exports `.`, `./devtools`, `./Machine`, `./MachineEngine`,
+`./MachineStore`, `./LocalStorageMachineStore`, `./MachineWorkflow`, `./Graph`, `./Mermaid`, and
+`./SourceLocation` — mirrored in `publishConfig` and verified by `check-package.mjs`. `Source` and
+the runtime protocol modules are internal; adding a public module means adding it to both export
+maps. Never import another package's private implementation files (`dist/internal/...`).
 
 ## Wrap external APIs in Effect
 
@@ -59,17 +59,17 @@ Use `Effect.gen` for inline one-off composition. Reusable implementations use
 `Effect.fnUntraced(function* (args) { … })`, not an arrow that merely returns
 `Effect.gen`. Use named `Effect.fn("Service.method")` only where a tracing span
 is wanted (application/service operations — not core library internals). Pin
-public or recursive signatures explicitly; `Machine.run` keeps an annotated
-arrow because its generic, self-recursive signature cannot survive generator
-inference (documented at the definition). Use `return yield*` for terminal
-effects.
+public or recursive signatures explicitly. Definition-level execution delegates to the
+`MachineEngine` service through `definition.run`; keep that public signature pinned rather than
+weakening its inferred state, event, completion, error, or service types. Use `return yield*` for
+terminal effects.
 
 ## Define services and compose layers
 
-Ordinary `Machine.run` defines no services and takes its requirements from
-invoked Effects. Durable execution deliberately defines `Durable.Store` as the single atomic
-checkpoint-and-queue seam; adapters provide its Layer and must pass the published conformance
-cases. Where other services are
+Every `definition.run(input)` explicitly requires `MachineEngine`; there is no ambient process-local
+fallback. `MachineEngine.layerMemory()` is the volatile application-edge composition for tests and
+examples. Restart-capable applications compose `MachineEngine.layer()` with a `MachineStore`
+adapter, and adapters must pass the published store conformance cases. Where other services are
 needed (studio, clients), prefer class syntax for `Context.Service` with a
 stable `"<package>/<Module>"` identifier, construct implementations with
 `Service.of`, attach `layer`/`layerNoDeps`/`layerTest` statics to the service

@@ -5,6 +5,7 @@ import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 const EmptyInput = Schema.Struct({})
 
@@ -21,6 +22,7 @@ const runner = Machine.builder({ input: EmptyInput, state: RunnerState, event: R
 export const runnerDefinition = runner.define(
   {
     id: "docs-studio-demo",
+    idempotencyKey: () => "demo",
     description: "A small repeatable machine for the embedded Studio demo.",
     initial: () => ({ _tag: "Idle" }),
   },
@@ -37,7 +39,9 @@ export const runnerDefinition = runner.define(
   },
 )
 
-export const runnerStart = Machine.run(runnerDefinition, {})
+export const runnerStart = runnerDefinition
+  .run({})
+  .pipe(Effect.provide(MachineEngine.layerMemory()))
 
 export const runnerQuickEvents = [
   { id: "start", label: "Start at 7", event: { _tag: "Start", speed: 7 } },
@@ -60,6 +64,7 @@ const counter = Machine.builder({ input: CounterInput, state: CounterState, even
 export const counterDefinition = counter.define(
   {
     id: "counter",
+    idempotencyKey: ({ initialCount }) => String(initialCount),
     description: "The counter from the first-machine tutorial.",
     initial: ({ initialCount }) => ({ _tag: "Ready", count: initialCount }),
   },
@@ -83,7 +88,9 @@ export const counterDefinition = counter.define(
   },
 )
 
-export const counterStart = Machine.run(counterDefinition, { initialCount: 1 })
+export const counterStart = counterDefinition
+  .run({ initialCount: 1 })
+  .pipe(Effect.provide(MachineEngine.layerMemory()))
 
 export const counterQuickEvents = [
   { id: "start", label: "Start counting", event: { _tag: "Start" } },
@@ -113,7 +120,11 @@ const resetClassifier = {
 } as const
 
 export const classifierDefinition = classifier.define(
-  { id: "guarded-classifier", initial: () => ({ _tag: "Ready" }) },
+  {
+    id: "guarded-classifier",
+    idempotencyKey: () => "classifier",
+    initial: () => ({ _tag: "Ready" }),
+  },
   {
     Ready: classifier.state({
       Decide: {
@@ -151,7 +162,9 @@ export const classifierDefinition = classifier.define(
   },
 )
 
-export const classifierStart = Machine.run(classifierDefinition, {})
+export const classifierStart = classifierDefinition
+  .run({})
+  .pipe(Effect.provide(MachineEngine.layerMemory()))
 
 export const classifierQuickEvents = [
   { id: "positive", label: "Decide 5", event: { _tag: "Decide", value: 5 } },
@@ -183,7 +196,7 @@ const ProfileEvent = Machine.taggedUnion({
 const profile = Machine.builder({ input: ProfileInput, state: ProfileState, event: ProfileEvent })
 
 export const profileDefinition = profile.define(
-  { id: "profile", initial: ({ id }) => ({ _tag: "Loading", id }) },
+  { id: "profile", idempotencyKey: ({ id }) => id, initial: ({ id }) => ({ _tag: "Loading", id }) },
   {
     Loading: profile.invoke(
       {
@@ -223,9 +236,9 @@ const ProfilesLive = Layer.succeed(
   }),
 )
 
-export const profileStart = Machine.run(profileDefinition, { id: "42" }).pipe(
-  Effect.provide(ProfilesLive),
-)
+export const profileStart = profileDefinition
+  .run({ id: "42" })
+  .pipe(Effect.provide(ProfilesLive), Effect.provide(MachineEngine.layerMemory()))
 
 export const profileQuickEvents = [
   { id: "cancel", label: "Cancel load", event: { _tag: "Cancel" } },
@@ -260,7 +273,11 @@ const RetryEvent = Machine.taggedUnion({
 const orders = Machine.builder({ input: EmptyInput, state: RetryState, event: RetryEvent })
 
 export const retryDefinition = orders.define(
-  { id: "retry-orders", initial: () => ({ _tag: "Ready", total: 25 }) },
+  {
+    id: "retry-orders",
+    idempotencyKey: () => "orders",
+    initial: () => ({ _tag: "Ready", total: 25 }),
+  },
   {
     Ready: orders.state({
       RunSuccess: {
@@ -323,7 +340,9 @@ const OrdersLive = Layer.effect(
   ),
 )
 
-export const retryStart = Machine.run(retryDefinition, {}).pipe(Effect.provide(OrdersLive))
+export const retryStart = retryDefinition
+  .run({})
+  .pipe(Effect.provide(OrdersLive), Effect.provide(MachineEngine.layerMemory()))
 
 export const retryQuickEvents = [
   { id: "success", label: "Retry, then succeed", event: { _tag: "RunSuccess" } },
@@ -359,6 +378,7 @@ const conflict = Machine.builder({
 const conflictDefinition = conflict.define(
   {
     id: "conflict-resolution",
+    idempotencyKey: ({ documentId }) => documentId,
     initial: ({ documentId }) => ({ _tag: "Choosing", documentId }),
   },
   {
@@ -404,6 +424,7 @@ const document = Machine.builder({
 export const childDefinition = document.define(
   {
     id: "document-session",
+    idempotencyKey: ({ documentId }) => documentId,
     initial: ({ documentId }) => ({ _tag: "Resolving", documentId }),
   },
   {
@@ -458,9 +479,9 @@ const ConflictStoreLive = Layer.succeed(
   }),
 )
 
-export const childStart = Machine.run(childDefinition, { documentId: "doc-42" }).pipe(
-  Effect.provide(ConflictStoreLive),
-)
+export const childStart = childDefinition
+  .run({ documentId: "doc-42" })
+  .pipe(Effect.provide(ConflictStoreLive), Effect.provide(MachineEngine.layerMemory()))
 
 export const childQuickEvents = [
   {
@@ -500,7 +521,11 @@ const PlayerEvent = Machine.taggedUnion({
 const player = Machine.builder({ input: EmptyInput, state: PlayerState, event: PlayerEvent })
 
 export const parallelDefinition = player.define(
-  { id: "parallel-player", initial: () => ({ _tag: "Idle" }) },
+  {
+    id: "parallel-player",
+    idempotencyKey: () => "player",
+    initial: () => ({ _tag: "Idle" }),
+  },
   {
     Idle: player.state({
       Play: {
@@ -548,7 +573,9 @@ export const parallelDefinition = player.define(
   },
 )
 
-export const parallelStart = Machine.run(parallelDefinition, {})
+export const parallelStart = parallelDefinition
+  .run({})
+  .pipe(Effect.provide(MachineEngine.layerMemory()))
 
 export const parallelQuickEvents = [
   { id: "play", label: "Play track-42", event: { _tag: "Play", trackId: "track-42" } },

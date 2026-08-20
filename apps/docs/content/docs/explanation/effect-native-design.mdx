@@ -61,9 +61,10 @@ ordinary data movement. Nested parent-state inheritance remains outside the curr
 
 ## Layers stay at the composition root
 
-`Machine.run` infers requirements from every invoked Effect, retry Schedule, and statically declared
-child. The definition records those requirements in its type without selecting an implementation.
-A test, server, or browser program supplies Layers when it runs the machine.
+`definition.run` infers requirements from every invoked Effect, retry Schedule, statically declared
+child, and the `MachineEngine` service. The definition records those requirements in its type
+without selecting an implementation. A test, server, or browser program supplies Layers when it
+runs the machine.
 
 This preserves the same substitution boundary as the rest of an Effect application. Machine
 construction does not create a global runtime, capture singleton services, or expose Promise-based
@@ -81,6 +82,24 @@ inside that lifetime, but it cannot outlive the state and later mutate a machine
 Dynamic actors and a global registry would support a broader topology, but they also introduce
 independent lifetimes, addressing, supervision, and message-routing questions. V0 uses statically
 declared child machines where composition evidence already requires them.
+
+## Persistence is an explicit engine boundary
+
+Every definition runs through `MachineEngine`. `MachineEngine.layerMemory()` composes the ordinary
+engine with a volatile `MachineStore`; persistent adapters change the lifetime and sharing of the
+aggregate, not the execution model. The engine persists encoded state, mailbox messages, activity
+delivery, idempotency records, and absolute timer deadlines.
+
+The library does not try to serialize arbitrary Effect continuations. Instead, a durable
+invocation becomes a command with a stable execution ID. This preserves the machine's ownership
+model across process loss while leaving external side-effect durability to a system designed for
+it, such as Effect Workflow. The split is explored in
+[How durable execution divides responsibility](/docs/explanation/durable-responsibility).
+
+A single persistence engine for both state transitions and every external side effect would offer
+a smaller conceptual surface, but it would also couple this library to databases, queues, and
+service-specific retry semantics. The design prefers an application-supplied `MachineStore` and an
+explicit ID that joins independently durable systems.
 
 ## Typed failure is behavior; defects terminate behavior
 
@@ -109,12 +128,14 @@ operational concerns stay inside the Effect; application behavior stays explicit
 
 ## What this design deliberately leaves out
 
-V0 does not claim durable execution, persisted machine resumption, nested parent-state hierarchy,
-dynamic actor spawning, or framework bindings beyond the React Studio. Encodable snapshots are
-useful boundary data, but they are not a record of interrupted Effects or enough information to
-replay them safely.
+V0 does not claim that arbitrary Effects become exactly-once operations. The machine engine can
+resume machine state and redeliver an invocation with the same execution ID, but the receiving
+Workflow, queue, or external API must make that effect durable and idempotent. The library also
+leaves out nested parent-state hierarchy, dynamic actor spawning, and framework bindings beyond
+the React Studio.
 
-These omissions keep the current contract aligned with Effect's existing facilities: Schema for
-data, Layer for dependencies, Scope and fibers for lifetime, Schedule for operational retry, and
-Cause for defects. Features can be added when application evidence requires new semantics rather
-than to imitate the surface area of another state-machine library.
+These boundaries keep the contract aligned with Effect's existing facilities: Schema for data,
+Layer for dependencies, Scope and fibers for process-local lifetime, Schedule for operational
+retry, Cause for defects, and Workflow for replayable external work. Features can be added when
+application evidence requires new semantics rather than to imitate the surface area of another
+state-machine library.

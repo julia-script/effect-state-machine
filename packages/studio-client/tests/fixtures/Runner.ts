@@ -17,6 +17,7 @@ const runner = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = runner.define(
   {
     id: "runner",
+    idempotencyKey: () => "fixture",
     initial: () => ({ _tag: "Idle" }),
   },
   {

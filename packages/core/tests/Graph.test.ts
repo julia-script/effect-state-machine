@@ -37,6 +37,7 @@ let initializerCalls = 0
 const definition = counter.define(
   {
     id: "counter",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A graphable counter protocol.",
     initial: (input) => {
       initializerCalls += 1

@@ -1,6 +1,6 @@
 {
   "name": "effect-state-machine",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A small code-first state-machine library built with Effect for Effect users.",
   "license": "MIT",
   "repository": {
@@ -23,7 +23,10 @@
     ".": "./src/index.ts",
     "./devtools": "./src/devtools.ts",
     "./Machine": "./src/Machine.ts",
-    "./Durable": "./src/Durable.ts",
+    "./MachineEngine": "./src/MachineEngine.ts",
+    "./MachineStore": "./src/MachineStore.ts",
+    "./LocalStorageMachineStore": "./src/LocalStorageMachineStore.ts",
+    "./MachineWorkflow": "./src/MachineWorkflow.ts",
     "./Graph": "./src/Graph.ts",
     "./Mermaid": "./src/Mermaid.ts",
     "./SourceLocation": "./src/SourceLocation.ts",
@@ -44,9 +47,21 @@
         "types": "./dist/Machine.d.ts",
         "import": "./dist/Machine.js"
       },
-      "./Durable": {
-        "types": "./dist/Durable.d.ts",
-        "import": "./dist/Durable.js"
+      "./MachineEngine": {
+        "types": "./dist/MachineEngine.d.ts",
+        "import": "./dist/MachineEngine.js"
+      },
+      "./MachineStore": {
+        "types": "./dist/MachineStore.d.ts",
+        "import": "./dist/MachineStore.js"
+      },
+      "./LocalStorageMachineStore": {
+        "types": "./dist/LocalStorageMachineStore.d.ts",
+        "import": "./dist/LocalStorageMachineStore.js"
+      },
+      "./MachineWorkflow": {
+        "types": "./dist/MachineWorkflow.d.ts",
+        "import": "./dist/MachineWorkflow.js"
       },
       "./Graph": {
         "types": "./dist/Graph.d.ts",

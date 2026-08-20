@@ -267,9 +267,9 @@ const aggregateNode = document.invokeAll("Opening", {
       description: "Load the document body.",
       success: Schema.String,
       error: DocumentUnavailable,
-      effect: (state, metadata) => {
-        const executionKey: string | undefined = metadata?.executionKey
-        void executionKey
+      effect: (state, execution) => {
+        const executionId: string = execution.id
+        void executionId
         return Effect.flatMap(Documents, (documents) => documents.open(state.documentId))
       },
     },

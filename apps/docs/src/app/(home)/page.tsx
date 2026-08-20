@@ -79,8 +79,9 @@ function HeroCode() {
           <span className="tok-com">const</span>
           {" handle = "}
           <span className="tok-key">yield*</span>
-          {" Machine.run(definition, {}).pipe(\n"}
+          {" definition.run({}).pipe(\n"}
           {"  Effect.provide(OrdersLive),\n"}
+          {"  Effect.provide(MachineEngine.layerMemory()),\n"}
           {")"}
         </code>
       </pre>
@@ -123,10 +124,10 @@ export default function HomePage() {
                 Every click below is <span className="demo-section__highlight">an event.</span>
               </h2>
               <p>
-                The Bug Emporium is an ordinary Effect app: one <code>Machine.run</code>, one{" "}
-                <code>Attach.attach</code>. Buy some bugs — get declined, retry — and Studio's map,
-                snapshot, and history follow. Click a history step to time-travel the inspector; the
-                shop never notices.
+                The Bug Emporium is an ordinary Effect app: one <code>definition.run</code>, one{" "}
+                explicit <code>MachineEngine</code> Layer, and one <code>Attach.attach</code>. Buy
+                some bugs — get declined, retry — and Studio's map, snapshot, and history follow.
+                Click a history step to time-travel the inspector; the shop never notices.
               </p>
             </div>
             <BugEmporiumDemo />
@@ -172,8 +173,10 @@ export default function HomePage() {
               </div>
               <div className="spec-card spec-card--tilt-b">
                 <span className="spec-card__kind spec-card__kind--cyan">effect</span>
-                <span className="spec-card__title">Machine.run</span>
-                <p>Scoped Effect. Requirements inferred from invoked work and children.</p>
+                <span className="spec-card__title">definition.run</span>
+                <p>
+                  Scoped Effect. The engine and invoked-work requirements remain explicit Layers.
+                </p>
               </div>
               <div className="spec-card spec-card--tilt-c">
                 <span className="spec-card__kind spec-card__kind--coral">api</span>

@@ -1,14 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
 class SaveFailed extends Schema.TaggedError<SaveFailed>()("SaveFailed", {
   message: Schema.String,
@@ -36,6 +35,7 @@ const conflict = Machine.builder({ input: ChildInput, state: ChildState, event: 
 const conflictDefinition = conflict.define(
   {
     id: "conflict-resolution",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     initial: (input) => ({ _tag: "Choosing", documentId: input.documentId }),
   },
   {
@@ -84,6 +84,7 @@ const document = Machine.builder({
 const definition = document.define(
   {
     id: "document-session",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     initial: (input) => ({ _tag: "Resolving", documentId: input.documentId }),
   },
   {
@@ -166,7 +167,7 @@ describe("scoped child machines", () => {
 
   it.effect("addresses a child through the root tree and retains causal actor history", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, { documentId: "tree" }).pipe(
+      const handle = yield* runMachine(definition, { documentId: "tree" }).pipe(
         Effect.provide(successStore),
       )
       const starts = yield* Stream.runCollect(
@@ -220,7 +221,7 @@ describe("scoped child machines", () => {
 
   it.effect("forwards declared events and routes the child's inferred final state", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, { documentId: "one" }).pipe(
+      const handle = yield* runMachine(definition, { documentId: "one" }).pipe(
         Effect.provide(successStore),
       )
 
@@ -272,23 +273,26 @@ describe("scoped child machines", () => {
 
   it.effect("interrupts the child scope before stale completion can affect the parent", () =>
     Effect.gen(function* () {
+      const started = yield* Deferred.make<void>()
       const interrupted = yield* Deferred.make<void>()
       const store = Layer.succeed(
         ConflictStore,
         ConflictStore.of({
           save: () =>
-            Effect.never.pipe(
+            Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(Effect.never),
               Effect.onInterrupt(() =>
                 Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
               ),
             ),
         }),
       )
-      const handle = yield* Machine.run(definition, { documentId: "slow" }).pipe(
+      const handle = yield* runMachine(definition, { documentId: "slow" }).pipe(
         Effect.provide(store),
       )
 
       yield* handle.send({ _tag: "Resolve", text: "pending" })
+      yield* Deferred.await(started)
       yield* handle.send({ _tag: "Cancel" })
       yield* Deferred.await(interrupted)
 
@@ -320,16 +324,20 @@ describe("scoped child machines", () => {
     Effect.gen(function* () {
       const boom = new Error("boom")
       const store = Layer.succeed(ConflictStore, ConflictStore.of({ save: () => Effect.die(boom) }))
-      const handle = yield* Machine.run(definition, { documentId: "broken" }).pipe(
+      const handle = yield* runMachine(definition, { documentId: "broken" }).pipe(
         Effect.provide(store),
       )
 
       yield* handle.send({ _tag: "Resolve", text: "broken" })
-      const exit = yield* Effect.exit(handle.completion)
-      assert.strictEqual(Exit.isFailure(exit), true)
-      if (Exit.isFailure(exit)) {
-        assert.strictEqual(Cause.squash(exit.cause), boom)
-      }
+      const error = yield* Effect.flip(handle.completion)
+      assert.strictEqual(error._tag, "MachineInstanceDefect")
+      if (error._tag !== "MachineInstanceDefect") return
+      assert.strictEqual(String(error.instanceId), String(handle.instanceId))
+      assert.deepStrictEqual(error.defect, {
+        category: "activity",
+        name: "Error",
+        message: "boom",
+      })
 
       const lifecycle = yield* Stream.runCollect(
         handle.inspection.pipe(
@@ -376,6 +384,7 @@ describe("scoped child machines", () => {
       const repeatedDefinition = session.define(
         {
           id: "repeated-child-session",
+          idempotencyKey: (input) => JSON.stringify(input) ?? "default",
           initial: (input) => ({ _tag: "SessionResolving", documentId: input.documentId }),
         },
         {
@@ -407,7 +416,7 @@ describe("scoped child machines", () => {
           ),
         },
       )
-      const handle = yield* Machine.run(repeatedDefinition, { documentId: "one" }).pipe(
+      const handle = yield* runMachine(repeatedDefinition, { documentId: "one" }).pipe(
         Effect.provide(successStore),
       )
 
@@ -422,16 +431,34 @@ describe("scoped child machines", () => {
       )
       assert.strictEqual(starts.length, 2)
       assert.notStrictEqual(starts[0]?.instanceId, starts[1]?.instanceId)
-      const actors = yield* Stream.runCollect(
+      const lifecycle = yield* Stream.runCollect(
         handle.tree.records.pipe(
           Stream.filter(
-            (record) => record.actorId !== handle.actorId && record.body._tag === "ActorStarted",
+            (record) =>
+              record.actorId !== handle.actorId &&
+              (record.body._tag === "ActorStarted" || record.body._tag === "ActorTerminated"),
           ),
-          Stream.take(2),
+          Stream.take(3),
         ),
       )
+      const actors = lifecycle.filter((record) => record.body._tag === "ActorStarted")
       assert.strictEqual(actors.length, 2)
       assert.notStrictEqual(actors[0]?.actorId, actors[1]?.actorId)
+      assert.deepStrictEqual(
+        lifecycle.map((record) =>
+          record.body._tag === "ActorTerminated"
+            ? `${record.body._tag}:${record.body.status}`
+            : record.body._tag,
+        ),
+        ["ActorStarted", "ActorTerminated:cancelled", "ActorStarted"],
+      )
+      assert.strictEqual(lifecycle[0]?.actorId, lifecycle[1]?.actorId)
+      assert.strictEqual(lifecycle[2]?.actorId, actors[1]?.actorId)
+      const endedActorId = lifecycle[1]?.actorId
+      assert.strictEqual(
+        lifecycle.slice(2).some((record) => record.actorId === endedActorId),
+        false,
+      )
     }),
   )
 })

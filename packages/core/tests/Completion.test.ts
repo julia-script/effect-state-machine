@@ -1,14 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Stream from "effect/Stream"
 import * as Graph from "../src/Graph.js"
 import * as Machine from "../src/Machine.js"
+import { runMachine } from "./runMachine.js"
 
 const Input = Schema.Struct({ value: Schema.Number })
 const Running = Schema.TaggedStruct("Running", { value: Schema.Number })
@@ -21,7 +20,11 @@ const Event = Schema.Union([Finish]).pipe(Schema.toTaggedUnion("_tag"))
 
 const workflow = Machine.builder({ input: Input, state: State, event: Event })
 const definition = workflow.define(
-  { id: "completing-workflow", initial: (input) => ({ _tag: "Running", value: input.value }) },
+  {
+    id: "completing-workflow",
+    initial: (input) => ({ _tag: "Running", value: input.value }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Running: workflow.state({
       Finish: {
@@ -48,7 +51,7 @@ type CompletionIsFinalState = Assert<
 describe("machine completion", () => {
   it.effect("commits a final snapshot, completes, and ends changes atomically", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, { value: 42 })
+      const handle = yield* runMachine(definition, { value: 42 })
       const changesFiber = yield* Effect.forkChild(Stream.runCollect(handle.changes))
       yield* Effect.yieldNow
 
@@ -61,14 +64,10 @@ describe("machine completion", () => {
         { _tag: "Done", value: 42 },
       ])
 
-      const postCompletion = yield* Effect.exit(handle.send({ _tag: "Finish" }))
-      assert.strictEqual(Exit.isFailure(postCompletion), true)
-      if (Exit.isFailure(postCompletion)) {
-        assert.strictEqual(
-          Cause.squash(postCompletion.cause) instanceof Machine.ProtocolDefect,
-          true,
-        )
-      }
+      const postCompletion = yield* Effect.flip(handle.send({ _tag: "Finish" }))
+      assert.strictEqual(postCompletion._tag, "CompletedInstance")
+      if (postCompletion._tag !== "CompletedInstance") return
+      assert.strictEqual(String(postCompletion.instanceId), String(handle.instanceId))
     }),
   )
 
@@ -115,7 +114,11 @@ const codecMachine = Machine.builder({
   event: CodecEvent,
 })
 const codecDefinition = codecMachine.define(
-  { id: "codec-boundaries", initial: (input) => ({ _tag: "Ready", value: input.value }) },
+  {
+    id: "codec-boundaries",
+    initial: (input) => ({ _tag: "Ready", value: input.value }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Ready: codecMachine.state({
       Set: {
@@ -137,7 +140,7 @@ void completionTypeChecks
 describe("machine Schema codecs", () => {
   it.effect("keeps encoding and decoding explicit without adding codec services to run", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(codecDefinition, { value: 42 })
+      const handle = yield* runMachine(codecDefinition, { value: 42 })
       assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Ready", value: 42 })
 
       const offset = CodecOffset.of({ value: 2 })

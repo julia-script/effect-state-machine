@@ -5,14 +5,14 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { Machine } from "effect-state-machine"
+import { type Machine, MachineEngine } from "effect-state-machine"
 import * as React from "react"
 import { cellsOf, definition, dropped, ROTATIONS, WIDTH } from "./tetris-machine"
 
 type State = Machine.MachineState<typeof definition>
 type GameEvent = Machine.MachineEvent<typeof definition>
 type Completion = Extract<State, { readonly _tag: "GameOver" }>
-type Handle = Machine.MachineHandle<State, GameEvent, Completion>
+type Handle = Machine.MachineHandle<State, GameEvent, Completion, unknown>
 
 interface TraceEntry {
   readonly number: number
@@ -72,7 +72,12 @@ const useTetrisGame = (seed: number) => {
   React.useEffect(() => {
     const scope = Effect.runSync(Scope.make())
     const nextHandle = Effect.runSync(
-      Machine.run(definition, { seed }).pipe(Effect.provideService(Scope.Scope, scope)),
+      definition
+        .run({ seed })
+        .pipe(
+          Effect.provideService(Scope.Scope, scope),
+          Effect.provide(MachineEngine.layerMemory()),
+        ),
     )
     let sequence = 0
     setHandle(nextHandle)

@@ -3,6 +3,7 @@
   "pages": [
     "invoke-effects",
     "durable-execution",
+    "browser-local-store",
     "model-parallel-regions",
     "guards-and-ignored-events",
     "retry-invoked-work",

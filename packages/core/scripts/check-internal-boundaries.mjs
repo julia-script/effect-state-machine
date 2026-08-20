@@ -29,12 +29,16 @@ const visit = (file, path = []) => {
 }
 for (const file of graph.keys()) visit(file)
 
-for (const implementation of ["DurableRunner.ts", "DurableMemory.ts", "DurableConformance.ts"]) {
+for (const implementation of [
+  "MachineRuntime.ts",
+  "MachineRuntimeMemory.ts",
+  "MachineRuntimeConformance.ts",
+]) {
   const source = await readFile(join(sourceDirectory, implementation), "utf8")
   assert.doesNotMatch(
     source,
-    /from ["']\.\/Durable\.js["']/,
-    `${implementation} must import DurableProtocol, never the public Durable façade`,
+    /from ["']\.\/MachineEngine\.js["']/,
+    `${implementation} must remain below the public MachineEngine façade`,
   )
 }
 
@@ -42,7 +46,7 @@ const machine = await readFile(join(sourceDirectory, "Machine.ts"), "utf8")
 assert.doesNotMatch(machine, /export\s+const\s+_durableRuntime/)
 
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
-for (const privateModule of ["./DurableProtocol", "./MachinePlan", "./Internal"]) {
+for (const privateModule of ["./MachineRuntimeProtocol", "./MachinePlan", "./Internal"]) {
   assert.equal(manifest.exports[privateModule], undefined)
   assert.equal(manifest.publishConfig.exports[privateModule], undefined)
 }

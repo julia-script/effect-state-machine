@@ -40,7 +40,11 @@ class WorkService extends Context.Service<
 >()("Statechart.types/WorkService") {}
 
 machine.define(
-  { id: "missing-state", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "missing-state",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   // @ts-expect-error The keyed state record is exhaustive.
   {
     A: machine.state({}),
@@ -49,7 +53,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "target-fields", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "target-fields",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({
       // @ts-expect-error A transition must supply every field owned by B.
@@ -61,7 +69,11 @@ machine.define(
 )
 
 const inferred = machine.define(
-  { id: "inferred", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "inferred",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke({
       name: "typed-work",
@@ -114,14 +126,18 @@ const inferred = machine.define(
   },
 )
 
-const dataFirstRun = Machine.run(inferred, { seed: "first" })
-const dataLastRun = Fn.pipe(inferred, Machine.run({ seed: "last" }))
+const dataFirstRun = inferred.run({ seed: "first" })
+const dataLastRun = Fn.pipe(inferred, (definition) => definition.run({ seed: "last" }))
 
 // @ts-expect-error The data-last input must match the definition's input Schema.
-Fn.pipe(inferred, Machine.run({ seed: 1 }))
+inferred.run({ seed: 1 })
 
 machine.define(
-  { id: "missing-region", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "missing-region",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({}),
     B: machine.regions({
@@ -133,7 +149,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "local-region-target", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "local-region-target",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.state({}),
     B: machine.regions({
@@ -150,7 +170,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "all-product", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "all-product",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke.all({
       name: "join",
@@ -184,7 +208,11 @@ machine.define(
 )
 
 machine.define(
-  { id: "race-correlation", initial: ({ seed }) => ({ _tag: "A", value: seed }) },
+  {
+    id: "race-correlation",
+    initial: ({ seed }) => ({ _tag: "A", value: seed }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     A: machine.invoke.race({
       name: "race",

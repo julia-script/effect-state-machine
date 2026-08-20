@@ -21,7 +21,11 @@ const PlayerEvent = Schema.TaggedUnion({
 const player = Machine.builder({ input: Schema.Void, state: PlayerState, event: PlayerEvent })
 
 export const playerDefinition = player.define(
-  { id: "player", initial: () => ({ _tag: "Idle" }) },
+  {
+    id: "player",
+    initial: () => ({ _tag: "Idle" }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Idle: player.state({
       Play: {
@@ -65,7 +69,11 @@ const editor = Machine.builder({
 })
 
 export const editorDefinition = editor.define(
-  { id: "editor", initial: ({ text }) => ({ _tag: "Typing", text }) },
+  {
+    id: "editor",
+    initial: ({ text }) => ({ _tag: "Typing", text }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Typing: editor.state(
       {
@@ -114,7 +122,11 @@ const importer = Machine.builder({
 })
 
 export const importerDefinition = importer.define(
-  { id: "importer", initial: ({ url }) => ({ _tag: "Fetching", url }) },
+  {
+    id: "importer",
+    initial: ({ url }) => ({ _tag: "Fetching", url }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Fetching: importer.invoke.race({
       name: "fetch-fastest",

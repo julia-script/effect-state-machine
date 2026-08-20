@@ -73,6 +73,8 @@ export const definition = match.define(
     id: "bugs-and-patches-match",
     description:
       "A server-authoritative two-player v0 match: play a Bug, allow one Patch response, then optionally play a Side Effect.",
+    idempotencyKey: ({ playerOneDeck, playerTwoDeck, randomSeed }) =>
+      `${randomSeed}:${playerOneDeck.map(({ id }) => id).join(",")}:${playerTwoDeck.map(({ id }) => id).join(",")}`,
     initial: Match.initial,
   },
   {
@@ -110,7 +112,8 @@ export const definition = match.define(
             when: branch(
               "legal Bug advances to Side Effect phase",
               ({ state, event }: BugPlayArgs) =>
-                Match.canPlayBug(state, event) && bugResult(state, event)._tag === "SideEffectPhase",
+                Match.canPlayBug(state, event) &&
+                bugResult(state, event)._tag === "SideEffectPhase",
             ),
             target: "SideEffectPhase",
             reduce: ({ state, event }) => expectSideEffectPhase(bugResult(state, event)),
@@ -213,7 +216,8 @@ export const definition = match.define(
             when: branch(
               "legal Side Effect ends match",
               ({ state, event }: SideEffectPlayArgs) =>
-                Match.canPlaySideEffect(state, event) && sideEffectResult(state, event)._tag === "Finished",
+                Match.canPlaySideEffect(state, event) &&
+                sideEffectResult(state, event)._tag === "Finished",
             ),
             target: "Finished",
             reduce: ({ state, event }) => expectFinished(sideEffectResult(state, event)),
@@ -222,7 +226,8 @@ export const definition = match.define(
             when: branch(
               "legal Side Effect starts opponent Bug phase",
               ({ state, event }: SideEffectPlayArgs) =>
-                Match.canPlaySideEffect(state, event) && sideEffectResult(state, event)._tag === "BugPhase",
+                Match.canPlaySideEffect(state, event) &&
+                sideEffectResult(state, event)._tag === "BugPhase",
             ),
             target: "BugPhase",
             reduce: ({ state, event }) => expectBugPhase(sideEffectResult(state, event)),

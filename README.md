@@ -2,9 +2,9 @@
 
 A small code-first state-machine library built with Effect for Effect users.
 
-It supports both scoped in-memory execution and opt-in durable execution through an
-application-supplied atomic store. Durable checkpoints retain absolute timer deadlines, keyed
-dispatches, and Schema-encoded activity outcomes across process loss.
+Every definition runs through an explicit `MachineEngine`. Applications choose a process-local
+memory Layer or supply an atomic `MachineStore` whose checkpoints retain absolute timer deadlines,
+keyed dispatches, and Schema-encoded activity outcomes across process loss.
 
 Agentic coding makes code cheap to produce, but it can make an application harder for its own
 developer to explain. `effect-state-machine` keeps orchestration explicit in ordinary TypeScript
@@ -40,8 +40,12 @@ Define input, complete machine states, and events with Effect Schema. An invoked
 an application service; its Layer is selected only when the machine runs.
 
 ```ts
-import { Context, Effect, Layer, Schema } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
+import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 class GreetFailed extends Schema.TaggedError<GreetFailed>()("GreetFailed", {
   message: Schema.String,
@@ -77,6 +81,7 @@ const greeting = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = greeting.define(
   {
     id: "greeting",
+    idempotencyKey: ({ name }) => name,
     initial: (input) => ({ _tag: "Loading", name: input.name }),
   },
   {
@@ -106,17 +111,17 @@ const GreeterLive = Layer.succeed(
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const machine = yield* Machine.run(definition, { name: "Effect" })
+    const machine = yield* definition.run({ name: "Effect" })
     return yield* machine.completion
   }),
-).pipe(Effect.provide(GreeterLive))
+).pipe(Effect.provide(GreeterLive), Effect.provide(MachineEngine.layerMemory()))
 
 // Runtime ownership and Promise conversion stay at the consumer boundary.
 const result = await Effect.runPromise(program)
 ```
 
-`Machine.run` infers `Greeter` from the definition. A test, server, browser application, or Effect
-Atom integration can provide a different Layer without changing the machine.
+`definition.run` infers `Greeter` and the `MachineEngine` requirement. A test, server, browser
+application, or Effect Atom integration can replace either Layer without changing the machine.
 
 `Machine.builder` accepts Effect's native `Schema.TaggedUnion`, an ordinary `Schema.Union` of
 tagged structs, or `Machine.taggedUnion`. The helper is optional; it keeps each case's fields,
@@ -159,12 +164,12 @@ Attach a running machine from your application with
 
 ```ts
 import { Attach, WebSocketTransport, Transport } from "@effect-state-machine/studio-client"
-import { Effect } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Effect from "effect/Effect"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const handle = yield* Machine.run(definition, input)
+    const handle = yield* definition.run(input)
     yield* Attach.attach({
       definition,
       handle,
@@ -179,7 +184,10 @@ const program = Effect.scoped(
     })
     // …the application continues normally
   }),
-).pipe(Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()))
+).pipe(
+  Effect.provide(MachineEngine.layerMemory()),
+  Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()),
+)
 ```
 
 Attaching is scoped and observational: one attachment represents the root machine and every child
@@ -220,9 +228,9 @@ the scoped conflict child, and inspect both focused and complete graph views. Th
 
 ## Runtime contract
 
-`Machine.run(definition, input)` is a scoped Effect. It is also dual, so
-`pipe(definition, Machine.run(input))` is equivalent. Its requirements are inferred
-transitively from invoked Effects, retry Schedules, and child machines. It returns a handle with:
+`definition.run(input)` is a scoped Effect requiring an explicit `MachineEngine`. Its requirements
+also include the services inferred transitively from invoked Effects, retry Schedules, and child
+machines. It returns a handle with:
 
 - `snapshot`: the current tagged state as an Effect;
 - `changes`: a Stream of committed state snapshots;
@@ -237,8 +245,10 @@ interrupts the work it owns. Typed Effect failures follow declared transitions; 
 the machine. A known event rejected by the live state is a protocol defect. Expected irrelevant
 events must be declared explicitly.
 
-Input, state, and event values have explicit `decode*` and `encode*` helpers. V0 does not claim
-persistence, replay, migration, or resumption of interrupted Effects.
+Input, state, and event values cross Schema boundaries before durable storage. The engine resumes
+stored state, queued messages, absolute timer deadlines, and uncommitted activity deliveries.
+External side effects remain the application's responsibility; invoked work receives a stable
+execution ID suitable for an idempotent workflow or task-queue boundary.
 
 ## Definition model
 
@@ -251,14 +261,14 @@ Definitions are exhaustive records keyed by state tag and have five visible node
 - statically invoked child machines with typed input, explicit forwarding, and inferred completion;
 - final states whose value is the machine's completion output.
 
-Nested parent-state hierarchy, dynamic spawning, a global actor registry, visual editing, and
-durable execution remain outside v0. See the [statecharts guide](docs/statecharts.md),
+Nested parent-state hierarchy, dynamic spawning, a global actor registry, and visual editing remain
+outside v0. See the [statecharts guide](docs/statecharts.md),
 [reference workflow](docs/reference-workflow.md) and [capability matrix](docs/capability-matrix.md)
 for the executable evidence behind the current boundary.
 
 ## Compatibility and verification
 
-V0 is pinned to `effect@4.0.0-beta.106` while Effect 4 remains beta. The repository is verified with
+V0 is pinned to `effect@4.0.0-rc.110`. The repository is verified with
 TypeScript 7.0.2, pnpm 11.18.0, and Node 26.5.0. The package emits ESM and declaration maps targeting
 ES2022.
 

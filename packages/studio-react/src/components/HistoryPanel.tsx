@@ -122,7 +122,13 @@ export function HistoryPanel({ session }: { readonly session: ViewerClient.Sessi
         {history.steps.map((step) => {
           const selected = selectedStep === step.index
           const transitionMeta = step.transitions
-            ?.map(({ sourceStateTag, targetStateTag }) => `${sourceStateTag} → ${targetStateTag}`)
+            ?.map(({ sourceStateTag, targetStateTag, ownerPath }) => {
+              if (ownerPath === undefined) return `${sourceStateTag} → ${targetStateTag}`
+              const separator = ownerPath.lastIndexOf("/")
+              const targetPath =
+                separator < 0 ? targetStateTag : `${ownerPath.slice(0, separator)}/${targetStateTag}`
+              return `${ownerPath} → ${targetPath}`
+            })
             .join(" · ")
           const lifecycleMeta =
             step.kind === "invocation"

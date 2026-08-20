@@ -16,12 +16,12 @@ pnpm add @effect-state-machine/studio-client
 
 ```ts
 import { Attach, Transport, WebSocketTransport } from "@effect-state-machine/studio-client"
-import { Effect } from "effect"
-import { Machine } from "effect-state-machine"
+import * as Effect from "effect/Effect"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 const program = Effect.scoped(
   Effect.gen(function* () {
-    const handle = yield* Machine.run(definition, input)
+    const handle = yield* definition.run(input)
     yield* Attach.attach({
       definition,
       handle,
@@ -29,7 +29,10 @@ const program = Effect.scoped(
     })
     // …the application continues normally
   }),
-).pipe(Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()))
+).pipe(
+  Effect.provide(MachineEngine.layerMemory()),
+  Effect.provideService(Transport.StudioTransport, WebSocketTransport.make()),
+)
 ```
 
 Attaching is scoped and observational: it never interrupts the machine, and it is inert when no

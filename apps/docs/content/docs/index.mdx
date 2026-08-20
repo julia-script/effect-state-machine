@@ -5,8 +5,8 @@ description: Code-first, Effect-native state machines for explicit application b
 
 `effect-state-machine` is a code-first state-machine library for TypeScript applications built
 with Effect. A machine definition describes valid inputs, states, events, transitions, invoked
-Effects, timers, regions, and child machines as one immutable value. The same value can be run by the interpreter
-or projected into a read-only graph for development tooling.
+Effects, timers, regions, and child machines as one immutable value. The same value can run through
+an explicit machine engine or project into a read-only graph for development tooling.
 
 The library is intended for Effect users who want orchestration to remain visible in ordinary
 TypeScript. It assumes familiarity with `Effect`, `Schema`, `Layer`, and scoped resources.
@@ -30,12 +30,17 @@ When you already know the result you need, use the how-to guides:
 - [Compose behavior with a child machine](/docs/guides/child-machines)
 - [Observe a running machine](/docs/guides/observe-a-machine)
 - [Visualize a machine definition](/docs/guides/visualize-a-definition)
+- [Run durable activities through Effect Workflow](/docs/guides/durable-execution)
 
 For exact signatures and runtime constraints, use the reference:
 
-- [Machine definition API](/docs/reference/machine-definition)
-- [Machine runtime API](/docs/reference/machine-runtime)
-- [Graph, Mermaid, and source-location API](/docs/reference/devtools)
+- [Machine API](/docs/reference/api/Machine)
+- [Machine engine API](/docs/reference/api/MachineEngine)
+- [Machine store API](/docs/reference/api/MachineStore)
+- [Effect Workflow integration API](/docs/reference/api/MachineWorkflow)
+- [Graph API](/docs/reference/api/Graph)
+- [Mermaid API](/docs/reference/api/Mermaid)
+- [Source-location API](/docs/reference/api/SourceLocation)
 
 For the design model and its trade-offs, read
 [Why the library is Effect-native](/docs/explanation/effect-native-design).
@@ -64,5 +69,11 @@ A machine node has one visible behavior kind:
 Machine instances serialize external events and asynchronous completions through one queue. Work
 owned by an invoked or child state is interrupted when the machine leaves that state.
 
-V0 does not provide nested parent-state hierarchy, dynamic actors, visual editing, durable
-execution, persistence, replay, or application-framework bindings beyond the React Studio.
+Every machine runs through an explicit `MachineEngine`. The memory layer uses the same aggregate,
+mailbox, activity delivery, idempotency records, and absolute timer deadlines as persistent
+`MachineStore` adapters. External effects remain the application's responsibility; the library
+supplies stable work execution IDs for joining them to Effect Workflow or another durable task
+system.
+
+V0 does not provide nested parent-state hierarchy, dynamic actors, visual editing, a bundled
+production Store, or application-framework bindings beyond the React Studio.

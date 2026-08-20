@@ -8,7 +8,8 @@ import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import { TestClock } from "effect/testing"
 import * as Graph from "../src/Graph.js"
-import * as Machine from "../src/Machine.js"
+import type * as Machine from "../src/Machine.js"
+import * as MachineEngine from "../src/MachineEngine.js"
 import * as Mermaid from "../src/Mermaid.js"
 import {
   type Document,
@@ -24,7 +25,7 @@ import {
 type State = Machine.MachineState<typeof LocalFirstDocument.definition>
 type Event = Machine.MachineEvent<typeof LocalFirstDocument.definition>
 type Completion = Extract<State, { readonly _tag: "OpeningFailed" | "SavingFailed" | "Closed" }>
-type Handle = Machine.MachineHandle<State, Event, Completion>
+type Handle = Machine.MachineHandle<State, Event, Completion, unknown>
 
 type ProfileKey = "healthy" | "offline" | "conflict" | "open-failure" | "save-failure" | "defect"
 
@@ -143,7 +144,7 @@ class DocumentSession extends Context.Service<DocumentSession, Handle>()(
   "examples/DocumentSession",
 ) {
   static readonly layer = Layer.effect(this)(
-    Machine.run(LocalFirstDocument.definition, { documentId: "field-notes" }),
+    LocalFirstDocument.definition.run({ documentId: "field-notes" }),
   )
 }
 
@@ -151,6 +152,7 @@ const makeBrowserApp = (profile: ProfileKey) => {
   const dependencies = Layer.mergeAll(
     makeDocumentsLayer(profile),
     makeSynchronizerLayer(profile),
+    MachineEngine.layerMemory(),
     TestClock.layer(),
   )
   const runtime = ManagedRuntime.make(DocumentSession.layer.pipe(Layer.provideMerge(dependencies)))
@@ -714,7 +716,7 @@ const render = () => {
           </div>
           <span class="dependency-strip__arrow">→</span>
           <div class="dependency-strip__part">
-            <b>Machine.run</b>
+            <b>definition.run</b>
             <span>${escapeHtml(profile.watch)}</span>
           </div>
         </div>

@@ -8,7 +8,7 @@ import * as Queue from "effect/Queue"
 import * as HttpServer from "effect/unstable/http/HttpServer"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { Machine } from "effect-state-machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import * as Attach from "../src/Attach.js"
 import * as Protocol from "../src/Protocol.js"
 import { StudioTransport } from "../src/Transport.js"
@@ -51,7 +51,7 @@ describe("WebSocketTransport", () => {
         if (server.address._tag !== "TcpAddress") return
         const url = `ws://127.0.0.1:${server.address.port}/app`
 
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         yield* Attach.attach({
           definition,
           handle,

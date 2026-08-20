@@ -1,23 +1,18 @@
-import * as Cause from "effect/Cause"
 import * as Data from "effect/Data"
-import * as Deferred from "effect/Deferred"
-import * as Duration from "effect/Duration"
+import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
-import * as FiberMap from "effect/FiberMap"
 import * as Fn from "effect/Function"
-import * as Queue from "effect/Queue"
-import * as Ref from "effect/Ref"
-import * as Schedule from "effect/Schedule"
+import type * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
-import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
-import * as SubscriptionRef from "effect/SubscriptionRef"
+import type * as Scope from "effect/Scope"
+import type * as Stream from "effect/Stream"
 import { encodeComponent } from "./Internal.js"
-import * as MachinePlan from "./MachinePlan.js"
+import { MachineEngine as MachineEngineAccess } from "./MachineEngineService.js"
+import type { MachineError, Migration } from "./MachineRuntimeProtocol.js"
+import * as MachineStore from "./MachineStore.js"
 import * as Source from "./Source.js"
 
-interface Tagged {
+export interface Tagged {
   readonly _tag: string
 }
 
@@ -39,9 +34,9 @@ export type TaggedSchema = Schema.Top &
   }>
 
 type TaggedUnionMember = Schema.Top & Readonly<{ Type: Tagged }>
-type TaggedSchemaSource = TaggedSchema | Schema.Union<ReadonlyArray<TaggedUnionMember>>
+export type TaggedSchemaSource = TaggedSchema | Schema.Union<ReadonlyArray<TaggedUnionMember>>
 
-type NormalizedTaggedSchema<Source extends TaggedSchemaSource> = Source extends TaggedSchema
+export type NormalizedTaggedSchema<Source extends TaggedSchemaSource> = Source extends TaggedSchema
   ? Source
   : Source extends Schema.Union<infer Members extends ReadonlyArray<TaggedUnionMember>>
     ? Schema.toTaggedUnion<"_tag", Members>
@@ -109,9 +104,9 @@ const normalizeTaggedSchema = <Source extends TaggedSchemaSource>(
     ? schema
     : schema.pipe(Schema.toTaggedUnion("_tag"))) as NormalizedTaggedSchema<Source>
 
-type TagOf<Value extends Tagged> = Value["_tag"]
-type ByTag<Value extends Tagged, Tag extends string> = Extract<Value, { _tag: Tag }>
-type FieldsOf<Value> = Omit<Value, "_tag">
+export type TagOf<Value extends Tagged> = Value["_tag"]
+export type ByTag<Value extends Tagged, Tag extends string> = Extract<Value, { _tag: Tag }>
+export type FieldsOf<Value> = Omit<Value, "_tag">
 
 type TransitionArgs<
   State extends Tagged,
@@ -503,39 +498,40 @@ export interface InvokeSpec<Requirements> extends InvokeSpecBase {
 }
 
 /**
- * Stable execution identity supplied to invoked work by a durable runner.
+ * Stable execution identity supplied to every invoked-work callback.
  *
  * **When to use**
  *
- * Use `executionKey` as the idempotency key when an invoked Effect hands work to Effect Workflow,
- * an external queue, or another durable side-effect system.
+ * Pass `id` to an idempotent API, queue, or Workflow integration when work crosses into another
+ * durability domain.
  *
  * **Details**
  *
- * The same entry and optional aggregate lane keep one execution key across lease loss and
- * at-least-once redelivery. `deliveryAttempt` increases for each claim; explicit state re-entry
- * creates a new entry identity and execution key.
+ * The same machine entry and lane keep one execution ID across lease loss and at-least-once
+ * redelivery. `deliveryAttempt` increases for each claim; explicit state re-entry creates a new
+ * entry identity and execution ID. The runtime always supplies this argument, including when the
+ * engine uses an in-memory store.
  *
  * **Gotchas**
  *
- * Metadata makes an external idempotency strategy possible; it does not make an arbitrary side
- * effect exactly once. The metadata argument remains optional so the same work declaration can run
- * under the process-local interpreter.
+ * The ID makes an external idempotency strategy possible; it does not make an arbitrary side effect
+ * exactly once. Callbacks may ignore this argument, but callbacks that reference it never need an
+ * `undefined` branch.
  *
  * @category models
  * @since 0.2.0
  */
-export interface WorkExecutionMetadata {
-  readonly executionKey: string
-  readonly instanceId: string
-  readonly entryId: string
+export interface WorkExecution {
+  readonly id: MachineStore.ExecutionId
+  readonly instanceId: MachineStore.MachineInstanceId
+  readonly entryId: MachineStore.EntryId
   readonly ownerPath: string
   readonly invocationName: string
   readonly laneName?: string
   readonly deliveryAttempt: number
 }
 
-type WorkSchema = Schema.Codec<unknown, unknown, unknown, unknown>
+export type WorkSchema = Schema.Codec<unknown, unknown, unknown, unknown>
 type WorkSchemaRequirements<Value extends WorkSchema> =
   | Value["DecodingServices"]
   | Value["EncodingServices"]
@@ -548,7 +544,7 @@ type WorkEffect<
   Requirements,
 > = (
   state: ByTag<State, Current>,
-  metadata?: WorkExecutionMetadata,
+  execution: WorkExecution,
 ) => Effect.Effect<Schema.Schema.Type<Success>, Failure, Requirements>
 
 type EffectInvokeSpec<
@@ -587,7 +583,7 @@ type ValidateTask<State extends Tagged, Current extends TagOf<State>, Task> =
     error: infer Failure extends WorkSchema
     effect: (
       state: ByTag<State, Current>,
-      metadata?: WorkExecutionMetadata,
+      execution: WorkExecution,
     ) => Effect.Effect<infer Output, infer EffectFailure, unknown>
   }>
     ? [Output] extends [Schema.Schema.Type<Success>]
@@ -1113,7 +1109,7 @@ type StateConfig<State extends Tagged, Event extends Tagged, Current extends Tag
   | FinalNodeConfig
   | Omit<ChildNodeConfig<State, Event, Current>, "_Requirements">
 
-type StatesConfig<State extends Tagged, Event extends Tagged> = Readonly<{
+export type StatesConfig<State extends Tagged, Event extends Tagged> = Readonly<{
   [Current in TagOf<State>]: StateConfig<State, Event, Current>
 }>
 
@@ -1122,8 +1118,8 @@ type StatesConfig<State extends Tagged, Event extends Tagged> = Readonly<{
  *
  * **Details**
  *
- * Definitions are the shared input to {@link run}, codec helpers, and graph tooling. Inspecting a
- * definition never executes its initializer, reducers, guards, or Effects.
+ * Definitions expose `run` for execution and are also shared with codec helpers and graph tooling.
+ * Inspecting a definition never executes its initializer, reducers, guards, or Effects.
  *
  * @category models
  * @since 0.1.0
@@ -1136,6 +1132,9 @@ export interface MachineDefinition<
 > {
   readonly id: string
   readonly description?: string
+  readonly idempotencyKey: (input: Schema.Schema.Type<InputSchema>) => string
+  readonly version: string
+  readonly migrations: ReadonlyArray<Migration>
   readonly schemas: Readonly<{
     input: InputSchema
     state: StateSchema
@@ -1143,6 +1142,13 @@ export interface MachineDefinition<
   }>
   readonly initial: (input: Schema.Schema.Type<InputSchema>) => Schema.Schema.Type<StateSchema>
   readonly states: States
+  readonly instanceId: (input: Schema.Schema.Type<InputSchema>) => MachineStore.MachineInstanceId
+  readonly run: (
+    input: Schema.Schema.Type<InputSchema>,
+  ) => RunEffect<StateSchema, EventSchema, States>
+  readonly open: (
+    input: Schema.Schema.Type<InputSchema>,
+  ) => RunEffect<StateSchema, EventSchema, States>
 }
 
 /**
@@ -1159,6 +1165,8 @@ export interface MachineDefinition<
 export interface DefinitionMetadata {
   readonly id: string
   readonly description?: string
+  readonly version: string
+  readonly migrations: ReadonlyArray<Migration>
   readonly schemas: Readonly<{
     state: TaggedSchema
     event: TaggedSchema
@@ -1433,11 +1441,13 @@ export type TreeRecordBody =
   | Readonly<{
       _tag: "Inspection"
       metadata: InspectionEvent
-      event?: unknown
+      /** Event encoded through the owning definition's JSON codec. */
+      event?: Schema.Schema.Type<typeof Schema.Json>
     }>
   | Readonly<{
       _tag: "StateSnapshot"
-      state: unknown
+      /** State encoded through the owning definition's JSON codec. */
+      state: Schema.Schema.Type<typeof Schema.Json>
     }>
   | Readonly<{
       _tag: "ActorTerminated"
@@ -1492,7 +1502,7 @@ export interface MachineTreeHandle {
  *
  * **Gotchas**
  *
- * The handle is valid only inside the Scope required by {@link run}. Releasing that Scope
+ * The handle is valid only inside the Scope required by `definition.run`. Releasing that Scope
  * interrupts active work and ends the instance.
  *
  * @category models
@@ -1502,19 +1512,25 @@ export interface MachineHandle<
   State extends Tagged,
   Event extends Tagged,
   Completion extends State = never,
+  Error = never,
 > {
+  readonly instanceId: MachineStore.MachineInstanceId
   readonly actorId: ActorId
   readonly definitionPath: DefinitionPath
   readonly tree: MachineTreeHandle
-  readonly snapshot: Effect.Effect<State>
-  readonly changes: Stream.Stream<State>
+  readonly snapshot: Effect.Effect<State, Error>
+  readonly changes: Stream.Stream<State, Error>
   readonly inspection: Stream.Stream<InspectionEvent>
   inspect<EventDetails>(
     projectEvent: (event: Event) => EventDetails,
   ): Stream.Stream<ProjectedInspectionEvent<EventDetails>>
-  readonly completion: Effect.Effect<Completion>
-  readonly send: (event: Event) => Effect.Effect<void>
-  readonly can: (event: Event) => Effect.Effect<boolean>
+  readonly completion: Effect.Effect<Completion, Error>
+  readonly send: (
+    event: Event,
+    options?: Readonly<{ idempotencyKey?: string }>,
+  ) => Effect.Effect<void, Error>
+  readonly can: (event: Event) => Effect.Effect<boolean, Error>
+  readonly status: Effect.Effect<"running" | "completed" | "defected", Error>
 }
 
 /**
@@ -1669,18 +1685,14 @@ export type InspectionEvent =
       lanes?: ReadonlyArray<string>
     }>
 
-interface InternalInspectionRecord<Event extends Tagged> {
-  readonly metadata: InspectionEvent
-  readonly event?: Event
-}
-
 /**
  * Defect raised when an authored machine definition violates a structural invariant.
  *
  * **Gotchas**
  *
- * Most instances are thrown synchronously by `builder().define`; an invalid initializer result dies
- * in {@link run}. This is a programmer error, not a typed Effect failure.
+ * Instances are thrown synchronously by `builder().define`. Failures discovered only while starting
+ * an instance, such as an initializer returning an undeclared state, use the typed execution error
+ * channel instead.
  *
  * @category errors
  * @since 0.1.0
@@ -2001,7 +2013,11 @@ export const encodeEvent = <EventSchema extends Schema.Top>(
  * const counter = Machine.builder({ input: Schema.Number, state: State, event: Event })
  *
  * const definition = counter.define(
- *   { id: "counter", initial: (count) => ({ _tag: "Active", count }) },
+ *   {
+ *     id: "counter",
+ *     idempotencyKey: (count) => String(count),
+ *     initial: (count) => ({ _tag: "Active", count }),
+ *   },
  *   {
  *     Active: counter.state({
  *       Increment: {
@@ -2232,7 +2248,7 @@ export const builder = <
       effect: (
         state: ByTag<Slot, RegionTag>,
         parent: ByTag<State, Current>,
-        metadata?: WorkExecutionMetadata,
+        execution: WorkExecution,
       ) => Effect.Effect<Schema.Schema.Type<Success>, Failure, Requirements>
       retry?: RetryPolicy<Failure, Schedule.Schedule<unknown, Failure, RetryError, RetryEnv>>
       onSuccess: RegionSuccessTransition<State, Current, Slot, Schema.Schema.Type<Success>>
@@ -2257,7 +2273,7 @@ export const builder = <
         effect: (
           state: ByTag<Slot, RegionTag>,
           parent: ByTag<State, Current>,
-          metadata?: WorkExecutionMetadata,
+          execution: WorkExecution,
         ) => Effect.Effect<Schema.Schema.Type<Success>, Failure, Requirements>
         retry?: RetryPolicy<Failure, Schedule.Schedule<unknown, Failure, RetryError, RetryEnv>>
         onSuccess: RegionSuccessTransition<State, Current, Slot, Schema.Schema.Type<Success>>
@@ -2310,6 +2326,9 @@ export const builder = <
     config: Readonly<{
       id: string
       description?: string
+      idempotencyKey: (input: Schema.Schema.Type<InputSchema>) => string
+      version?: string
+      migrations?: ReadonlyArray<Migration>
       initial: (input: Schema.Schema.Type<InputSchema>) => State
     }>,
     states: States,
@@ -2507,13 +2526,21 @@ export const builder = <
       }
     }
 
-    return {
+    const definition: MachineDefinition<InputSchema, StateSchema, EventSchema, States> = {
       id: config.id,
       description: config.description,
+      idempotencyKey: config.idempotencyKey,
+      version: config.version ?? "1",
+      migrations: config.migrations ?? [],
       schemas,
       initial: config.initial,
       states,
+      instanceId: (input) =>
+        MachineStore.deriveMachineInstanceId(config.id, config.idempotencyKey(input)),
+      run: (input) => runWithMachineEngine(definition, input),
+      open: (input) => runWithMachineEngine(definition, input),
     }
+    return definition
   }
 
   return {
@@ -2525,410 +2552,16 @@ export const builder = <
     region: { invoke: invokeRegion },
     regions,
     state,
+    schemas,
   }
 }
 
-interface RuntimeTransition<State extends Tagged, Event extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (
-    args: Readonly<{ state: State; event: Event }>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeStay<State extends Tagged, Event extends Tagged> {
-  readonly stay: (
-    args: Readonly<{ state: State; event: Event }>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeWhenBranch<State extends Tagged, Event extends Tagged>
-  extends RuntimeTransition<State, Event> {
-  readonly when: Readonly<{
-    name: string
-    description?: string
-    guard: (args: Readonly<{ state: State; event: Event }>) => boolean
-  }>
-}
-
-interface RuntimeOtherwiseBranch<State extends Tagged, Event extends Tagged>
-  extends RuntimeTransition<State, Event> {
-  readonly otherwise: true
-}
-
-interface RuntimeGuardedTransition<State extends Tagged, Event extends Tagged> {
-  readonly branches: ReadonlyArray<
-    RuntimeWhenBranch<State, Event> | RuntimeOtherwiseBranch<State, Event>
-  >
-}
-
-type RuntimeEventHandler<State extends Tagged, Event extends Tagged> =
-  | RuntimeTransition<State, Event>
-  | RuntimeGuardedTransition<State, Event>
-  | IgnoredTransition
-  | RuntimeStay<State, Event>
-
-interface RuntimeOutcomeTransition<State extends Tagged, Value, Key extends "value" | "error"> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (
-    args: Readonly<{ state: State }> & Readonly<Record<Key, Value>>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeOutcomeWhenBranch<State extends Tagged, Value, Key extends "value" | "error">
-  extends RuntimeOutcomeTransition<State, Value, Key> {
-  readonly when: Readonly<{
-    name: string
-    description?: string
-    guard: (args: Readonly<{ state: State }> & Readonly<Record<Key, Value>>) => boolean
-  }>
-}
-
-interface RuntimeOutcomeOtherwiseBranch<State extends Tagged, Value, Key extends "value" | "error">
-  extends RuntimeOutcomeTransition<State, Value, Key> {
-  readonly otherwise: true
-}
-
-interface RuntimeGuardedOutcomeTransition<
-  State extends Tagged,
-  Value,
-  Key extends "value" | "error",
-> {
-  readonly branches: ReadonlyArray<
-    RuntimeOutcomeWhenBranch<State, Value, Key> | RuntimeOutcomeOtherwiseBranch<State, Value, Key>
-  >
-}
-
-type RuntimeOutcomeHandler<State extends Tagged, Value, Key extends "value" | "error"> =
-  | RuntimeOutcomeTransition<State, Value, Key>
-  | RuntimeGuardedOutcomeTransition<State, Value, Key>
-
-type RuntimeChildDefinition = DefinitionMetadata &
-  MachineDefinition<
-    Schema.Top,
-    TaggedSchema,
-    TaggedSchema,
-    Readonly<Record<string, StateConfig<Tagged, Tagged, string>>>
-  >
-
-interface RuntimeForward<State extends Tagged, Event extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly map: (args: Readonly<{ state: State; event: Event }>) => Tagged
-}
-
-interface RuntimeNamedDuration<State> {
-  readonly name: string
-  readonly description?: string
-  readonly compute: (state: State) => Duration.Input
-}
-
-type RuntimeDuration<State> = Duration.Input | RuntimeNamedDuration<State>
-
-interface RuntimeAfterTransition<State extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (args: Readonly<{ state: State }>) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeAfterWhenBranch<State extends Tagged> extends RuntimeAfterTransition<State> {
-  readonly when: Readonly<{
-    name: string
-    description?: string
-    guard: (args: Readonly<{ state: State }>) => boolean
-  }>
-}
-
-interface RuntimeAfterOtherwiseBranch<State extends Tagged> extends RuntimeAfterTransition<State> {
-  readonly otherwise: true
-}
-
-interface RuntimeGuardedAfterTransition<State extends Tagged> {
-  readonly branches: ReadonlyArray<
-    RuntimeAfterWhenBranch<State> | RuntimeAfterOtherwiseBranch<State>
-  >
-}
-
-type RuntimeAfter<State extends Tagged> = Readonly<{
-  readonly duration: RuntimeDuration<State>
-  readonly description?: string
-}> &
-  (RuntimeAfterTransition<State> | RuntimeGuardedAfterTransition<State>)
-
-type RuntimeTask<State extends Tagged, Requirements> = Readonly<{
-  description?: string
-  success: WorkSchema
-  error: WorkSchema
-  effect: (
-    state: State,
-    metadata?: WorkExecutionMetadata,
-  ) => Effect.Effect<unknown, unknown, Requirements>
-}>
-
-interface RuntimeRegionTransition<State extends Tagged, Event extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (
-    args: Readonly<{ state: Tagged; event: Event; parent: State }>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeRegionStay<State extends Tagged, Event extends Tagged> {
-  readonly stay: (
-    args: Readonly<{ state: Tagged; event: Event; parent: State }>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-type RuntimeRegionHandler<State extends Tagged, Event extends Tagged> =
-  | RuntimeRegionTransition<State, Event>
-  | RuntimeRegionStay<State, Event>
-  | IgnoredTransition
-
-interface RuntimeRegionOutcome<State extends Tagged, Key extends "value" | "error"> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (
-    args: Readonly<{ state: Tagged; parent: State }> & Readonly<Record<Key, unknown>>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeRegionAfterTransition<State extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (
-    args: Readonly<{ state: Tagged; parent: State }>,
-  ) => Readonly<Record<string, unknown>>
-}
-
-interface RuntimeRegionAfterWhenBranch<State extends Tagged>
-  extends RuntimeRegionAfterTransition<State> {
-  readonly when: Readonly<{
-    name: string
-    description?: string
-    guard: (args: Readonly<{ state: Tagged; parent: State }>) => boolean
-  }>
-}
-
-interface RuntimeRegionAfterOtherwiseBranch<State extends Tagged>
-  extends RuntimeRegionAfterTransition<State> {
-  readonly otherwise: true
-}
-
-type RuntimeRegionAfter<State extends Tagged> = Readonly<{
-  readonly duration: RuntimeDuration<Readonly<{ state: Tagged; parent: State }>>
-  readonly description?: string
-}> &
-  (
-    | RuntimeRegionAfterTransition<State>
-    | Readonly<{
-        branches: ReadonlyArray<
-          RuntimeRegionAfterWhenBranch<State> | RuntimeRegionAfterOtherwiseBranch<State>
-        >
-      }>
-  )
-
-interface RuntimeRegionNode<State extends Tagged, Event extends Tagged, Requirements> {
-  readonly source?: Source.Reference
-  readonly description?: string
-  readonly final?: true
-  readonly on?: Readonly<Record<string, RuntimeRegionHandler<State, Event> | undefined>>
-  readonly after?: RuntimeRegionAfter<State>
-  readonly invoke?: Readonly<{
-    kind: "effect"
-    name: string
-    success: WorkSchema
-    error: WorkSchema
-    effect: (
-      state: Tagged,
-      parent: State,
-      metadata?: WorkExecutionMetadata,
-    ) => Effect.Effect<unknown, unknown, Requirements>
-    retry?: Readonly<{
-      name: string
-      schedule: Schedule.Schedule<unknown, unknown, unknown, Requirements>
-    }>
-    onSuccess: RuntimeRegionOutcome<State, "value">
-    onFailure: RuntimeRegionOutcome<State, "error">
-  }>
-}
-
-interface RuntimeRegion<State extends Tagged, Event extends Tagged, Requirements> {
-  readonly states: Readonly<Record<string, RuntimeRegionNode<State, Event, Requirements>>>
-}
-
-interface RuntimeRegionsComplete<State extends Tagged> {
-  readonly target: string
-  readonly description?: string
-  readonly reduce: (args: Readonly<{ state: State }>) => Readonly<Record<string, unknown>>
-}
-
-type RuntimeNode<State extends Tagged, Event extends Tagged, Requirements = unknown> =
-  | Readonly<{
-      kind: "state"
-      tag: string
-      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
-      after?: RuntimeAfter<State>
-    }>
-  | Readonly<{
-      kind: "regions"
-      tag: string
-      regions: Readonly<Record<string, RuntimeRegion<State, Event, Requirements>>>
-      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
-      onComplete?: RuntimeRegionsComplete<State>
-    }>
-  | Readonly<{
-      kind: "child"
-      tag: string
-      name: string
-      description?: string
-      definition: RuntimeChildDefinition
-      input: (state: State) => unknown
-      forward: Readonly<Record<string, RuntimeForward<State, Event> | undefined>>
-      onComplete: RuntimeOutcomeHandler<State, Tagged, "value">
-      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
-      after?: RuntimeAfter<State>
-    }>
-  | Readonly<{
-      kind: "final"
-      tag: string
-    }>
-  | Readonly<{
-      kind: "invoke"
-      tag: string
-      workKind?: "effect" | "all" | "race"
-      name: string
-      description?: string
-      success?: WorkSchema
-      error?: WorkSchema
-      effect?: (
-        state: State,
-        metadata?: WorkExecutionMetadata,
-      ) => Effect.Effect<unknown, unknown, Requirements>
-      tasks?: Readonly<Record<string, RuntimeTask<State, Requirements>>>
-      concurrency?: number | "unbounded"
-      retry?: Readonly<{
-        name: string
-        description?: string
-        schedule: Schedule.Schedule<unknown, unknown, unknown, Requirements>
-      }>
-      onSuccess: RuntimeOutcomeHandler<State, unknown, "value">
-      onFailure: RuntimeOutcomeHandler<State, unknown, "error">
-      on: Readonly<Record<string, RuntimeEventHandler<State, Event> | undefined>>
-      after?: RuntimeAfter<State>
-    }>
-
-interface ExternalEnvelope<Event extends Tagged> {
-  readonly kind: "external"
-  readonly event: Event
-  readonly reply: Deferred.Deferred<void>
-}
-
-type InvocationEnvelope = Readonly<{
-  kind: "invocation-success"
-  stateTag: string
-  generation: number
-  value: unknown
-}>
-
-type TimerEnvelope = Readonly<{
-  kind: "timer"
-  stateTag: string
-  generation: number
-  timer: string
-  durationMillis: number
-}>
-
-type RegionEnvelope =
-  | Readonly<{
-      kind: "region-success"
-      stateTag: string
-      generation: number
-      slot: string
-      regionTag: string
-      slotGeneration: number
-      value: unknown
-    }>
-  | Readonly<{
-      kind: "region-failure"
-      stateTag: string
-      generation: number
-      slot: string
-      regionTag: string
-      slotGeneration: number
-      value: unknown
-    }>
-  | Readonly<{
-      kind: "region-defect"
-      stateTag: string
-      generation: number
-      slot: string
-      regionTag: string
-      slotGeneration: number
-      cause: Cause.Cause<never>
-    }>
-  | Readonly<{
-      kind: "region-timer"
-      stateTag: string
-      generation: number
-      slot: string
-      regionTag: string
-      slotGeneration: number
-      timer: string
-      durationMillis: number
-    }>
-  | Readonly<{
-      kind: "regions-complete"
-      stateTag: string
-      generation: number
-    }>
-  | Readonly<{
-      kind: "invocation-failure"
-      stateTag: string
-      generation: number
-      error: unknown
-    }>
-  | Readonly<{
-      kind: "invocation-defect"
-      stateTag: string
-      generation: number
-      cause: Cause.Cause<never>
-    }>
-
-type ChildEnvelope =
-  | Readonly<{
-      kind: "child-complete"
-      stateTag: string
-      generation: number
-      invocation: string
-      instanceId: string
-      value: Tagged
-    }>
-  | Readonly<{
-      kind: "child-defect"
-      stateTag: string
-      generation: number
-      invocation: string
-      instanceId: string
-      cause: Cause.Cause<never>
-    }>
-
-type Envelope<Event extends Tagged> =
-  | ExternalEnvelope<Event>
-  | InvocationEnvelope
-  | ChildEnvelope
-  | TimerEnvelope
-  | RegionEnvelope
-
-interface ActiveChild {
-  readonly stateTag: string
-  readonly generation: number
-  readonly invocation: string
-  readonly instanceId: string
-  readonly actorId: ActorId
-  readonly scope: Scope.Closeable
-  readonly handle: MachineHandle<Tagged, Tagged, Tagged>
-}
+/** Fully inferred schema-bound builder returned by {@link builder}. */
+export type Builder<
+  InputSchema extends Schema.Top,
+  StateSchemaSource extends TaggedSchemaSource,
+  EventSchemaSource extends TaggedSchemaSource,
+> = ReturnType<typeof builder<InputSchema, StateSchemaSource, EventSchemaSource>>
 
 /**
  * Guard or fallback branch selected while processing a transition.
@@ -2946,48 +2579,6 @@ export type SelectedBranch =
       kind: "otherwise"
       index: number
     }>
-
-interface ActorAdapter {
-  readonly definitionPath: DefinitionPath
-  readonly can: (event: unknown) => Effect.Effect<boolean>
-  readonly send: (event: unknown) => Effect.Effect<void>
-}
-
-type ActorRegistryEntry =
-  | Readonly<{ status: "live"; adapter: ActorAdapter }>
-  | Readonly<{ status: "ended"; definitionPath: DefinitionPath }>
-
-interface TreeRuntime {
-  readonly handle: MachineTreeHandle
-  readonly allocateActor: Effect.Effect<ActorId>
-  readonly append: (
-    actorId: ActorId,
-    definitionPath: DefinitionPath,
-    body: TreeRecordBody,
-  ) => Effect.Effect<TreeRecord>
-  readonly register: (actorId: ActorId, adapter: ActorAdapter) => Effect.Effect<void>
-  readonly terminate: (
-    actorId: ActorId,
-    definitionPath: DefinitionPath,
-    status: "completed" | "cancelled" | "defected",
-  ) => Effect.Effect<void>
-}
-
-interface ActorParent {
-  readonly actorId: ActorId
-  readonly ownerStateTag: string
-  readonly invocation: string
-  readonly instanceId: string
-}
-
-interface ActorContext {
-  readonly runtime: TreeRuntime
-  readonly actorId: ActorId
-  readonly definitionPath: DefinitionPath
-  readonly parent?: ActorParent
-}
-
-const makeActorId = (sequence: number): ActorId => `actor:${sequence}` as ActorId
 
 const rootDefinitionPath = "root" as DefinitionPath
 
@@ -3015,78 +2606,8 @@ export const DefinitionPath = {
   make: (value: string): DefinitionPath => value as DefinitionPath,
 } as const
 
-const makeTreeRuntime = (): Effect.Effect<TreeRuntime> =>
-  Effect.gen(function* () {
-    const rootActorId = makeActorId(0)
-    const actorSequence = yield* Ref.make(1)
-    const journal = yield* SubscriptionRef.make<ReadonlyArray<TreeRecord>>([])
-    const registry = yield* Ref.make<ReadonlyMap<ActorId, ActorRegistryEntry>>(new Map())
-
-    const append: TreeRuntime["append"] = Effect.fnUntraced(
-      function* (actorId, definitionPath, body) {
-        return yield* SubscriptionRef.modify(journal, (records) => {
-          const record: TreeRecord = {
-            sequence: records.length,
-            actorId,
-            definitionPath,
-            body,
-          }
-          return [record, [...records, record]]
-        })
-      },
-    )
-
-    const register: TreeRuntime["register"] = Effect.fnUntraced(function* (actorId, adapter) {
-      yield* Ref.update(registry, (entries) =>
-        new Map(entries).set(actorId, { status: "live", adapter }),
-      )
-    })
-
-    const terminate: TreeRuntime["terminate"] = Effect.fnUntraced(
-      function* (actorId, definitionPath, status) {
-        yield* append(actorId, definitionPath, { _tag: "ActorTerminated", status })
-        yield* Ref.update(registry, (entries) =>
-          new Map(entries).set(actorId, { status: "ended", definitionPath }),
-        )
-      },
-    )
-
-    const dispatch: MachineTreeHandle["dispatch"] = Effect.fnUntraced(function* (actorId, event) {
-      const entry = (yield* Ref.get(registry)).get(actorId)
-      if (entry === undefined) {
-        return yield* new ActorDispatchError({ actorId, reason: "unknown" })
-      }
-      if (entry.status === "ended") {
-        return yield* new ActorDispatchError({ actorId, reason: "ended" })
-      }
-      if (!(yield* entry.adapter.can(event))) {
-        return yield* new ActorDispatchError({ actorId, reason: "unaccepted" })
-      }
-      return yield* entry.adapter.send(event)
-    })
-
-    const records = SubscriptionRef.changes(journal).pipe(
-      Stream.mapAccum(
-        () => 0,
-        (seen, retained) => [retained.length, retained.slice(seen)],
-      ),
-    )
-
-    return {
-      handle: { rootActorId, records, dispatch },
-      allocateActor: Ref.getAndUpdate(actorSequence, (sequence) => sequence + 1).pipe(
-        Effect.map(makeActorId),
-      ),
-      append,
-      register,
-      terminate,
-    }
-  })
-
-// Stays an annotated dual over Effect.gen instead of Effect.fnUntraced: run is generic and
-// self-recursive (startChild runs child definitions), so the generator form cannot carry the
-// pinned public signature without circular inference or new casts.
-type RunEffect<
+/** Effect returned by definition-level and data-first machine execution operations. */
+export type RunEffect<
   StateSchema extends TaggedSchema,
   EventSchema extends TaggedSchema,
   States extends StatesConfig<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
@@ -3094,33 +2615,21 @@ type RunEffect<
   MachineHandle<
     Schema.Schema.Type<StateSchema>,
     Schema.Schema.Type<EventSchema>,
-    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTags<States> }>
+    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTags<States> }>,
+    MachineError
   >,
-  never,
-  Scope.Scope | Exclude<RequirementsFromStates<States>, undefined>
+  MachineError,
+  | MachineEngineAccess
+  | Scope.Scope
+  | Exclude<RequirementsFromStates<States>, undefined>
+  | StateSchema["EncodingServices"]
+  | StateSchema["DecodingServices"]
+  | EventSchema["EncodingServices"]
+  | EventSchema["DecodingServices"]
 >
 
-/**
- * Starts a scoped machine instance and returns its Effect-native handle.
- *
- * **Details**
- *
- * The initializer runs once, external events and concurrent completions are serialized through a
- * single queue, and invocation requirements remain in the returned Effect environment. Entering a
- * final node resolves `completion`, interrupts owned work, and ends the state-change stream.
- * Supports both `run(definition, input)` and `pipe(definition, run(input))`.
- *
- * **Gotchas**
- *
- * A missing initial node dies with {@link MachineDefinitionDefect}. Sending an event rejected by
- * the live state dies with {@link ProtocolDefect}; expected invocation failures instead follow the
- * definition's `onFailure` transition.
- *
- * @see {@link MachineHandle} for the running instance API.
- * @category running
- * @since 0.1.0
- */
-export const run: {
+/** Runs or resumes a machine through the configured machine engine. */
+const runWithMachineEngine: {
   <const Input>(
     input: Input,
   ): <
@@ -3153,1451 +2662,7 @@ export const run: {
     input: Schema.Schema.Type<InputSchema>,
   ): RunEffect<StateSchema, EventSchema, States> =>
     Effect.gen(function* () {
-      const runtime = yield* makeTreeRuntime()
-      return yield* runActor(definition, input, {
-        runtime,
-        actorId: runtime.handle.rootActorId,
-        definitionPath: rootDefinitionPath,
-      })
+      const engine = yield* MachineEngineAccess
+      return yield* engine.run(definition, input) as RunEffect<StateSchema, EventSchema, States>
     }),
 )
-
-const runActor = <
-  InputSchema extends Schema.Top,
-  StateSchema extends TaggedSchema,
-  EventSchema extends TaggedSchema,
-  States extends StatesConfig<Schema.Schema.Type<StateSchema>, Schema.Schema.Type<EventSchema>>,
->(
-  definition: MachineDefinition<InputSchema, StateSchema, EventSchema, States>,
-  input: Schema.Schema.Type<InputSchema>,
-  actorContext: ActorContext,
-): Effect.Effect<
-  MachineHandle<
-    Schema.Schema.Type<StateSchema>,
-    Schema.Schema.Type<EventSchema>,
-    Extract<Schema.Schema.Type<StateSchema>, { _tag: FinalTags<States> }>
-  >,
-  never,
-  Scope.Scope | Exclude<RequirementsFromStates<States>, undefined>
-> =>
-  Effect.gen(function* () {
-    type State = Schema.Schema.Type<StateSchema>
-    type Event = Schema.Schema.Type<EventSchema>
-    type Completion = Extract<State, { _tag: FinalTags<States> }>
-    type Requirements = Exclude<RequirementsFromStates<States>, undefined>
-
-    const { runtime: treeRuntime, actorId, definitionPath, parent: actorParent } = actorContext
-
-    const environment = yield* Effect.context<Requirements>()
-    const parentScope = yield* Scope.Scope
-    const validateState = (candidate: unknown): Effect.Effect<State> =>
-      Schema.decodeUnknownEffect(
-        definition.schemas.state as TaggedSchema &
-          Readonly<{ Type: State; DecodingServices: never }>,
-      )(candidate).pipe(
-        Effect.mapError(
-          (error) =>
-            new MachineDefinitionDefect(
-              `Machine ${definition.id} produced invalid state: ${String(error)}`,
-            ),
-        ),
-        Effect.orDie,
-      )
-    const validateWorkOutcome = (
-      schema: WorkSchema,
-      value: unknown,
-      owner: string,
-      channel: "success" | "failure",
-    ): Effect.Effect<unknown, never, Requirements> => {
-      const codec = Schema.toCodecJson(schema)
-      return Schema.encodeUnknownEffect(codec)(value).pipe(
-        Effect.flatMap((encoded) => Schema.decodeUnknownEffect(codec)(encoded)),
-        Effect.mapError(
-          (error) =>
-            new MachineDefinitionDefect(
-              `Machine ${definition.id} ${owner} produced an invalid ${channel} outcome: ${String(error)}`,
-            ),
-        ),
-        Effect.orDie,
-      ) as Effect.Effect<unknown, never, Requirements>
-    }
-    const validateWorkResult = (
-      operation: Effect.Effect<unknown, unknown, Requirements>,
-      success: WorkSchema,
-      failure: WorkSchema,
-      owner: string,
-    ): Effect.Effect<unknown, unknown, Requirements> =>
-      Effect.matchEffect(operation, {
-        onFailure: (error) =>
-          validateWorkOutcome(failure, error, owner, "failure").pipe(Effect.flatMap(Effect.fail)),
-        onSuccess: (value) => validateWorkOutcome(success, value, owner, "success"),
-      })
-    const initial = yield* validateState(definition.initial(input))
-    if (!Object.hasOwn(definition.states, initial._tag)) {
-      return yield* Effect.die(
-        new MachineDefinitionDefect(
-          `Machine ${definition.id} initialized to missing state ${initial._tag}`,
-        ),
-      )
-    }
-
-    const stateRef = yield* SubscriptionRef.make(initial)
-    const inbox = yield* Queue.unbounded<Envelope<Event>>()
-    const inspectionRef = yield* SubscriptionRef.make<
-      ReadonlyArray<InternalInspectionRecord<Event>>
-    >([])
-    const terminated = yield* Deferred.make<void>()
-    const completion = yield* Deferred.make<Completion>()
-    const status = yield* Ref.make<"Running" | "Completed" | "Defected">("Running")
-    const activeFibers = yield* FiberMap.make<string, void, never>()
-    // The public builder proves this shape. definitionNodes is the one erasure boundary where
-    // exact keyed states become a homogeneous interpreter/tooling view.
-    const runtimeNodes = definitionNodes(definition) as ReadonlyArray<
-      RuntimeNode<State, Event, Requirements>
-    >
-    const nodes = new Map(runtimeNodes.map((node) => [node.tag, node]))
-    const finalTags = new Set(
-      runtimeNodes.flatMap((node) => (node.kind === "final" ? [node.tag] : [])),
-    )
-    let generation = 0
-    const regionGenerations = new Map<string, number>()
-    let activeTimer:
-      | Readonly<{ generation: number; timer: string; durationMillis: number }>
-      | undefined
-    const activeRegionTimers = new Map<
-      string,
-      Readonly<{
-        generation: number
-        slotGeneration: number
-        timer: string
-        durationMillis: number
-      }>
-    >()
-    let childInstanceSequence = 0
-    let activeChild: ActiveChild | undefined
-
-    const emit = (metadata: InspectionEvent, event?: Event) =>
-      SubscriptionRef.update(inspectionRef, (events) => [
-        ...events,
-        { metadata, ...(event === undefined ? {} : { event }) },
-      ]).pipe(
-        Effect.andThen(
-          treeRuntime.append(actorId, definitionPath, {
-            _tag: "Inspection",
-            metadata,
-            ...(event === undefined ? {} : { event }),
-          }),
-        ),
-        Effect.asVoid,
-      )
-
-    const inspection = <EventDetails>(
-      projectEvent?: (event: Event) => EventDetails,
-    ): Stream.Stream<InspectionEvent | ProjectedInspectionEvent<EventDetails>> =>
-      SubscriptionRef.changes(inspectionRef).pipe(
-        Stream.mapAccum(
-          () => 0,
-          (seen, records) => [
-            records.length,
-            records
-              .slice(seen)
-              .map((record) =>
-                projectEvent === undefined || record.event === undefined
-                  ? record.metadata
-                  : { ...record.metadata, details: projectEvent(record.event) },
-              ),
-          ],
-        ),
-      )
-
-    const startInvocation: (state: State) => Effect.Effect<void> = Effect.fnUntraced(function* (
-      state: State,
-    ) {
-      const node = nodes.get(state._tag)
-      if (node?.kind !== "invoke") return
-
-      const invocationGeneration = generation
-      yield* emit({
-        _tag: "InvocationStarted",
-        machineId: definition.id,
-        stateTag: state._tag,
-        invocation: node.name,
-        generation: invocationGeneration,
-        ownerPath: state._tag,
-        workKind: node.workKind ?? "effect",
-        ...(node.tasks === undefined ? {} : { lanes: Object.keys(node.tasks) }),
-      })
-
-      const workKind = node.workKind ?? "effect"
-      const operation = (() => {
-        if (workKind === "effect") {
-          if (node.effect === undefined || node.success === undefined || node.error === undefined) {
-            return Effect.die(
-              new MachineDefinitionDefect(
-                `Machine ${definition.id} invocation ${node.name} has no complete Effect outcome declaration`,
-              ),
-            )
-          }
-          return validateWorkResult(
-            node.effect(state),
-            node.success,
-            node.error,
-            `invocation ${node.name}`,
-          )
-        }
-
-        const tasks = node.tasks ?? {}
-        const entries = Object.entries(tasks)
-        if (entries.length === 0) {
-          return Effect.die(
-            new MachineDefinitionDefect(
-              `Machine ${definition.id} invocation ${node.name} has no tasks`,
-            ),
-          )
-        }
-        const effects = Object.fromEntries(
-          entries.map(([lane, task]) => {
-            const laneEffect = validateWorkResult(
-              task.effect(state),
-              task.success,
-              task.error,
-              `invocation ${node.name} lane ${lane}`,
-            )
-            return [lane, laneEffect]
-          }),
-        ) as Readonly<Record<string, Effect.Effect<unknown, unknown, Requirements>>>
-        if (workKind === "all") {
-          return Effect.all(effects, { concurrency: node.concurrency ?? "unbounded" })
-        }
-        return Effect.raceAll(
-          Object.entries(effects).map(([winner, effect]) =>
-            Effect.map(effect, (value) => ({ winner, value })),
-          ),
-        )
-      })()
-      const retry = node.retry
-      const retryingOperation =
-        retry === undefined
-          ? operation
-          : Effect.retry(
-              operation,
-              retry.schedule.pipe(
-                Schedule.tap((metadata) =>
-                  emit({
-                    _tag: "InvocationRetryScheduled",
-                    machineId: definition.id,
-                    stateTag: state._tag,
-                    invocation: node.name,
-                    generation: invocationGeneration,
-                    policy: retry.name,
-                    attempt: metadata.attempt,
-                    delayMillis: Duration.toMillis(metadata.duration),
-                    ownerPath: state._tag,
-                    workKind,
-                    ...(node.tasks === undefined ? {} : { lanes: Object.keys(node.tasks) }),
-                  }),
-                ),
-              ),
-            )
-
-      const validatedOperation =
-        workKind === "effect" && node.success !== undefined && node.error !== undefined
-          ? validateWorkResult(
-              retryingOperation,
-              node.success,
-              node.error,
-              `invocation ${node.name}`,
-            )
-          : retryingOperation
-
-      const invocation = validatedOperation.pipe(
-        Effect.provideContext(environment),
-        Effect.matchEffect({
-          onFailure: (error) =>
-            Queue.offer(inbox, {
-              kind: "invocation-failure" as const,
-              stateTag: state._tag,
-              generation: invocationGeneration,
-              error,
-            }).pipe(Effect.asVoid),
-          onSuccess: (value) =>
-            Queue.offer(inbox, {
-              kind: "invocation-success" as const,
-              stateTag: state._tag,
-              generation: invocationGeneration,
-              value,
-            }).pipe(Effect.asVoid),
-        }),
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
-            ? emit({
-                _tag: "InvocationCancelled",
-                machineId: definition.id,
-                stateTag: state._tag,
-                invocation: node.name,
-                generation: invocationGeneration,
-                ownerPath: state._tag,
-                workKind,
-                ...(node.tasks === undefined ? {} : { lanes: Object.keys(node.tasks) }),
-              })
-            : Effect.void,
-        ),
-        Effect.catchCause((cause) => {
-          if (Cause.hasInterruptsOnly(cause)) {
-            return Effect.void
-          }
-          return Queue.offer(inbox, {
-            kind: "invocation-defect" as const,
-            stateTag: state._tag,
-            generation: invocationGeneration,
-            cause,
-          }).pipe(Effect.asVoid)
-        }),
-      )
-
-      yield* FiberMap.run(activeFibers, "work")(invocation)
-    })
-
-    const startChild: (state: State) => Effect.Effect<void> = Effect.fnUntraced(function* (
-      state: State,
-    ) {
-      const node = nodes.get(state._tag)
-      if (node?.kind !== "child") return
-
-      const childScope = yield* Scope.make()
-      yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void))
-      const childGeneration = generation
-      const instanceId = `${definition.id}:${node.name}:${++childInstanceSequence}`
-      const childActorId = yield* treeRuntime.allocateActor
-      const childHandle = yield* runActor(node.definition, node.input(state), {
-        runtime: treeRuntime,
-        actorId: childActorId,
-        definitionPath: childDefinitionPath(definitionPath, state._tag, node.name),
-        parent: {
-          actorId,
-          ownerStateTag: state._tag,
-          invocation: node.name,
-          instanceId,
-        },
-      }).pipe(Effect.provideService(Scope.Scope, childScope), Effect.provideContext(environment))
-      activeChild = {
-        stateTag: state._tag,
-        generation: childGeneration,
-        invocation: node.name,
-        instanceId,
-        actorId: childActorId,
-        scope: childScope,
-        handle: childHandle,
-      }
-
-      yield* emit({
-        _tag: "ChildStarted",
-        machineId: definition.id,
-        stateTag: state._tag,
-        invocation: node.name,
-        instanceId,
-        childDefinitionId: node.definition.id,
-        generation: childGeneration,
-      })
-
-      const watchCompletion = childHandle.completion.pipe(
-        Effect.matchCauseEffect({
-          onFailure: (cause) =>
-            Queue.offer(inbox, {
-              kind: "child-defect" as const,
-              stateTag: state._tag,
-              generation: childGeneration,
-              invocation: node.name,
-              instanceId,
-              cause,
-            }).pipe(Effect.asVoid),
-          onSuccess: (value) =>
-            Queue.offer(inbox, {
-              kind: "child-complete" as const,
-              stateTag: state._tag,
-              generation: childGeneration,
-              invocation: node.name,
-              instanceId,
-              value,
-            }).pipe(Effect.asVoid),
-        }),
-      )
-      yield* FiberMap.run(activeFibers, "child-completion")(watchCompletion)
-    })
-
-    const startTimer: (state: State) => Effect.Effect<void> = Effect.fnUntraced(function* (
-      state: State,
-    ) {
-      const node = nodes.get(state._tag)
-      if (
-        node === undefined ||
-        node.kind === "final" ||
-        node.kind === "regions" ||
-        node.after === undefined
-      ) {
-        return
-      }
-      const timerGeneration = generation
-      const resolved = MachinePlan.resolveDuration(node.after.duration, state)
-      activeTimer = {
-        generation: timerGeneration,
-        timer: resolved.timer,
-        durationMillis: resolved.durationMillis,
-      }
-      yield* emit({
-        _tag: "TimerStarted",
-        machineId: definition.id,
-        stateTag: state._tag,
-        timer: resolved.timer,
-        generation: timerGeneration,
-        ownerPath: state._tag,
-        durationMillis: resolved.durationMillis,
-      })
-      const timer = Effect.sleep(resolved.input).pipe(
-        Effect.andThen(
-          Queue.offer(inbox, {
-            kind: "timer" as const,
-            stateTag: state._tag,
-            generation: timerGeneration,
-            timer: resolved.timer,
-            durationMillis: resolved.durationMillis,
-          }),
-        ),
-        Effect.asVoid,
-      )
-      yield* FiberMap.run(activeFibers, "timer")(timer)
-    })
-
-    const startRegionSlot: (state: State, slot: string) => Effect.Effect<void> = Effect.fnUntraced(
-      function* (state: State, slot: string) {
-        const parentNode = nodes.get(state._tag)
-        if (parentNode?.kind !== "regions") return
-        const slotState = (state as Readonly<Record<string, unknown>>)[slot]
-        if (typeof slotState !== "object" || slotState === null || !("_tag" in slotState)) return
-        const regionState = slotState as Tagged
-        const regionNode = parentNode.regions[slot]?.states[regionState._tag]
-        if (regionNode === undefined || regionNode.final === true) return
-        const ownerGeneration = generation
-        const slotGeneration = regionGenerations.get(slot) ?? 0
-        const key = `region:${slot}`
-
-        if (regionNode.invoke !== undefined) {
-          const invoke = regionNode.invoke
-          yield* emit({
-            _tag: "InvocationStarted",
-            machineId: definition.id,
-            stateTag: state._tag,
-            invocation: invoke.name,
-            generation: ownerGeneration,
-            ownerPath: `${state._tag}/${slot}/${regionState._tag}`,
-            workKind: "effect",
-          })
-          const operation = validateWorkResult(
-            invoke.effect(regionState, state),
-            invoke.success,
-            invoke.error,
-            `region invocation ${invoke.name}`,
-          )
-          const retrying =
-            invoke.retry === undefined
-              ? operation
-              : Effect.retry(
-                  operation,
-                  invoke.retry.schedule.pipe(
-                    Schedule.tap((metadata) =>
-                      emit({
-                        _tag: "InvocationRetryScheduled",
-                        machineId: definition.id,
-                        stateTag: state._tag,
-                        invocation: invoke.name,
-                        generation: ownerGeneration,
-                        policy: invoke.retry?.name ?? "retry",
-                        attempt: metadata.attempt,
-                        delayMillis: Duration.toMillis(metadata.duration),
-                        ownerPath: `${state._tag}/${slot}/${regionState._tag}`,
-                        workKind: "effect",
-                      }),
-                    ),
-                  ),
-                )
-          const validated = validateWorkResult(
-            retrying,
-            invoke.success,
-            invoke.error,
-            `region invocation ${invoke.name}`,
-          )
-          const work = validated.pipe(
-            Effect.provideContext(environment),
-            Effect.matchEffect({
-              onFailure: (error) =>
-                Queue.offer(inbox, {
-                  kind: "region-failure" as const,
-                  stateTag: state._tag,
-                  generation: ownerGeneration,
-                  slot,
-                  regionTag: regionState._tag,
-                  slotGeneration,
-                  value: error,
-                }).pipe(Effect.asVoid),
-              onSuccess: (value) =>
-                Queue.offer(inbox, {
-                  kind: "region-success" as const,
-                  stateTag: state._tag,
-                  generation: ownerGeneration,
-                  slot,
-                  regionTag: regionState._tag,
-                  slotGeneration,
-                  value,
-                }).pipe(Effect.asVoid),
-            }),
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.void
-                : Queue.offer(inbox, {
-                    kind: "region-defect" as const,
-                    stateTag: state._tag,
-                    generation: ownerGeneration,
-                    slot,
-                    regionTag: regionState._tag,
-                    slotGeneration,
-                    cause,
-                  }).pipe(Effect.asVoid),
-            ),
-          )
-          yield* FiberMap.run(activeFibers, `${key}:work`)(work)
-        }
-
-        if (regionNode.after !== undefined) {
-          const durationState = { state: regionState, parent: state }
-          const resolved = MachinePlan.resolveDuration(regionNode.after.duration, durationState)
-          activeRegionTimers.set(slot, {
-            generation: ownerGeneration,
-            slotGeneration,
-            timer: resolved.timer,
-            durationMillis: resolved.durationMillis,
-          })
-          yield* emit({
-            _tag: "TimerStarted",
-            machineId: definition.id,
-            stateTag: state._tag,
-            timer: resolved.timer,
-            generation: ownerGeneration,
-            ownerPath: `${state._tag}/${slot}/${regionState._tag}`,
-            durationMillis: resolved.durationMillis,
-          })
-          const timer = Effect.sleep(resolved.input).pipe(
-            Effect.andThen(
-              Queue.offer(inbox, {
-                kind: "region-timer" as const,
-                stateTag: state._tag,
-                generation: ownerGeneration,
-                slot,
-                regionTag: regionState._tag,
-                slotGeneration,
-                timer: resolved.timer,
-                durationMillis: resolved.durationMillis,
-              }),
-            ),
-            Effect.asVoid,
-          )
-          yield* FiberMap.run(activeFibers, `${key}:timer`)(timer)
-        }
-      },
-    )
-
-    const startRegions: (state: State) => Effect.Effect<void> = Effect.fnUntraced(function* (
-      state: State,
-    ) {
-      const node = nodes.get(state._tag)
-      if (node?.kind !== "regions") return
-      const slots = Object.keys(node.regions)
-      for (const slot of slots) {
-        regionGenerations.set(slot, (regionGenerations.get(slot) ?? 0) + 1)
-      }
-      yield* Effect.forEach(slots, (slot) => startRegionSlot(state, slot), {
-        discard: true,
-      })
-      if (MachinePlan.regionsComplete(node, state) && node.onComplete !== undefined) {
-        yield* Queue.offer(inbox, {
-          kind: "regions-complete",
-          stateTag: state._tag,
-          generation,
-        })
-      }
-    })
-
-    const startOwnedBehavior = (state: State): Effect.Effect<void> =>
-      Effect.all(
-        [startInvocation(state), startChild(state), startTimer(state), startRegions(state)],
-        {
-          concurrency: "unbounded",
-          discard: true,
-        },
-      )
-
-    const closeActiveChild: (cancelled: boolean) => Effect.Effect<void> = Effect.fnUntraced(
-      function* (cancelled: boolean) {
-        const child = activeChild
-        if (child === undefined) return
-        activeChild = undefined
-        if (cancelled) {
-          yield* emit({
-            _tag: "ChildCancelled",
-            machineId: definition.id,
-            stateTag: child.stateTag,
-            invocation: child.invocation,
-            instanceId: child.instanceId,
-            generation: child.generation,
-          })
-        }
-        yield* Scope.close(child.scope, Exit.void)
-      },
-    )
-
-    const commit: (previous: State, next: State, firedTimer?: boolean) => Effect.Effect<boolean> =
-      Effect.fnUntraced(function* (previous: State, next: State, firedTimer = false) {
-        next = yield* validateState(next)
-        const previousNode = nodes.get(previous._tag)
-        const previousTimer = activeTimer
-        if (
-          !firedTimer &&
-          previousNode !== undefined &&
-          previousNode.kind !== "final" &&
-          previousNode.kind !== "regions" &&
-          previousNode.after !== undefined &&
-          previousTimer !== undefined
-        ) {
-          yield* emit({
-            _tag: "TimerCancelled",
-            machineId: definition.id,
-            stateTag: previous._tag,
-            timer: previousTimer.timer,
-            generation: previousTimer.generation,
-            ownerPath: previous._tag,
-            durationMillis: previousTimer.durationMillis,
-          })
-        }
-        activeTimer = undefined
-        if (previousNode?.kind === "regions") {
-          for (const [slot, region] of Object.entries(previousNode.regions)) {
-            const slotState = (previous as Readonly<Record<string, unknown>>)[slot]
-            if (typeof slotState !== "object" || slotState === null || !("_tag" in slotState)) {
-              continue
-            }
-            const regionNode = region.states[(slotState as Tagged)._tag]
-            const ownerPath = `${previous._tag}/${slot}/${(slotState as Tagged)._tag}`
-            if (regionNode?.invoke !== undefined) {
-              yield* emit({
-                _tag: "InvocationCancelled",
-                machineId: definition.id,
-                stateTag: previous._tag,
-                invocation: regionNode.invoke.name,
-                generation,
-                ownerPath,
-                workKind: "effect",
-              })
-            }
-            const regionTimer = activeRegionTimers.get(slot)
-            if (regionNode?.after !== undefined && regionTimer !== undefined) {
-              yield* emit({
-                _tag: "TimerCancelled",
-                machineId: definition.id,
-                stateTag: previous._tag,
-                timer: regionTimer.timer,
-                generation: regionTimer.generation,
-                ownerPath,
-                durationMillis: regionTimer.durationMillis,
-              })
-            }
-            activeRegionTimers.delete(slot)
-          }
-        }
-        generation += 1
-        yield* FiberMap.clear(activeFibers)
-        yield* closeActiveChild(true)
-        yield* SubscriptionRef.set(stateRef, next)
-        yield* emit({
-          _tag: "StateChanged",
-          machineId: definition.id,
-          previousStateTag: previous._tag,
-          nextStateTag: next._tag,
-        })
-        yield* treeRuntime.append(actorId, definitionPath, {
-          _tag: "StateSnapshot",
-          state: next,
-        })
-        const isFinal = finalTags.has(next._tag)
-        if (isFinal) {
-          yield* Ref.set(status, "Completed")
-          yield* emit({
-            _tag: "MachineCompleted",
-            machineId: definition.id,
-            finalStateTag: next._tag,
-          })
-          yield* treeRuntime.terminate(actorId, definitionPath, "completed")
-          // finalTags membership proves the Completion narrowing that Set.has cannot express.
-          yield* Deferred.succeed(completion, next as Completion)
-        } else {
-          yield* startOwnedBehavior(next)
-        }
-        return !isFinal
-      })
-
-    const commitStay: (previous: State, next: State) => Effect.Effect<void> = Effect.fnUntraced(
-      function* (previous: State, next: State) {
-        next = yield* validateState(next)
-        yield* SubscriptionRef.set(stateRef, next)
-        yield* emit({
-          _tag: "StateChanged",
-          machineId: definition.id,
-          previousStateTag: previous._tag,
-          nextStateTag: next._tag,
-        })
-        yield* treeRuntime.append(actorId, definitionPath, {
-          _tag: "StateSnapshot",
-          state: next,
-        })
-      },
-    )
-
-    const commitRegion: (
-      previous: State,
-      updates: Readonly<Record<string, Tagged>>,
-      reenteredSlots: ReadonlySet<string>,
-      settled?: Readonly<{ slot: string; kind: "work" | "timer" }>,
-    ) => Effect.Effect<State> = Effect.fnUntraced(function* (
-      previous: State,
-      updates: Readonly<Record<string, Tagged>>,
-      reenteredSlots: ReadonlySet<string>,
-      settled,
-    ) {
-      const plan = MachinePlan.planRegionMacrostep(previous, updates, reenteredSlots)
-      for (const slot of reenteredSlots) {
-        const parentNode = nodes.get(previous._tag)
-        const slotState = (previous as Readonly<Record<string, unknown>>)[slot]
-        const regionNode =
-          parentNode?.kind === "regions" &&
-          typeof slotState === "object" &&
-          slotState !== null &&
-          "_tag" in slotState
-            ? parentNode.regions[slot]?.states[(slotState as Tagged)._tag]
-            : undefined
-        const ownerPath = `${previous._tag}/${slot}/${(slotState as Tagged | undefined)?._tag ?? "unknown"}`
-        if (
-          regionNode?.invoke !== undefined &&
-          !(settled?.slot === slot && settled.kind === "work")
-        ) {
-          yield* emit({
-            _tag: "InvocationCancelled",
-            machineId: definition.id,
-            stateTag: previous._tag,
-            invocation: regionNode.invoke.name,
-            generation,
-            ownerPath,
-            workKind: "effect",
-          })
-        }
-        const regionTimer = activeRegionTimers.get(slot)
-        if (
-          regionNode?.after !== undefined &&
-          !(settled?.slot === slot && settled.kind === "timer") &&
-          regionTimer !== undefined
-        ) {
-          yield* emit({
-            _tag: "TimerCancelled",
-            machineId: definition.id,
-            stateTag: previous._tag,
-            timer: regionTimer.timer,
-            generation: regionTimer.generation,
-            ownerPath,
-            durationMillis: regionTimer.durationMillis,
-          })
-        }
-        activeRegionTimers.delete(slot)
-        yield* FiberMap.remove(activeFibers, `region:${slot}:work`)
-        yield* FiberMap.remove(activeFibers, `region:${slot}:timer`)
-        regionGenerations.set(slot, (regionGenerations.get(slot) ?? 0) + 1)
-      }
-      const next = yield* validateState(plan.next)
-      yield* SubscriptionRef.set(stateRef, next)
-      yield* emit({
-        _tag: "StateChanged",
-        machineId: definition.id,
-        previousStateTag: previous._tag,
-        nextStateTag: next._tag,
-      })
-      yield* treeRuntime.append(actorId, definitionPath, {
-        _tag: "StateSnapshot",
-        state: next,
-      })
-      yield* Effect.forEach(reenteredSlots, (slot) => startRegionSlot(next, slot), {
-        discard: true,
-      })
-      const node = nodes.get(next._tag)
-      if (
-        node?.kind === "regions" &&
-        node.onComplete !== undefined &&
-        MachinePlan.regionsComplete(node, next)
-      ) {
-        yield* Queue.offer(inbox, {
-          kind: "regions-complete",
-          stateTag: next._tag,
-          generation,
-        })
-      }
-      return next
-    })
-
-    const process: (envelope: Envelope<Event>) => Effect.Effect<boolean> = Effect.fnUntraced(
-      function* (envelope: Envelope<Event>) {
-        const current = yield* SubscriptionRef.get(stateRef)
-        const currentNode = nodes.get(current._tag)
-
-        if (envelope.kind === "child-complete" || envelope.kind === "child-defect") {
-          const child = activeChild
-          if (
-            MachinePlan.isStaleEntry(envelope, { stateTag: current._tag, generation }) ||
-            currentNode?.kind !== "child" ||
-            child?.instanceId !== envelope.instanceId
-          ) {
-            return true
-          }
-
-          if (envelope.kind === "child-defect") {
-            yield* emit({
-              _tag: "ChildDefected",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation: currentNode.name,
-              instanceId: envelope.instanceId,
-              generation,
-            })
-            yield* closeActiveChild(false)
-            return yield* Effect.failCause(envelope.cause)
-          }
-
-          const selectedOutcome = MachinePlan.selectOutcome<State, Tagged, "value">(
-            currentNode.onComplete,
-            { state: current, value: envelope.value },
-          )
-          if (selectedOutcome === undefined) {
-            return yield* Effect.die(
-              new ProtocolDefect(definition.id, current._tag, "child-completion"),
-            )
-          }
-          yield* emit({
-            _tag: "ChildCompleted",
-            machineId: definition.id,
-            stateTag: current._tag,
-            invocation: currentNode.name,
-            instanceId: envelope.instanceId,
-            generation,
-            ...(selectedOutcome.branch === undefined ? {} : { branch: selectedOutcome.branch }),
-          })
-          const transition = selectedOutcome.transition
-          const fields = transition.reduce({ state: current, value: envelope.value })
-          const plan = MachinePlan.planTransition(
-            current,
-            transition.target,
-            fields,
-            selectedOutcome.branch,
-          )
-          yield* closeActiveChild(false)
-          return yield* commit(plan.previous, plan.next)
-        }
-
-        if (
-          envelope.kind === "region-success" ||
-          envelope.kind === "region-failure" ||
-          envelope.kind === "region-defect" ||
-          envelope.kind === "region-timer"
-        ) {
-          const slotState = (current as Readonly<Record<string, unknown>>)[envelope.slot]
-          if (
-            envelope.generation !== generation ||
-            envelope.stateTag !== current._tag ||
-            currentNode?.kind !== "regions" ||
-            envelope.slotGeneration !== (regionGenerations.get(envelope.slot) ?? 0) ||
-            typeof slotState !== "object" ||
-            slotState === null ||
-            (slotState as Tagged)._tag !== envelope.regionTag
-          ) {
-            yield* emit({
-              _tag: "StaleOutcomeIgnored",
-              machineId: definition.id,
-              stateTag: current._tag,
-              ownerPath: `${envelope.stateTag}/${envelope.slot}/${envelope.regionTag}`,
-              generation: envelope.generation,
-              currentGeneration: generation,
-              outcome:
-                envelope.kind === "region-success"
-                  ? "work-success"
-                  : envelope.kind === "region-failure"
-                    ? "work-failure"
-                    : envelope.kind === "region-defect"
-                      ? "work-defect"
-                      : "timer",
-            })
-            return true
-          }
-          if (envelope.kind === "region-defect") {
-            yield* emit({
-              _tag: "InvocationDefected",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation:
-                currentNode.regions[envelope.slot]?.states[envelope.regionTag]?.invoke?.name ??
-                "region-work",
-              generation,
-              ownerPath: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-              workKind: "effect",
-            })
-            return yield* Effect.failCause(envelope.cause)
-          }
-          const regionState = slotState as Tagged
-          const regionNode = currentNode.regions[envelope.slot]?.states[regionState._tag]
-          if (regionNode === undefined) return true
-
-          let transition:
-            | RuntimeRegionOutcome<State, "value" | "error">
-            | RuntimeRegionAfterTransition<State>
-            | undefined
-          let fields: Readonly<Record<string, unknown>>
-          let selectedBranch: SelectedBranch | undefined
-          if (envelope.kind === "region-timer") {
-            const after = regionNode.after
-            if (after === undefined) return true
-            const selectedAfter = MachinePlan.selectRegionAfter(after, {
-              state: regionState,
-              parent: current,
-            })
-            if (selectedAfter === undefined) {
-              return yield* Effect.die(
-                new ProtocolDefect(
-                  definition.id,
-                  `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-                  "timer",
-                ),
-              )
-            }
-            activeRegionTimers.delete(envelope.slot)
-            yield* emit({
-              _tag: "TimerFired",
-              machineId: definition.id,
-              stateTag: current._tag,
-              timer: envelope.timer,
-              generation,
-              ownerPath: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-              durationMillis: envelope.durationMillis,
-            })
-            transition = selectedAfter.transition
-            selectedBranch = selectedAfter.branch
-            fields = selectedAfter.transition.reduce({ state: regionState, parent: current })
-          } else if (envelope.kind === "region-success") {
-            const outcome = regionNode.invoke?.onSuccess
-            if (outcome === undefined) return true
-            yield* emit({
-              _tag: "InvocationSucceeded",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation: regionNode.invoke?.name ?? "region-work",
-              generation,
-              ownerPath: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-              workKind: "effect",
-            })
-            fields = outcome.reduce({ state: regionState, parent: current, value: envelope.value })
-            transition = outcome as RuntimeRegionOutcome<State, "value" | "error">
-          } else {
-            const outcome = regionNode.invoke?.onFailure
-            if (outcome === undefined) return true
-            yield* emit({
-              _tag: "InvocationFailed",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation: regionNode.invoke?.name ?? "region-work",
-              generation,
-              ownerPath: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-              workKind: "effect",
-            })
-            fields = outcome.reduce({ state: regionState, parent: current, error: envelope.value })
-            transition = outcome as RuntimeRegionOutcome<State, "value" | "error">
-          }
-          yield* emit({
-            _tag: "TransitionSelected",
-            machineId: definition.id,
-            sourceStateTag: `${current._tag}/${envelope.slot}/${envelope.regionTag}`,
-            targetStateTag: `${current._tag}/${envelope.slot}/${transition.target}`,
-            eventTag:
-              envelope.kind === "region-timer"
-                ? "@after"
-                : envelope.kind === "region-success"
-                  ? "@success"
-                  : "@failure",
-            ownerPath: `${current._tag}/${envelope.slot}`,
-            macrostep: generation,
-            ...(selectedBranch === undefined ? {} : { branch: selectedBranch }),
-          })
-          const nextSlot = { ...fields, _tag: transition.target } as Tagged
-          yield* commitRegion(current, { [envelope.slot]: nextSlot }, new Set([envelope.slot]), {
-            slot: envelope.slot,
-            kind: envelope.kind === "region-timer" ? "timer" : "work",
-          })
-          return true
-        }
-
-        if (envelope.kind === "regions-complete") {
-          if (
-            envelope.generation !== generation ||
-            envelope.stateTag !== current._tag ||
-            currentNode?.kind !== "regions" ||
-            currentNode.onComplete === undefined ||
-            !MachinePlan.regionsComplete(currentNode, current)
-          ) {
-            if (MachinePlan.isStaleEntry(envelope, { stateTag: current._tag, generation })) {
-              yield* emit({
-                _tag: "StaleOutcomeIgnored",
-                machineId: definition.id,
-                stateTag: current._tag,
-                ownerPath: envelope.stateTag,
-                generation: envelope.generation,
-                currentGeneration: generation,
-                outcome: "completion",
-              })
-            }
-            return true
-          }
-          const transition = currentNode.onComplete
-          yield* emit({
-            _tag: "TransitionSelected",
-            machineId: definition.id,
-            sourceStateTag: current._tag,
-            targetStateTag: transition.target,
-            eventTag: "@complete",
-            ownerPath: current._tag,
-            macrostep: generation,
-          })
-          const fields = transition.reduce({ state: current })
-          const plan = MachinePlan.planTransition(current, transition.target, fields)
-          return yield* commit(plan.previous, plan.next)
-        }
-
-        if (envelope.kind === "timer") {
-          if (
-            MachinePlan.isStaleEntry(envelope, { stateTag: current._tag, generation }) ||
-            currentNode === undefined ||
-            currentNode.kind === "final" ||
-            currentNode.kind === "regions" ||
-            currentNode.after === undefined
-          ) {
-            if (MachinePlan.isStaleEntry(envelope, { stateTag: current._tag, generation })) {
-              yield* emit({
-                _tag: "StaleOutcomeIgnored",
-                machineId: definition.id,
-                stateTag: current._tag,
-                ownerPath: envelope.stateTag,
-                generation: envelope.generation,
-                currentGeneration: generation,
-                outcome: "timer",
-              })
-            }
-            return true
-          }
-          const selectedAfter = MachinePlan.selectAfter(currentNode.after, current)
-          if (selectedAfter === undefined) {
-            return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, "timer"))
-          }
-          activeTimer = undefined
-          const transition = selectedAfter.transition
-          yield* emit({
-            _tag: "TimerFired",
-            machineId: definition.id,
-            stateTag: current._tag,
-            timer: envelope.timer,
-            generation,
-            ownerPath: current._tag,
-            durationMillis: envelope.durationMillis,
-          })
-          yield* emit({
-            _tag: "TransitionSelected",
-            machineId: definition.id,
-            sourceStateTag: current._tag,
-            targetStateTag: transition.target,
-            eventTag: "@after",
-            ownerPath: current._tag,
-            macrostep: generation,
-            ...(selectedAfter.branch === undefined ? {} : { branch: selectedAfter.branch }),
-          })
-          const fields = transition.reduce({ state: current })
-          const plan = MachinePlan.planTransition(
-            current,
-            transition.target,
-            fields,
-            selectedAfter.branch,
-          )
-          return yield* commit(plan.previous, plan.next, true)
-        }
-
-        if (envelope.kind !== "external") {
-          if (
-            MachinePlan.isStaleEntry(envelope, { stateTag: current._tag, generation }) ||
-            currentNode?.kind !== "invoke"
-          ) {
-            yield* emit({
-              _tag: "StaleOutcomeIgnored",
-              machineId: definition.id,
-              stateTag: current._tag,
-              ownerPath: envelope.stateTag,
-              generation: envelope.generation,
-              currentGeneration: generation,
-              outcome:
-                envelope.kind === "invocation-success"
-                  ? "work-success"
-                  : envelope.kind === "invocation-failure"
-                    ? "work-failure"
-                    : "work-defect",
-            })
-            return true
-          }
-
-          if (envelope.kind === "invocation-defect") {
-            yield* emit({
-              _tag: "InvocationDefected",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation: currentNode.name,
-              generation,
-              ownerPath: current._tag,
-              workKind: currentNode.workKind ?? "effect",
-              ...(currentNode.tasks === undefined ? {} : { lanes: Object.keys(currentNode.tasks) }),
-            })
-            return yield* Effect.failCause(envelope.cause)
-          }
-
-          const isSuccess = envelope.kind === "invocation-success"
-          const selectedOutcome = isSuccess
-            ? MachinePlan.selectOutcome<State, unknown, "value">(currentNode.onSuccess, {
-                state: current,
-                value: envelope.value,
-              })
-            : MachinePlan.selectOutcome<State, unknown, "error">(currentNode.onFailure, {
-                state: current,
-                error: envelope.error,
-              })
-          if (selectedOutcome === undefined) {
-            return yield* Effect.die(
-              new ProtocolDefect(
-                definition.id,
-                current._tag,
-                isSuccess ? "invocation-success" : "invocation-failure",
-              ),
-            )
-          }
-          yield* emit({
-            _tag: isSuccess ? "InvocationSucceeded" : "InvocationFailed",
-            machineId: definition.id,
-            stateTag: current._tag,
-            invocation: currentNode.name,
-            generation,
-            ownerPath: current._tag,
-            workKind: currentNode.workKind ?? "effect",
-            ...(currentNode.tasks === undefined ? {} : { lanes: Object.keys(currentNode.tasks) }),
-            ...(selectedOutcome.branch === undefined ? {} : { branch: selectedOutcome.branch }),
-          })
-          const transition = selectedOutcome.transition
-          // isSuccess correlates the envelope kind with the value/error reducer key;
-          // TypeScript cannot track that correlation across the shared selectOutcome call.
-          const fields = isSuccess
-            ? currentNode.workKind === "race" &&
-              typeof envelope.value === "object" &&
-              envelope.value !== null
-              ? (
-                  transition as unknown as {
-                    reduce: (
-                      args: Readonly<Record<string, unknown>>,
-                    ) => Readonly<Record<string, unknown>>
-                  }
-                ).reduce({ state: current, ...envelope.value })
-              : (transition as RuntimeOutcomeTransition<State, unknown, "value">).reduce({
-                  state: current,
-                  value: envelope.value,
-                })
-            : (transition as RuntimeOutcomeTransition<State, unknown, "error">).reduce({
-                state: current,
-                error: envelope.error,
-              })
-          const plan = MachinePlan.planTransition(
-            current,
-            transition.target,
-            fields,
-            selectedOutcome.branch,
-          )
-          return yield* commit(plan.previous, plan.next)
-        }
-
-        yield* emit(
-          {
-            _tag: "EventReceived",
-            machineId: definition.id,
-            stateTag: current._tag,
-            eventTag: envelope.event._tag,
-          },
-          envelope.event,
-        )
-
-        if (currentNode?.kind === "child") {
-          const forwarded = currentNode.forward[envelope.event._tag]
-          if (forwarded !== undefined) {
-            const child = activeChild
-            if (child === undefined) {
-              return yield* Effect.die(
-                new MachineDefinitionDefect(
-                  `Machine ${definition.id} has no active instance for child ${currentNode.name}`,
-                ),
-              )
-            }
-            const childEvent = forwarded.map({ state: current, event: envelope.event })
-            if (childEvent._tag !== forwarded.target) {
-              return yield* Effect.die(
-                new MachineDefinitionDefect(
-                  `Machine ${definition.id} forwards to ${forwarded.target} but returned ${childEvent._tag}`,
-                ),
-              )
-            }
-            yield* emit({
-              _tag: "ChildEventForwarded",
-              machineId: definition.id,
-              stateTag: current._tag,
-              invocation: currentNode.name,
-              instanceId: child.instanceId,
-              parentEventTag: envelope.event._tag,
-              childEventTag: childEvent._tag,
-              generation,
-            })
-            yield* child.handle.send(childEvent).pipe(
-              Effect.catchCause((cause) =>
-                Effect.andThen(
-                  emit({
-                    _tag: "ChildDefected",
-                    machineId: definition.id,
-                    stateTag: current._tag,
-                    invocation: currentNode.name,
-                    instanceId: child.instanceId,
-                    generation,
-                  }),
-                  Effect.failCause(cause),
-                ),
-              ),
-            )
-            yield* Deferred.succeed(envelope.reply, undefined)
-            return true
-          }
-        }
-        if (currentNode?.kind === "regions") {
-          const regionPlan = MachinePlan.planRegionEvent(currentNode, current, envelope.event)
-          if (regionPlan !== undefined) {
-            for (const transition of regionPlan.transitions) {
-              yield* emit({
-                _tag: "TransitionSelected",
-                machineId: definition.id,
-                sourceStateTag: `${current._tag}/${transition.slot}/${transition.source}`,
-                targetStateTag: `${current._tag}/${transition.slot}/${transition.target}`,
-                eventTag: envelope.event._tag,
-                ownerPath: `${current._tag}/${transition.slot}`,
-                macrostep: generation,
-              })
-            }
-            if (Object.keys(regionPlan.updates).length > 0) {
-              yield* commitRegion(
-                regionPlan.previous,
-                regionPlan.updates,
-                regionPlan.reenteredSlots,
-              )
-            }
-            yield* Deferred.succeed(envelope.reply, undefined)
-            return true
-          }
-        }
-        const handler =
-          currentNode?.kind === "state" ||
-          currentNode?.kind === "invoke" ||
-          currentNode?.kind === "child" ||
-          currentNode?.kind === "regions"
-            ? currentNode.on[envelope.event._tag]
-            : undefined
-        const selected = MachinePlan.planEvent(handler, current, envelope.event)
-
-        if (selected === undefined) {
-          const defect = new ProtocolDefect(definition.id, current._tag, envelope.event._tag)
-          yield* emit({
-            _tag: "MachineDefected",
-            machineId: definition.id,
-            stateTag: current._tag,
-            eventTag: envelope.event._tag,
-            defect: "ProtocolDefect",
-          })
-          yield* Deferred.die(envelope.reply, defect)
-          return yield* Effect.die(defect)
-        }
-
-        if (selected.kind === "ignore") {
-          yield* emit({
-            _tag: "EventIgnored",
-            machineId: definition.id,
-            stateTag: current._tag,
-            eventTag: envelope.event._tag,
-          })
-          yield* Deferred.succeed(envelope.reply, undefined)
-          return true
-        }
-
-        if (selected.kind === "stay") {
-          yield* commitStay(selected.previous, selected.next)
-          yield* Deferred.succeed(envelope.reply, undefined)
-          return true
-        }
-
-        yield* emit({
-          _tag: "TransitionSelected",
-          machineId: definition.id,
-          sourceStateTag: current._tag,
-          targetStateTag: selected.entry.target,
-          eventTag: envelope.event._tag,
-          ...(selected.branch === undefined ? {} : { branch: selected.branch }),
-        })
-        const continueRunning = yield* commit(selected.previous, selected.next)
-        yield* Deferred.succeed(envelope.reply, undefined)
-        return continueRunning
-      },
-    )
-
-    const can = Effect.fnUntraced(function* (event: Event) {
-      const current = yield* SubscriptionRef.get(stateRef)
-      const node = nodes.get(current._tag)
-      if (node?.kind === "child") {
-        const forwarded = node.forward[event._tag]
-        if (forwarded !== undefined) {
-          const child = activeChild
-          if (child === undefined) return false
-          const childEvent = forwarded.map({ state: current, event })
-          if (childEvent._tag !== forwarded.target) return false
-          return yield* child.handle.can(childEvent)
-        }
-      }
-      if (node?.kind === "regions") {
-        for (const [slot, region] of Object.entries(node.regions)) {
-          const slotState = (current as Readonly<Record<string, unknown>>)[slot]
-          if (
-            typeof slotState === "object" &&
-            slotState !== null &&
-            region.states[(slotState as Tagged)._tag]?.on?.[event._tag] !== undefined
-          ) {
-            return true
-          }
-        }
-        return MachinePlan.canEvent(node.on[event._tag], current, event)
-      }
-      if (node?.kind !== "state" && node?.kind !== "invoke" && node?.kind !== "child") {
-        return false
-      }
-      return MachinePlan.canEvent(node.on[event._tag], current, event)
-    })
-
-    const send = Effect.fnUntraced(function* (event: Event) {
-      const currentStatus = yield* Ref.get(status)
-      if (currentStatus === "Completed") {
-        const current = yield* SubscriptionRef.get(stateRef)
-        return yield* Effect.die(new ProtocolDefect(definition.id, current._tag, event._tag))
-      }
-      if (currentStatus === "Defected") {
-        return yield* Deferred.await(terminated)
-      }
-      const reply = yield* Deferred.make<void>()
-      yield* Queue.offer(inbox, { kind: "external", event, reply })
-      yield* Effect.raceFirst(Deferred.await(reply), Deferred.await(terminated))
-    })
-
-    // This is the single interpreter-owned erasure boundary for heterogeneous child events.
-    yield* treeRuntime.register(actorId, {
-      definitionPath,
-      can: (event) => can(event as Event),
-      send: (event) => send(event as Event),
-    })
-    yield* treeRuntime.append(actorId, definitionPath, {
-      _tag: "ActorStarted",
-      machineId: definition.id,
-      ...(actorParent === undefined
-        ? {}
-        : {
-            parentActorId: actorParent.actorId,
-            ownerStateTag: actorParent.ownerStateTag,
-            invocation: actorParent.invocation,
-            instanceId: actorParent.instanceId,
-          }),
-    })
-    yield* emit({
-      _tag: "MachineStarted",
-      machineId: definition.id,
-      initialStateTag: initial._tag,
-    })
-    yield* treeRuntime.append(actorId, definitionPath, {
-      _tag: "StateSnapshot",
-      state: initial,
-    })
-
-    const initialIsFinal = finalTags.has(initial._tag)
-    if (initialIsFinal) {
-      yield* Ref.set(status, "Completed")
-      // finalTags membership proves the Completion narrowing that Set.has cannot express.
-      yield* Deferred.succeed(completion, initial as Completion)
-      yield* Deferred.succeed(terminated, undefined)
-      yield* treeRuntime.terminate(actorId, definitionPath, "completed")
-    } else {
-      let continueRunning = true
-      yield* Effect.whileLoop({
-        while: () => continueRunning,
-        body: () => Queue.take(inbox).pipe(Effect.flatMap(process)),
-        step: (next) => {
-          continueRunning = next
-        },
-      }).pipe(
-        Effect.onExit((exit) =>
-          Effect.gen(function* () {
-            if (Exit.isFailure(exit)) {
-              yield* Ref.set(status, "Defected")
-              yield* treeRuntime.terminate(
-                actorId,
-                definitionPath,
-                Cause.hasInterruptsOnly(exit.cause) ? "cancelled" : "defected",
-              )
-              yield* Deferred.failCause(completion, exit.cause)
-              yield* Deferred.failCause(terminated, exit.cause)
-            } else {
-              yield* Deferred.succeed(terminated, undefined)
-            }
-          }),
-        ),
-        Effect.forkScoped,
-      )
-      yield* startOwnedBehavior(initial)
-    }
-
-    return {
-      actorId,
-      definitionPath,
-      tree: treeRuntime.handle,
-      snapshot: SubscriptionRef.get(stateRef),
-      changes: Stream.takeUntil(SubscriptionRef.changes(stateRef), (state) =>
-        finalTags.has(state._tag),
-      ),
-      // inspection() returns the union of the plain and projected element types; the presence
-      // (or absence) of projectEvent decides which one, which TypeScript cannot track.
-      inspection: inspection() as Stream.Stream<InspectionEvent>,
-      inspect: (projectEvent) =>
-        inspection(projectEvent) as Stream.Stream<
-          ProjectedInspectionEvent<ReturnType<typeof projectEvent>>
-        >,
-      completion: Deferred.await(completion),
-      can,
-      send,
-    }
-  })

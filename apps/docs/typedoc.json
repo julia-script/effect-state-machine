@@ -1,0 +1,37 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "effect-state-machine API",
+  "entryPoints": [
+    "../../packages/core/src/Machine.ts",
+    "../../packages/core/src/MachineEngine.ts",
+    "../../packages/core/src/MachineStore.ts",
+    "../../packages/core/src/LocalStorageMachineStore.ts",
+    "../../packages/core/src/MachineWorkflow.ts",
+    "../../packages/core/src/Graph.ts",
+    "../../packages/core/src/Mermaid.ts",
+    "../../packages/core/src/SourceLocation.ts"
+  ],
+  "tsconfig": "../../packages/core/tsconfig.json",
+  "plugin": [
+    "typedoc-plugin-markdown",
+    "typedoc-plugin-frontmatter",
+    "./scripts/typedoc-fumadocs.mjs"
+  ],
+  "out": "./content/docs/reference/api",
+  "readme": "none",
+  "router": "module",
+  "entryFileName": "index",
+  "fileExtension": ".mdx",
+  "cleanOutputDir": true,
+  "gitRevision": "main",
+  "maxTypeConversionDepth": 3,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "validation": {
+    "invalidLink": true,
+    "notExported": false
+  },
+  "sort": ["source-order"]
+}

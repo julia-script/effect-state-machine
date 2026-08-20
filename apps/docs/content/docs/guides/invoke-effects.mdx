@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Machine from "effect-state-machine/Machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 
 class LoadFailed extends Schema.TaggedError<LoadFailed>()("LoadFailed", {
   message: Schema.String,
@@ -46,7 +47,11 @@ const Event = Machine.taggedUnion({
 const profile = Machine.builder({ input: Input, state: State, event: Event })
 
 const definition = profile.define(
-  { id: "profile", initial: ({ id }) => ({ _tag: "Loading", id }) },
+  {
+    id: "profile",
+    idempotencyKey: ({ id }) => id,
+    initial: ({ id }) => ({ _tag: "Loading", id }),
+  },
   {
     Loading: profile.invoke({
       name: "Profiles.load",
@@ -71,7 +76,9 @@ const definition = profile.define(
 The `name` is stable metadata for inspection and graph tooling. The required `success` and `error`
 Schemas define the replayable outcome contract and determine the values available to
 `onSuccess.reduce` and `onFailure.reduce`. Use `Schema.Never` when typed failure is impossible.
-The `effect` callback receives the narrowed `Loading` state.
+The `effect` callback receives the narrowed `Loading` state and a required stable work execution
+context. A callback may omit the second parameter when it does not need to coordinate an external
+idempotency boundary.
 
 For several named operations, use `profile.invoke.all(...)` to join every lane or
 `profile.invoke.race(...)` to select the first successful lane. `all` accepts an optional
@@ -90,11 +97,11 @@ const ProfilesLive = Layer.succeed(
 )
 
 const program = Effect.scoped(
-  Machine.run(definition, { id: "42" }).pipe(
+  definition.run({ id: "42" }).pipe(
     Effect.flatMap((handle) => handle.completion),
     Effect.provide(ProfilesLive),
   ),
-)
+).pipe(Effect.provide(MachineEngine.layerMemory()))
 
 const result = await Effect.runPromise(program)
 // result: { _tag: "Loaded", name: "profile-42" }
@@ -110,5 +117,5 @@ active to see state-owned work interrupted before the cancellation transition co
 
 The goal is complete when the invocation reaches either declared final state. Leaving `Loading`
 through an event would interrupt the Effect owned by that state. Defects are not sent through
-`onFailure`; refer to the [runtime reference](/docs/reference/machine-runtime) for termination
+`onFailure`; refer to the generated [Machine API](/docs/reference/api/Machine) for termination
 semantics.

@@ -35,6 +35,7 @@ const checkout = Machine.builder({ input: Input, state: State, event: Event })
 export const definition = checkout.define(
   {
     id: "checkout",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     description: "A checkout flow with expected payment failure and retry.",
     initial: () => ({ _tag: "Browsing", items: 0 }),
   },

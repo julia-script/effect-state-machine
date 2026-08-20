@@ -2,7 +2,7 @@
 
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { Machine } from "effect-state-machine"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
 import { act, StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { Studio } from "../src/Studio.js"
@@ -64,7 +64,9 @@ describe("Studio", () => {
   it.live("observes parallel region state and one atomic macrostep", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* Machine.run(regionDefinition, undefined)
+        const handle = yield* regionDefinition
+          .run(undefined)
+          .pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)
@@ -120,7 +122,7 @@ describe("Studio", () => {
   it.live("observes quick and custom dispatches and shows protocol rejections", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)
@@ -145,7 +147,7 @@ describe("Studio", () => {
         assert.deepStrictEqual(yield* handle.snapshot, { _tag: "Running", speed: 7 })
 
         yield* react(() => selectEvent(shadow, "Start"))
-        const dispatch = yield* waitFor(() => findButton(shadow, "Dispatch to actor:0"))
+        const dispatch = yield* waitFor(() => findButton(shadow, `Dispatch to ${handle.actorId}`))
         yield* react(() => dispatch.click())
         yield* waitFor(() =>
           shadow.textContent?.includes("rejected:") === true ? true : undefined,
@@ -164,7 +166,7 @@ describe("Studio", () => {
   it.live("settings menu closes on a second press of its own trigger", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)
@@ -202,7 +204,7 @@ describe("Studio", () => {
   it.live("releases only its attachment when unmounted", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)
@@ -233,7 +235,7 @@ describe("Studio", () => {
   it.live("passes source locations to the host and renders callback failures", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* Machine.run(definition, {})
+        const handle = yield* definition.run({}).pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)
@@ -278,8 +280,12 @@ describe("Studio", () => {
   it.live("isolates simultaneous embeds and rebuilds for a replacement handle", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const firstHandle = yield* Machine.run(definition, {})
-        const secondHandle = yield* Machine.run(definition, {})
+        const firstHandle = yield* definition
+          .run({})
+          .pipe(Effect.provide(MachineEngine.layerMemory()))
+        const secondHandle = yield* definition
+          .run({})
+          .pipe(Effect.provide(MachineEngine.layerMemory()))
         const container = document.createElement("div")
         document.body.append(container)
         const root = createRoot(container)

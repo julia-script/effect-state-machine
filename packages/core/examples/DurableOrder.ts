@@ -1,8 +1,10 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Durable from "../src/Durable.js"
 import * as Machine from "../src/Machine.js"
+import * as MachineEngine from "../src/MachineEngine.js"
+import * as MachineStore from "../src/MachineStore.js"
 
 class SubmitFailed extends Schema.TaggedError<SubmitFailed>()("SubmitFailed", {
   message: Schema.String,
@@ -31,7 +33,11 @@ const Event = Schema.Union([Submit]).pipe(Schema.toTaggedUnion("_tag"))
 const order = Machine.builder({ input: Input, state: State, event: Event })
 
 export const definition = order.define(
-  { id: "durable-order", initial: (input) => ({ _tag: "Waiting", orderId: input.orderId }) },
+  {
+    id: "durable-order",
+    initial: (input) => ({ _tag: "Waiting", orderId: input.orderId }),
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
+  },
   {
     Waiting: order.state(
       {
@@ -52,10 +58,10 @@ export const definition = order.define(
       name: "TaskQueue.submit",
       success: Schema.String,
       error: SubmitFailed,
-      effect: (state, metadata) =>
+      effect: (state, execution) =>
         Effect.flatMap(TaskQueue, ({ submit }) =>
           submit({
-            key: metadata?.executionKey ?? "missing-execution-key",
+            key: execution.id,
             orderId: state.orderId,
           }),
         ),
@@ -69,28 +75,19 @@ export const definition = order.define(
 )
 
 export const startThenResume = Effect.gen(function* () {
-  const store = yield* Durable.makeMemoryStore()
-  const options: Durable.RunOptions = {
-    instanceId: Durable.instanceId("order:42"),
-    persistenceVersion: Durable.persistenceVersion("1"),
-  }
+  const store = yield* MachineStore.makeMemory()
+  const engine = MachineEngine.layer().pipe(
+    Layer.provide(Layer.succeed(MachineStore.MachineStore, store)),
+  )
 
   // Closing this Scope represents the first process stopping. The timer remains in the store.
-  yield* Effect.scoped(
-    Durable.run(definition, { orderId: "42" }, options).pipe(
-      Effect.provideService(Durable.Store, store),
-    ),
-  )
+  yield* Effect.scoped(definition.run({ orderId: "42" })).pipe(Effect.provide(engine))
 
   return yield* Effect.scoped(
     Effect.gen(function* () {
-      const resumed = yield* Durable.run(
-        definition,
-        { orderId: "ignored-on-resume" },
-        options,
-      ).pipe(Effect.provideService(Durable.Store, store))
+      const resumed = yield* definition.open({ orderId: "42" })
       yield* resumed.send({ _tag: "Submit" }, { idempotencyKey: "submit-order-42" })
       return yield* resumed.completion
     }),
-  )
+  ).pipe(Effect.provide(engine))
 })

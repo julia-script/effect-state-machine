@@ -1,4 +1,4 @@
 {
   "title": "Reference",
-  "pages": ["machine-definition", "machine-runtime", "devtools"]
+  "pages": ["index", "api"]
 }

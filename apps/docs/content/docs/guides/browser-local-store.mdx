@@ -1,0 +1,76 @@
+---
+title: Persist machines in browser localStorage
+description: Configure the browser-local MachineStore with Web Locks or an explicit single-context mode.
+---
+
+Use `LocalStorageMachineStore` for small same-origin machines that must survive a page reload. The
+adapter stores one canonical JSON aggregate per machine instance. Because `localStorage` offers no
+compare-and-set operation, safe cross-tab use also requires the Web Locks API.
+
+## Construct browser capabilities at the client boundary
+
+Core modules never read `window`, `localStorage`, or `navigator`. Pass those capabilities when the
+application constructs its Layer:
+
+```ts
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as LocalStorageMachineStore from "effect-state-machine/LocalStorageMachineStore"
+import * as MachineEngine from "effect-state-machine/MachineEngine"
+
+const MachineLive = MachineEngine.layer().pipe(
+  Layer.provide(
+    LocalStorageMachineStore.layer({
+      namespace: "my-app:machines",
+      storage: window.localStorage,
+      locks: LocalStorageMachineStore.webLocks(navigator.locks),
+    }),
+  ),
+)
+
+const program = Effect.scoped(definition.run(input)).pipe(
+  Effect.provide(MachineLive),
+)
+```
+
+Build this Layer only in browser code. Importing the adapter on a server is safe because the module
+itself has no browser-global access; evaluating `window.localStorage` or `navigator.locks` is the
+application's platform boundary.
+
+## Treat missing Web Locks as unsupported
+
+The coordinated `layer` fails with `UnsupportedPlatform` when no lock capability is supplied. Do
+not silently fall back to unlocked writes: two tabs could load the same revision and both believe
+their replacement committed.
+
+When the application can prove that exactly one JavaScript context accesses the namespace, opt in
+with the deliberately explicit API:
+
+```ts
+const SamePageOnly = LocalStorageMachineStore.layerSingleContext({
+  namespace: "my-embedded-widget",
+  storage: window.localStorage,
+})
+```
+
+This mode is not safe for multiple tabs, workers, frames, or independently mounted copies that can
+write the same instance.
+
+## Reopen known instances after reload
+
+The minimal store loads by derived instance ID; it does not globally discover dormant machines.
+Reopen a known logical instance with the same definition and input identity:
+
+```ts
+const handle = yield* Order.open({ orderId: "42" })
+```
+
+The initializer is not called again. Stored timer deadlines remain absolute: a timer resumes with
+its remaining duration, or becomes eligible immediately when its deadline passed while the page was
+closed.
+
+## Know when to choose another adapter
+
+`localStorage` is synchronous and quota-limited. Whole-document replacement amplifies writes as a
+machine grows. Prefer a future IndexedDB adapter or a server-backed SQL/Redis adapter for large
+aggregates, high event rates, many activity claims, or execution shared across devices.

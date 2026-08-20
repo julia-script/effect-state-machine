@@ -170,8 +170,8 @@ type FailureTransition<
       }>
     : never
 
-export interface WorkExecutionMetadata {
-  readonly executionKey: string
+export interface WorkExecution {
+  readonly id: string
   readonly instanceId: string
   readonly entryId: string
   readonly ownerPath: string
@@ -194,7 +194,7 @@ type WorkEffect<
   Requirements,
 > = (
   state: ByTag<State, Current>,
-  metadata?: WorkExecutionMetadata,
+  execution: WorkExecution,
 ) => Effect.Effect<Schema.Schema.Type<Success>, Failure, Requirements>
 
 type EffectOf<Value> = Value extends (...args: any[]) => infer Result ? Result : never
@@ -274,7 +274,7 @@ type ValidateLane<State extends Tagged, Current extends TagOf<State>, Lane> =
     error: infer Failure extends WorkSchema
     effect: (
       state: ByTag<State, Current>,
-      metadata?: WorkExecutionMetadata,
+      execution: WorkExecution,
     ) => Effect.Effect<infer Output, infer EffectFailure, unknown>
   }>
     ? [Output] extends [Schema.Schema.Type<Success>]

@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as Durable from "../src/Durable.js"
 import * as Machine from "../src/Machine.js"
+import * as Runtime from "./MachineRuntimeTestKit.js"
+import { runMachine } from "./runMachine.js"
 
 const Slot = Machine.taggedUnion({ Idle: { fields: {} }, Changed: { fields: {} } })
 const State = Machine.taggedUnion({
@@ -19,6 +20,7 @@ const keyed = Machine.builder({ input: Schema.Struct({}), state: State, event: E
 const definition = keyed.define(
   {
     id: "prototype-overlapping-regions",
+    idempotencyKey: (input) => JSON.stringify(input) ?? "default",
     initial: () => ({
       _tag: "Active",
       ["__proto__"]: { _tag: "Idle" },
@@ -58,7 +60,7 @@ const assertOwnSlots = (
 describe("prototype-overlapping runtime keys", () => {
   it.effect("commits every ordinary region slot independently in one macrostep", () =>
     Effect.gen(function* () {
-      const handle = yield* Machine.run(definition, {})
+      const handle = yield* runMachine(definition, {})
       assertOwnSlots(yield* handle.snapshot, "Idle")
       yield* handle.send({ _tag: "Step" })
       assertOwnSlots(yield* handle.snapshot, "Changed")
@@ -67,16 +69,16 @@ describe("prototype-overlapping runtime keys", () => {
 
   it.effect("persists and resumes exact durable region-entry keys", () =>
     Effect.gen(function* () {
-      const store = yield* Durable.makeMemoryStore()
-      const instance = Durable.instanceId("prototype-overlapping-regions")
+      const store = yield* Runtime.makeMemoryStore()
+      const instance = Runtime.instanceId("prototype-overlapping-regions")
       const options = {
         instanceId: instance,
-        persistenceVersion: Durable.persistenceVersion("1"),
+        persistenceVersion: Runtime.persistenceVersion("1"),
       }
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const handle = yield* Durable.run(definition, {}, options).pipe(
-            Effect.provideService(Durable.Store, store),
+          const handle = yield* Runtime.run(definition, {}, options).pipe(
+            Effect.provideService(Runtime.Store, store),
           )
           yield* handle.send({ _tag: "Step" }, { idempotencyKey: "step" })
           assertOwnSlots(yield* handle.snapshot, "Changed")
@@ -95,8 +97,8 @@ describe("prototype-overlapping runtime keys", () => {
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const resumed = yield* Durable.run(definition, {}, options).pipe(
-            Effect.provideService(Durable.Store, store),
+          const resumed = yield* Runtime.run(definition, {}, options).pipe(
+            Effect.provideService(Runtime.Store, store),
           )
           assertOwnSlots(yield* resumed.snapshot, "Changed")
         }),
